@@ -542,8 +542,13 @@ class DatabaseHelper {
     return join(await getDatabasesPath(), 'jewellery.db');
   }
 
+  Future<void> closeDatabase() async {
+    await _database?.close();
+    _database = null;
+  }
+
   /// Flushes WAL so a file copy of `jewellery.db` is complete, then
-  /// copies that file to [destinationPath].
+  /// copies that file to [destinationPath], replacing any older copy.
   Future<void> copyDatabaseTo(String destinationPath) async {
     final db = await database;
     await db.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
@@ -553,6 +558,9 @@ class DatabaseHelper {
     }
     final dest = File(destinationPath);
     await dest.parent.create(recursive: true);
+    if (await dest.exists()) {
+      await dest.delete();
+    }
     await source.copy(destinationPath);
   }
 

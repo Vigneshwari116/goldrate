@@ -2,7 +2,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
-import '../database/backup_store.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
 
@@ -28,8 +27,8 @@ class _BackupScreenState extends State<BackupScreen> {
       _lastMessage = null;
     });
     try {
-      final dest = p.join(folder, BackupNaming.folderNameFor(DateTime.now()));
-      await DatabaseHelper.instance.copyDatabaseTo(p.join(dest, 'jewellery.db'));
+      final dest = p.join(folder, 'jewellery.db');
+      await DatabaseHelper.instance.copyDatabaseTo(dest);
       if (!mounted) return;
       setState(() => _lastMessage = 'Backup saved to:\n$dest');
     } catch (e) {
