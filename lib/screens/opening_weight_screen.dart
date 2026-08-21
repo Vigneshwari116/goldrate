@@ -20,7 +20,7 @@ class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
   final _fineController = TextEditingController(text: '0.000');
   final _kachaController = TextEditingController(text: '0.000');
   final _silverController = TextEditingController(text: '0.000');
-  final _cashController = TextEditingController(text: '0.000');
+  final _cashController = TextEditingController(text: '0');
 
   static final RegExp _numberRegex = RegExp(r'^\d+(\.\d+)?$');
 
@@ -97,7 +97,7 @@ class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
         'fineWt': formatWeight(_fineController.text),
         'kachaWt': formatWeight(_kachaController.text),
         'silverWt': formatWeight(_silverController.text),
-        'cash': formatWeight(_cashController.text),
+        'cash': orZero(_cashController.text),
         'date': date,
         'time': time,
       });
@@ -134,7 +134,7 @@ class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
     );
   }
 
-  Widget _lockedRow(String label, dynamic value) {
+  Widget _lockedRow(String label, dynamic value, {bool isWeight = true}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
@@ -150,7 +150,7 @@ class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
             ),
           ),
           Text(
-            formatWeight(value),
+            isWeight ? formatWeight(value) : orZero(value?.toString()),
             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
           ),
         ],
@@ -204,7 +204,7 @@ class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
                       _lockedRow("Fine Wt", _saved!['fineWt']),
                       _lockedRow("Kacha Wt", _saved!['kachaWt']),
                       _lockedRow("Silver Wt", _saved!['silverWt']),
-                      _lockedRow("Cash", _saved!['cash']),
+                      _lockedRow("Cash", _saved!['cash'], isWeight: false),
                       const Divider(height: 20, color: AppColors.border),
                       Text(
                         "Saved on ${_saved!['date'] ?? ''} ${_saved!['time'] ?? ''}",

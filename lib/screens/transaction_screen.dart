@@ -74,8 +74,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
   static final RegExp _numberRegex = RegExp(r'^\d+(\.\d+)?$');
 
   final _partyController = TextEditingController();
-  final _weightController = TextEditingController(text: '0.000');
-  final _touchController = TextEditingController(text: '0.000');
+  final _weightController = TextEditingController();
+  final _touchController = TextEditingController();
   final _paymentAmountController = TextEditingController();
 
   String _selectedItemType = _itemTypes.first;
@@ -252,8 +252,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
         touch: touch,
         rate: rate,
       ));
-      _weightController.text = '0.000';
-      _touchController.text = '0.000';
+      _weightController.clear();
+      _touchController.clear();
     });
   }
 
@@ -267,8 +267,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
 
   void _clearForm() {
     _partyController.clear();
-    _weightController.text = '0.000';
-    _touchController.text = '0.000';
+    _weightController.clear();
+    _touchController.clear();
     _paymentAmountController.clear();
     setState(() {
       _items.clear();
@@ -842,10 +842,12 @@ class _TransactionScreenState extends State<TransactionScreen> {
               ),
             ),
           ],
-          const Divider(height: 24, color: AppColors.border),
-          _totalRow("TOTAL WT", _totalWt, decimals: 3),
-          _totalRow("TOTAL PURE WT", _totalPureWt, decimals: 3),
-          _totalRow("TOTAL VALUE (₹)", _totalValue),
+          if (_items.isNotEmpty) ...[
+            const Divider(height: 24, color: AppColors.border),
+            _totalRow("TOTAL WT", _totalWt, decimals: 3),
+            _totalRow("TOTAL PURE WT", _totalPureWt, decimals: 3),
+            _totalRow("TOTAL VALUE (₹)", _totalValue),
+          ],
           const SizedBox(height: 14),
           const Text(
             "MODE OF PAYMENT",
