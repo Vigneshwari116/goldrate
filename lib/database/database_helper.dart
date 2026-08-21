@@ -1,9 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
 class DatabaseHelper {
@@ -540,21 +538,9 @@ class DatabaseHelper {
   }
 
   /// Absolute path of the live `jewellery.db` file.
-  /// On Windows this is `%APPDATA%\com.example\grate_app\jewellery.db`.
+  /// On an installed Windows app this is
+  /// `%APPDATA%\com.example\grate_app\jewellery.db`.
   Future<String> getDatabaseFilePath() async {
-    if (!kIsWeb && Platform.isWindows) {
-      final dir = await getApplicationSupportDirectory();
-      await Directory(dir.path).create(recursive: true);
-      final dest = join(dir.path, 'jewellery.db');
-      final destFile = File(dest);
-      if (!await destFile.exists()) {
-        final old = File(join(await getDatabasesPath(), 'jewellery.db'));
-        if (await old.exists()) {
-          await old.copy(dest);
-        }
-      }
-      return dest;
-    }
     return join(await getDatabasesPath(), 'jewellery.db');
   }
 
