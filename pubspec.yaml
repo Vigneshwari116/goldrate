@@ -43,7 +43,6 @@ dependencies:
   pdf: ^3.10.0
   sqflite_common_ffi: ^2.3.3
   file_picker: ^8.3.7
-  shared_preferences: ^2.5.3
 
 
 dev_dependencies:

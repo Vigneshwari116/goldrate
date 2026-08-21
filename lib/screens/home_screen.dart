@@ -191,7 +191,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         _SecondaryTile(
           icon: Icons.backup,
-          label: "Backup Database",
+          label: "Backup",
           onTap: () => _open(const BackupScreen()),
         ),
       ],
