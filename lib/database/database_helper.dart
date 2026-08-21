@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
@@ -534,6 +535,46 @@ class DatabaseHelper {
       whereArgs: [date],
       orderBy: 'id DESC',
     );
+  }
+
+  /// Absolute path of the live `jewellery.db` file.
+  Future<String> getDatabaseFilePath() async {
+    return join(await getDatabasesPath(), 'jewellery.db');
+  }
+
+  /// Flushes WAL so a file copy of `jewellery.db` is complete, then
+  /// copies that file to [destinationPath].
+  Future<void> copyDatabaseTo(String destinationPath) async {
+    final db = await database;
+    await db.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+    final source = File(await getDatabaseFilePath());
+    if (!await source.exists()) {
+      throw StateError('Database file was not found.');
+    }
+    final dest = File(destinationPath);
+    await dest.parent.create(recursive: true);
+    await source.copy(destinationPath);
+  }
+
+  /// Replaces the live database with [backupPath], then re-opens it.
+  /// Any WAL/SHM sidecar files are removed so SQLite starts clean.
+  Future<void> restoreDatabaseFrom(String backupPath) async {
+    final backup = File(backupPath);
+    if (!await backup.exists()) {
+      throw StateError('Backup file was not found.');
+    }
+
+    await _database?.close();
+    _database = null;
+
+    final livePath = await getDatabaseFilePath();
+    final wal = File('$livePath-wal');
+    final shm = File('$livePath-shm');
+    if (await wal.exists()) await wal.delete();
+    if (await shm.exists()) await shm.delete();
+    await backup.copy(livePath);
+
+    await database;
   }
 
   // ---------- Live current stock ----------

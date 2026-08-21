@@ -9,6 +9,7 @@ import 'supplier_master_screen.dart';
 import 'opening_weight_screen.dart';
 import 'history_screen.dart';
 import 'transaction_screen.dart';
+import 'backup_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -187,6 +188,11 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: Icons.history,
           label: "Rate Update Records",
           onTap: () => _open(const HistoryScreen()),
+        ),
+        _SecondaryTile(
+          icon: Icons.backup,
+          label: "Backup Database",
+          onTap: () => _open(const BackupScreen()),
         ),
       ],
     );
