@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
+import '../utils/number_format.dart';
 
 class OpeningWeightScreen extends StatefulWidget {
   const OpeningWeightScreen({super.key});
@@ -15,11 +16,11 @@ class OpeningWeightScreen extends StatefulWidget {
 class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  final _gPureController = TextEditingController();
-  final _fineController = TextEditingController();
-  final _kachaController = TextEditingController();
-  final _silverController = TextEditingController();
-  final _cashController = TextEditingController();
+  final _gPureController = TextEditingController(text: '0.000');
+  final _fineController = TextEditingController(text: '0.000');
+  final _kachaController = TextEditingController(text: '0.000');
+  final _silverController = TextEditingController(text: '0.000');
+  final _cashController = TextEditingController(text: '0.000');
 
   static final RegExp _numberRegex = RegExp(r'^\d+(\.\d+)?$');
 
@@ -92,11 +93,11 @@ class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
 
     try {
       await DatabaseHelper.instance.insertOpeningWeight({
-        'gPureWt': _gPureController.text.trim(),
-        'fineWt': _fineController.text.trim(),
-        'kachaWt': _kachaController.text.trim(),
-        'silverWt': _silverController.text.trim(),
-        'cash': _cashController.text.trim(),
+        'gPureWt': formatWeight(_gPureController.text),
+        'fineWt': formatWeight(_fineController.text),
+        'kachaWt': formatWeight(_kachaController.text),
+        'silverWt': formatWeight(_silverController.text),
+        'cash': formatWeight(_cashController.text),
         'date': date,
         'time': time,
       });
@@ -149,7 +150,7 @@ class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
             ),
           ),
           Text(
-            (value ?? '-').toString(),
+            formatWeight(value),
             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
           ),
         ],

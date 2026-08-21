@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
+import '../utils/number_format.dart';
 import 'supplier_master_screen.dart';
 
 /// Every raw row in `customers` is one visit/entry — this groups all of
@@ -92,10 +93,10 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen> {
   final _nameController = TextEditingController();
   final _mobileController = TextEditingController();
   final _cityController = TextEditingController();
-  final _crController = TextEditingController();
-  final _drController = TextEditingController();
-  final _grossController = TextEditingController();
-  final _netController = TextEditingController();
+  final _crController = TextEditingController(text: '0');
+  final _drController = TextEditingController(text: '0');
+  final _grossController = TextEditingController(text: '0');
+  final _netController = TextEditingController(text: '0');
   final _narrationController = TextEditingController();
   final _searchController = TextEditingController();
 
@@ -160,10 +161,10 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen> {
     _nameController.clear();
     _mobileController.clear();
     _cityController.clear();
-    _crController.clear();
-    _drController.clear();
-    _grossController.clear();
-    _netController.clear();
+    _crController.text = '0';
+    _drController.text = '0';
+    _grossController.text = '0';
+    _netController.text = '0';
     _narrationController.clear();
     _formKey.currentState?.reset();
   }
@@ -182,10 +183,10 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen> {
       'name': _nameController.text.trim(),
       'mobile': _mobileController.text.trim(),
       'city': _cityController.text.trim(),
-      'cr': _crController.text.trim(),
-      'dr': _drController.text.trim(),
-      'drGross': _grossController.text.trim(),
-      'drNet': _netController.text.trim(),
+      'cr': orZero(_crController.text),
+      'dr': orZero(_drController.text),
+      'drGross': orZero(_grossController.text),
+      'drNet': orZero(_netController.text),
       'narration': _narrationController.text.trim(),
       'balanceUnit': 'RUPEES',
       'billRef': '',
@@ -233,13 +234,8 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen> {
   }
 
   String _entryLine(Map<String, dynamic> e) {
-    final cr = double.tryParse((e['cr'] ?? '').toString()) ?? 0;
-    final dr = double.tryParse((e['dr'] ?? '').toString()) ?? 0;
-    final unit = (e['balanceUnit'] ?? 'RUPEES').toString();
-    final unitLabel = unit == 'GRAMS' ? 'g' : '₹';
-    if (dr > 0) return "DR $unitLabel${dr.toStringAsFixed(2)}";
-    if (cr > 0) return "CR $unitLabel${cr.toStringAsFixed(2)}";
-    return "No balance";
+    return "CR ${formatAmount(e['cr'])}  DR ${formatAmount(e['dr'])}  "
+        "GROSS ${formatWeight(e['drGross'])}  NET ${formatWeight(e['drNet'])}";
   }
 
   // Drill-down view — every raw visit/entry behind one person's name,
@@ -413,10 +409,10 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen> {
         c['name'],
         c['mobile'],
         c['city'],
-        c['cr'],
-        c['dr'],
-        c['drGross'],
-        c['drNet'],
+        formatAmount(c['cr']),
+        formatAmount(c['dr']),
+        formatWeight(c['drGross']),
+        formatWeight(c['drNet']),
         c['balanceUnit'],
         c['billRef'],
         c['date'],

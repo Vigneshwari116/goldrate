@@ -12,6 +12,7 @@ import 'package:share_plus/share_plus.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
+import '../utils/number_format.dart';
 
 enum TransactionKind { purchase, sales }
 
@@ -73,8 +74,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
   static final RegExp _numberRegex = RegExp(r'^\d+(\.\d+)?$');
 
   final _partyController = TextEditingController();
-  final _weightController = TextEditingController();
-  final _touchController = TextEditingController();
+  final _weightController = TextEditingController(text: '0.000');
+  final _touchController = TextEditingController(text: '0.000');
   final _paymentAmountController = TextEditingController();
 
   String _selectedItemType = _itemTypes.first;
@@ -251,8 +252,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
         touch: touch,
         rate: rate,
       ));
-      _weightController.clear();
-      _touchController.clear();
+      _weightController.text = '0.000';
+      _touchController.text = '0.000';
     });
   }
 
@@ -266,8 +267,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
 
   void _clearForm() {
     _partyController.clear();
-    _weightController.clear();
-    _touchController.clear();
+    _weightController.text = '0.000';
+    _touchController.text = '0.000';
     _paymentAmountController.clear();
     setState(() {
       _items.clear();
@@ -298,8 +299,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
       'billNo': _nextBillNo,
       'partyName': _partyController.text.trim(),
       'items': jsonEncode(_items.map((i) => i.toJson()).toList()),
-      'totalWt': _totalWt.toStringAsFixed(2),
-      'totalPureWt': _totalPureWt.toStringAsFixed(3),
+      'totalWt': formatWeight(_totalWt),
+      'totalPureWt': formatWeight(_totalPureWt),
       'totalValue': _totalValue.toStringAsFixed(2),
       'paymentMode': _selectedPaymentMode,
       'paymentAmount': _paymentAmount.toStringAsFixed(2),
@@ -337,7 +338,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
     final balance = _balance;
     final narration =
         "Bill #$_nextBillNo (${_isPurchase ? 'Purchase' : 'Sale'}) — "
-        "Wt ${_totalWt.toStringAsFixed(2)}, Pure ${_totalPureWt.toStringAsFixed(3)}, "
+        "Wt ${formatWeight(_totalWt)}, Pure ${formatWeight(_totalPureWt)}, "
         "Value ₹${_totalValue.toStringAsFixed(2)}, "
         "$_selectedPaymentMode ${_paymentAmount.toStringAsFixed(2)}";
 
@@ -345,8 +346,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
       'name': _partyController.text.trim(),
       'mobile': '',
       'city': '',
-      'cr': balance < 0 ? balance.abs().toStringAsFixed(2) : '0',
-      'dr': balance > 0 ? balance.toStringAsFixed(2) : '0',
+      'cr': balance < 0 ? formatAmount(balance.abs()) : '0.00',
+      'dr': balance > 0 ? formatAmount(balance) : '0.00',
       'narration': narration,
       'balanceUnit': _balanceUnit,
       'billRef': 'Bill #$_nextBillNo',
@@ -357,14 +358,14 @@ class _TransactionScreenState extends State<TransactionScreen> {
     if (_isPurchase) {
       await DatabaseHelper.instance.insertSupplier({
         ...baseEntry,
-        'gross': _totalWt.toStringAsFixed(2),
-        'net': _totalValue.toStringAsFixed(2),
+        'gross': formatWeight(_totalWt),
+        'net': formatAmount(_totalValue),
       });
     } else {
       await DatabaseHelper.instance.insertCustomer({
         ...baseEntry,
-        'drGross': _totalWt.toStringAsFixed(2),
-        'drNet': _totalValue.toStringAsFixed(2),
+        'drGross': formatWeight(_totalWt),
+        'drNet': formatAmount(_totalValue),
       });
     }
   }
@@ -415,8 +416,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 3),
                   child: Text(
-                    "${item.type} — Wt ${item.weight}  Touch ${item.touch}%  "
-                        "Pure ${item.pureWt.toStringAsFixed(3)}  "
+                    "${item.type} — Wt ${formatWeight(item.weight)}  Touch ${formatWeight(item.touch)}%  "
+                        "Pure ${formatWeight(item.pureWt)}  "
                         "@ ₹${item.rate.toStringAsFixed(0)}  "
                         "= ₹${item.value.toStringAsFixed(2)}",
                     style: const TextStyle(fontSize: 13),
@@ -501,8 +502,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
               data: items
                   .map((item) => [
                 item.type,
-                item.weight.toStringAsFixed(2),
-                item.touch.toStringAsFixed(2),
+                item.weight.toStringAsFixed(3),
+                item.touch.toStringAsFixed(3),
                 item.pureWt.toStringAsFixed(3),
                 item.rate.toStringAsFixed(0),
                 item.value.toStringAsFixed(2),
@@ -580,25 +581,46 @@ class _TransactionScreenState extends State<TransactionScreen> {
 
     final buffer = StringBuffer();
     buffer.writeln(
-      "Bill No,Party,Total Wt,Total Pure Wt,Total Value,Payment Mode,"
+      "Bill No,Party,Type,Weight,Touch,Pure Wt,Rate,Value,"
+          "Total Wt,Total Pure Wt,Total Value,Payment Mode,"
           "Payment Amount,Balance,Balance Unit,Date,Time",
     );
 
     for (final row in _history) {
-      final line = [
-        row['billNo'],
-        row['partyName'],
-        row['totalWt'],
-        row['totalPureWt'],
-        row['totalValue'],
-        row['paymentMode'],
-        row['paymentAmount'],
-        row['balance'],
-        row['balanceUnit'],
-        row['date'],
-        row['time'],
-      ].map((v) => _historyCsvEscape(v?.toString() ?? '')).join(',');
-      buffer.writeln(line);
+      List<dynamic> items;
+      try {
+        items = jsonDecode((row['items'] ?? '[]').toString()) as List<dynamic>;
+      } catch (_) {
+        items = [];
+      }
+      if (items.isEmpty) {
+        items = [
+          {'type': '', 'weight': 0, 'touch': 0, 'pureWt': 0, 'rate': 0, 'value': 0}
+        ];
+      }
+      for (final raw in items) {
+        final item = raw is Map ? raw : <String, dynamic>{};
+        final line = [
+          row['billNo'],
+          row['partyName'],
+          item['type'],
+          formatWeight(item['weight']),
+          formatWeight(item['touch']),
+          formatWeight(item['pureWt']),
+          item['rate'],
+          formatAmount(item['value']),
+          formatWeight(row['totalWt']),
+          formatWeight(row['totalPureWt']),
+          row['totalValue'],
+          row['paymentMode'],
+          row['paymentAmount'],
+          row['balance'],
+          row['balanceUnit'],
+          row['date'],
+          row['time'],
+        ].map((v) => _historyCsvEscape(v?.toString() ?? '')).join(',');
+        buffer.writeln(line);
+      }
     }
 
     final dir = await getTemporaryDirectory();
@@ -751,7 +773,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
                   const TextInputType.numberWithOptions(decimal: true),
                   style: const TextStyle(fontSize: 14),
                   decoration:
-                  const InputDecoration(label: Text("Weight")),
+                  const InputDecoration(label: Text("Weight"), hintText: "0.000"),
                 ),
               ),
               const SizedBox(width: 8),
@@ -763,7 +785,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
                   const TextInputType.numberWithOptions(decimal: true),
                   style: const TextStyle(fontSize: 14),
                   decoration:
-                  const InputDecoration(label: Text("Touch %")),
+                  const InputDecoration(label: Text("Touch %"), hintText: "0.000"),
                 ),
               ),
               const SizedBox(width: 8),
@@ -775,43 +797,63 @@ class _TransactionScreenState extends State<TransactionScreen> {
               ),
             ],
           ),
-          if (_items.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            ...List.generate(_items.length, (index) {
-              final item = _items[index];
-              return Container(
-                margin: const EdgeInsets.only(bottom: 6),
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 8),
-                decoration: BoxDecoration(
-                  color: AppColors.headerBand,
-                  borderRadius: BorderRadius.circular(6),
+          const SizedBox(height: 10),
+          SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                headingRowColor:
+                    WidgetStateProperty.all(AppColors.tableHeader),
+                headingTextStyle: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.navy,
                 ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        "${item.type}  •  Wt ${item.weight}  •  "
-                            "Touch ${item.touch}%  •  Pure "
-                            "${item.pureWt.toStringAsFixed(3)}  •  "
-                            "₹${item.value.toStringAsFixed(2)}",
-                        style: const TextStyle(fontSize: 12.5),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close,
-                          size: 16, color: Colors.redAccent),
-                      onPressed: () => _removeItem(index),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                    ),
-                  ],
-                ),
-              );
-            }),
-          ],
+                dataTextStyle: const TextStyle(fontSize: 12.5),
+                columns: const [
+                  DataColumn(label: Text('TYPE')),
+                  DataColumn(label: Text('WT'), numeric: true),
+                  DataColumn(label: Text('TOUCH'), numeric: true),
+                  DataColumn(label: Text('PURE WT'), numeric: true),
+                  DataColumn(label: Text('RATE'), numeric: true),
+                  DataColumn(label: Text('VALUE'), numeric: true),
+                  DataColumn(label: Text('')),
+                ],
+                rows: _items.isEmpty
+                    ? [
+                        DataRow(cells: [
+                          const DataCell(Text('-')),
+                          DataCell(Text(formatWeight(0))),
+                          DataCell(Text(formatWeight(0))),
+                          DataCell(Text(formatWeight(0))),
+                          const DataCell(Text('0')),
+                          DataCell(Text(formatAmount(0))),
+                          const DataCell(SizedBox.shrink()),
+                        ]),
+                      ]
+                    : List.generate(_items.length, (index) {
+                        final item = _items[index];
+                        return DataRow(cells: [
+                          DataCell(Text(item.type)),
+                          DataCell(Text(formatWeight(item.weight))),
+                          DataCell(Text(formatWeight(item.touch))),
+                          DataCell(Text(formatWeight(item.pureWt))),
+                          DataCell(Text(item.rate.toStringAsFixed(0))),
+                          DataCell(Text(formatAmount(item.value))),
+                          DataCell(
+                            IconButton(
+                              icon: const Icon(Icons.close,
+                                  size: 16, color: Colors.redAccent),
+                              onPressed: () => _removeItem(index),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                            ),
+                          ),
+                        ]);
+                      }),
+              ),
+            ),
           const Divider(height: 24, color: AppColors.border),
-          _totalRow("TOTAL WT", _totalWt),
+          _totalRow("TOTAL WT", _totalWt, decimals: 3),
           _totalRow("TOTAL PURE WT", _totalPureWt, decimals: 3),
           _totalRow("TOTAL VALUE (₹)", _totalValue),
           const SizedBox(height: 14),
