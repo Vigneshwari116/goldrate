@@ -797,8 +797,9 @@ class _TransactionScreenState extends State<TransactionScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          SingleChildScrollView(
+          if (_items.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(
                 headingRowColor:
@@ -818,40 +819,29 @@ class _TransactionScreenState extends State<TransactionScreen> {
                   DataColumn(label: Text('VALUE'), numeric: true),
                   DataColumn(label: Text('')),
                 ],
-                rows: _items.isEmpty
-                    ? [
-                        DataRow(cells: [
-                          const DataCell(Text('-')),
-                          DataCell(Text(formatWeight(0))),
-                          DataCell(Text(formatWeight(0))),
-                          DataCell(Text(formatWeight(0))),
-                          const DataCell(Text('0')),
-                          DataCell(Text(formatAmount(0))),
-                          const DataCell(SizedBox.shrink()),
-                        ]),
-                      ]
-                    : List.generate(_items.length, (index) {
-                        final item = _items[index];
-                        return DataRow(cells: [
-                          DataCell(Text(item.type)),
-                          DataCell(Text(formatWeight(item.weight))),
-                          DataCell(Text(formatWeight(item.touch))),
-                          DataCell(Text(formatWeight(item.pureWt))),
-                          DataCell(Text(item.rate.toStringAsFixed(0))),
-                          DataCell(Text(formatAmount(item.value))),
-                          DataCell(
-                            IconButton(
-                              icon: const Icon(Icons.close,
-                                  size: 16, color: Colors.redAccent),
-                              onPressed: () => _removeItem(index),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                            ),
-                          ),
-                        ]);
-                      }),
+                rows: List.generate(_items.length, (index) {
+                  final item = _items[index];
+                  return DataRow(cells: [
+                    DataCell(Text(item.type)),
+                    DataCell(Text(formatWeight(item.weight))),
+                    DataCell(Text(formatWeight(item.touch))),
+                    DataCell(Text(formatWeight(item.pureWt))),
+                    DataCell(Text(item.rate.toStringAsFixed(0))),
+                    DataCell(Text(formatAmount(item.value))),
+                    DataCell(
+                      IconButton(
+                        icon: const Icon(Icons.close,
+                            size: 16, color: Colors.redAccent),
+                        onPressed: () => _removeItem(index),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                    ),
+                  ]);
+                }),
               ),
             ),
+          ],
           const Divider(height: 24, color: AppColors.border),
           _totalRow("TOTAL WT", _totalWt, decimals: 3),
           _totalRow("TOTAL PURE WT", _totalPureWt, decimals: 3),
