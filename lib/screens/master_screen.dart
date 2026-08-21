@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
+import '../utils/number_format.dart';
 import 'history_screen.dart';
 import 'customer_master_screen.dart';
 import 'supplier_master_screen.dart';
@@ -52,8 +53,9 @@ class _MasterScreenState extends State<MasterScreen> {
     _controllers.clear();
 
     for (final item in data) {
-      _controllers[item['id']] =
-          TextEditingController(text: (item['rateValue'] ?? '').toString());
+      _controllers[item['id']] = TextEditingController(
+        text: orZero(item['rateValue']?.toString()),
+      );
     }
 
     if (!mounted) return;
@@ -80,9 +82,9 @@ class _MasterScreenState extends State<MasterScreen> {
       final id = item['id'] as int;
       final rateName = item['rateName'] as String;
       final controller = _controllers[id]!;
-      final parsed = double.tryParse(controller.text.trim());
+      final parsed = double.tryParse(orZero(controller.text));
 
-      if (parsed == null) continue; // skip blank/invalid fields
+      if (parsed == null) continue;
 
       await DatabaseHelper.instance.updateRate(
         id,
@@ -238,6 +240,7 @@ class _MasterScreenState extends State<MasterScreen> {
                                 decimal: true),
                             decoration: const InputDecoration(
                               isDense: true,
+                              hintText: '0',
                               contentPadding: EdgeInsets.symmetric(
                                   horizontal: 10, vertical: 10),
                             ),
