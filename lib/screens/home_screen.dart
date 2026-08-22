@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
+import '../utils/number_format.dart';
+import '../utils/stock_ledger.dart';
 import 'master_screen.dart';
 import 'opening_weight_screen.dart';
 import '../widgets/app_shell.dart';
@@ -17,6 +19,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String _lastDate = '';
   bool _openingWeightSet = true;
   bool _loading = true;
+  List<StockSummaryRow> _stock = [];
 
   bool get _ratesSetToday {
     final today = DateFormat("dd-MM-yyyy").format(DateTime.now());
@@ -32,10 +35,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _load() async {
     final stats = await DatabaseHelper.instance.getUpdateStats();
     final opening = await DatabaseHelper.instance.getOpeningWeight();
+    final stock = await DatabaseHelper.instance.getStockSummary();
     if (!mounted) return;
     setState(() {
       _lastDate = stats['lastDate'] as String;
       _openingWeightSet = opening != null;
+      _stock = stock;
       _loading = false;
     });
   }
@@ -135,6 +140,70 @@ class _HomeScreenState extends State<HomeScreen> {
                 onTap: () => _goShell(1),
               ),
             ),
+          ],
+        ),
+        const SizedBox(height: 18),
+        InkWell(
+          onTap: () => _goShell(3),
+          child: const Text(
+            'CURRENT STOCK',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.4,
+              color: AppColors.mutedBlue,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final row in _stock)
+              SizedBox(
+                width: 160,
+                child: Material(
+                  color: AppColors.cardWhite,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    side: const BorderSide(color: AppColors.border),
+                  ),
+                  child: InkWell(
+                    onTap: () => _goShell(3),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            row.label,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppColors.mutedBlue,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            formatWeight(row.current),
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.navy,
+                            ),
+                          ),
+                          Text(
+                            'Open ${formatWeight(row.opening)}',
+                            style: const TextStyle(
+                                fontSize: 11, color: Colors.black54),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ],

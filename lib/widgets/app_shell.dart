@@ -99,7 +99,7 @@ class _AppShellState extends State<AppShell> {
           page: const TransactionScreen(kind: TransactionKind.purchase)),
       NavItem(
           icon: Icons.scale_outlined,
-          label: 'Opening Weight',
+          label: 'Stock',
           page: const OpeningWeightScreen()),
       NavItem(
           icon: Icons.currency_exchange,

@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../utils/stock_ledger.dart';
+
 class DatabaseHelper {
   DatabaseHelper._();
 
@@ -683,5 +685,38 @@ class DatabaseHelper {
     }
 
     return stock;
+  }
+
+  List<dynamic> _itemsOf(Map<String, dynamic> row) {
+    try {
+      return jsonDecode((row['items'] ?? '[]').toString()) as List<dynamic>;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<List<StockSummaryRow>> getStockSummary() async {
+    final opening = await getOpeningWeight();
+    final db = await database;
+    final txs = await db.query('transactions', orderBy: 'id ASC');
+    return buildStockSummary(
+      openingByType: openingStockFromRow(opening),
+      transactions: txs,
+      itemsOf: _itemsOf,
+    );
+  }
+
+  Future<List<StockLedgerRow>> getStockLedger(String metalType) async {
+    final opening = await getOpeningWeight();
+    final db = await database;
+    final txs = await db.query('transactions', orderBy: 'id ASC');
+    return buildStockLedger(
+      metalType: metalType,
+      openingByType: openingStockFromRow(opening),
+      openingDate: (opening?['date'] ?? '').toString(),
+      openingTime: (opening?['time'] ?? '').toString(),
+      transactionsOldestFirst: txs,
+      itemsOf: _itemsOf,
+    );
   }
 }

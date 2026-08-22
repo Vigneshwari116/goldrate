@@ -147,7 +147,7 @@ class _MasterScreenState extends State<MasterScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.scale, size: 20),
-            tooltip: 'Opening Weight',
+            tooltip: 'Stock',
             onPressed: () {
               Navigator.push(
                 context,
