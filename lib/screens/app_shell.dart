@@ -41,6 +41,7 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   late AppPage _page;
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void initState() {
@@ -78,7 +79,8 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _go(AppPage page) {
-    if (Navigator.of(context).canPop()) {
+    final scaffold = _scaffoldKey.currentState;
+    if (scaffold?.isDrawerOpen ?? false) {
       Navigator.pop(context);
     }
     setState(() => _page = page);
@@ -147,12 +149,38 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
+  static const _railPages = <AppPage>[
+    AppPage.home,
+    AppPage.sales,
+    AppPage.purchase,
+    AppPage.receipt,
+    AppPage.stock,
+    AppPage.rates,
+    AppPage.customers,
+    AppPage.suppliers,
+    AppPage.reports,
+    AppPage.rateRecords,
+    AppPage.openingWeight,
+    AppPage.backup,
+  ];
+
+  int get _railIndex {
+    final i = _railPages.indexOf(_page);
+    return i < 0 ? 0 : i;
+  }
+
   @override
   Widget build(BuildContext context) {
     final today = DateFormat('EEE, dd MMM yyyy').format(DateTime.now());
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: AppColors.background,
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.menu),
+          tooltip: 'Open menu',
+          onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+        ),
         title: Column(
           children: [
             Text(_title),
@@ -252,9 +280,61 @@ class _AppShellState extends State<AppShell> {
           ),
         ),
       ),
-      body: KeyedSubtree(
-        key: ValueKey(_page),
-        child: _body(),
+      body: Row(
+        children: [
+          ColoredBox(
+            color: AppColors.drawerNavy,
+            child: NavigationRail(
+              backgroundColor: AppColors.drawerNavy,
+              selectedIndex: _railIndex,
+              onDestinationSelected: (i) => _go(_railPages[i]),
+              minWidth: 56,
+              groupAlignment: -1,
+              labelType: NavigationRailLabelType.none,
+              selectedIconTheme:
+                  const IconThemeData(color: Colors.white, size: 22),
+              unselectedIconTheme:
+                  const IconThemeData(color: Colors.white70, size: 20),
+              indicatorColor: AppColors.drawerActive,
+              destinations: const [
+                NavigationRailDestination(
+                    icon: Icon(Icons.home), label: Text('Home')),
+                NavigationRailDestination(
+                    icon: Icon(Icons.indeterminate_check_box),
+                    label: Text('Sales')),
+                NavigationRailDestination(
+                    icon: Icon(Icons.add_box), label: Text('Purchase')),
+                NavigationRailDestination(
+                    icon: Icon(Icons.receipt_long),
+                    label: Text('Receipt')),
+                NavigationRailDestination(
+                    icon: Icon(Icons.inventory_2), label: Text('Stock')),
+                NavigationRailDestination(
+                    icon: Icon(Icons.currency_exchange),
+                    label: Text('Rates')),
+                NavigationRailDestination(
+                    icon: Icon(Icons.people), label: Text('Customers')),
+                NavigationRailDestination(
+                    icon: Icon(Icons.local_shipping),
+                    label: Text('Suppliers')),
+                NavigationRailDestination(
+                    icon: Icon(Icons.bar_chart), label: Text('Reports')),
+                NavigationRailDestination(
+                    icon: Icon(Icons.history), label: Text('Rates log')),
+                NavigationRailDestination(
+                    icon: Icon(Icons.scale), label: Text('Opening')),
+                NavigationRailDestination(
+                    icon: Icon(Icons.backup), label: Text('Backup')),
+              ],
+            ),
+          ),
+          Expanded(
+            child: KeyedSubtree(
+              key: ValueKey(_page),
+              child: _body(),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
+import '../widgets/material_tile_card.dart';
 
 /// Every raw row in `customers` is one visit/entry — this groups all of
 /// a person's entries together and nets their cr/dr into one running
@@ -653,12 +654,7 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen> {
         ),
       );
     } else {
-      listBody = Container(
-        decoration: BoxDecoration(
-          color: AppColors.cardWhite,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppColors.border),
-        ),
+      listBody = MaterialTileCard(
         child: Column(
           children: List.generate(_summaries.length, (index) {
             final summary = _summaries[index];

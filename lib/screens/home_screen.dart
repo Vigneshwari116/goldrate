@@ -144,33 +144,34 @@ class _HomeScreenState extends State<HomeScreen> {
     return Container(
       decoration: BoxDecoration(
         color: AppColors.cardWhite,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(6),
         border: Border.all(color: AppColors.border),
       ),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Text(
             label,
             style: const TextStyle(
-              fontSize: 11.5,
-              letterSpacing: 0.4,
+              fontSize: 10,
+              letterSpacing: 0.3,
               fontWeight: FontWeight.w600,
               color: AppColors.mutedBlue,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Text(
             value,
             style: const TextStyle(
-              fontSize: 20,
+              fontSize: 15,
               fontWeight: FontWeight.bold,
               color: AppColors.navy,
             ),
           ),
-          const SizedBox(height: 4),
-          Text(detail, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+          const SizedBox(height: 2),
+          Text(detail, style: const TextStyle(fontSize: 11, color: Colors.black54)),
         ],
       ),
     );
@@ -183,16 +184,16 @@ class _HomeScreenState extends State<HomeScreen> {
         ? const Center(child: CircularProgressIndicator())
         : LayoutBuilder(
             builder: (context, constraints) {
-              final wide = constraints.maxWidth >= 900;
-              final cross = wide ? 3 : 1;
+              final wide = constraints.maxWidth >= 720;
+              final cross = wide ? 3 : 2;
               return ListView(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
                 children: [
                   const Text(
-                    'Use the menu at the top left to open Sales, Purchase, Masters and Reports.',
-                    style: TextStyle(fontSize: 13, color: AppColors.mutedBlue),
+                    'Use the menu icons on the left, or the hamburger for names.',
+                    style: TextStyle(fontSize: 12, color: AppColors.mutedBlue),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8),
                   if (!_ratesSetToday)
                     _banner(
                       icon: Icons.currency_exchange,
@@ -216,9 +217,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
                     crossAxisCount: cross,
-                    mainAxisSpacing: 12,
-                    crossAxisSpacing: 12,
-                    childAspectRatio: wide ? 1.7 : 2.4,
+                    mainAxisSpacing: 8,
+                    crossAxisSpacing: 8,
+                    childAspectRatio: wide ? 2.8 : 2.2,
                     children: [
                       _kpi(
                         label: "TODAY'S SALES",

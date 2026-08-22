@@ -5,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
+import '../widgets/material_tile_card.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key, this.embedded = false});
@@ -99,13 +100,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   itemCount: history.length,
                   itemBuilder: (context, index) {
                     final row = history[index];
-                    return Container(
+                    return MaterialTileCard(
                       margin: const EdgeInsets.only(bottom: 8),
-                      decoration: BoxDecoration(
-                        color: AppColors.cardWhite,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppColors.border),
-                      ),
                       child: ListTile(
                         dense: true,
                         leading: CircleAvatar(
