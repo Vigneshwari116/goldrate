@@ -3,17 +3,15 @@ import 'package:intl/intl.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
-import 'history_screen.dart';
-import 'customer_master_screen.dart';
-import 'supplier_master_screen.dart';
-import 'opening_weight_screen.dart';
 
 /// Rates ONLY. This screen does one job — enter/update today's four
 /// rates — and nothing else. It's visited once a day, briefly, then
 /// left. Purchase/Sales live on Home, not here, so this form is never
 /// sitting on screen when staff is mid-billing.
 class MasterScreen extends StatefulWidget {
-  const MasterScreen({super.key});
+  const MasterScreen({super.key, this.embedded = false});
+
+  final bool embedded;
 
   @override
   State<MasterScreen> createState() => _MasterScreenState();
@@ -113,166 +111,116 @@ class _MasterScreenState extends State<MasterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final content = _loading
+        ? const Center(child: CircularProgressIndicator())
+        : CenteredMaxWidth(
+            maxWidth: 560,
+            child: Column(
+              children: [
+                Container(
+                  width: double.infinity,
+                  color: AppColors.headerBand,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  child: Text(
+                    _lastDate.isEmpty
+                        ? "Last Updated : —"
+                        : "Last Updated : $_lastDate  $_lastTime",
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: AppTextSizes.sectionHeader,
+                      color: AppColors.mutedBlue,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: rates.isEmpty
+                      ? const Center(
+                          child: Text(
+                            "No rates found",
+                            style:
+                                TextStyle(fontSize: 13, color: Colors.black54),
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.all(12),
+                          itemCount: rates.length,
+                          itemBuilder: (context, index) {
+                            final item = rates[index];
+                            final controller = _controllers[item['id']]!;
+
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 10),
+                              decoration: BoxDecoration(
+                                color: AppColors.cardWhite,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: AppColors.border),
+                              ),
+                              padding: const EdgeInsets.all(12),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    flex: 3,
+                                    child: Text(
+                                      item['rateName'],
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ),
+                                  Expanded(
+                                    flex: 4,
+                                    child: TextField(
+                                      controller: controller,
+                                      style: const TextStyle(fontSize: 14),
+                                      keyboardType: const TextInputType
+                                          .numberWithOptions(decimal: true),
+                                      decoration: const InputDecoration(
+                                        isDense: true,
+                                        contentPadding: EdgeInsets.symmetric(
+                                            horizontal: 10, vertical: 10),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 44,
+                    child: ElevatedButton(
+                      onPressed: _saving ? null : saveAllRates,
+                      child: _saving
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : const Text("SAVE"),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+
+    if (widget.embedded) return content;
+
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: const Text("MASTER / RATES"),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.people, size: 20),
-            tooltip: 'Customer Master',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const CustomerMasterScreen(),
-                ),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.local_shipping, size: 20),
-            tooltip: 'Supplier Master',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const SupplierMasterScreen(),
-                ),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.scale, size: 20),
-            tooltip: 'Opening Weight',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const OpeningWeightScreen(),
-                ),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.history, size: 20),
-            tooltip: 'View update records',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const HistoryScreen(),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : CenteredMaxWidth(
-        maxWidth: 560,
-        child: Column(
-          children: [
-            // Single global "Last Updated" header
-            Container(
-              width: double.infinity,
-              color: AppColors.headerBand,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 10,
-              ),
-              child: Text(
-                _lastDate.isEmpty
-                    ? "Last Updated : —"
-                    : "Last Updated : $_lastDate  $_lastTime",
-                style: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: AppTextSizes.sectionHeader,
-                  color: AppColors.mutedBlue,
-                ),
-              ),
-            ),
-            Expanded(
-              child: rates.isEmpty
-                  ? const Center(
-                child: Text(
-                  "No rates found",
-                  style: TextStyle(fontSize: 13, color: Colors.black54),
-                ),
-              )
-                  : ListView.builder(
-                padding: const EdgeInsets.all(12),
-                itemCount: rates.length,
-                itemBuilder: (context, index) {
-                  final item = rates[index];
-                  final controller = _controllers[item['id']]!;
-
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    decoration: BoxDecoration(
-                      color: AppColors.cardWhite,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: AppColors.border),
-                    ),
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          flex: 3,
-                          child: Text(
-                            item['rateName'],
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ),
-                        Expanded(
-                          flex: 4,
-                          child: TextField(
-                            controller: controller,
-                            style: const TextStyle(fontSize: 14),
-                            keyboardType:
-                            const TextInputType.numberWithOptions(
-                                decimal: true),
-                            decoration: const InputDecoration(
-                              isDense: true,
-                              contentPadding: EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 10),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ),
-            // Save, then leave — this screen's job is done.
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: SizedBox(
-                width: double.infinity,
-                height: 44,
-                child: ElevatedButton(
-                  onPressed: _saving ? null : saveAllRates,
-                  child: _saving
-                      ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      color: Colors.white,
-                      strokeWidth: 2,
-                    ),
-                  )
-                      : const Text("SAVE"),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+      appBar: AppBar(title: const Text("MASTER / RATES")),
+      body: content,
     );
   }
 }

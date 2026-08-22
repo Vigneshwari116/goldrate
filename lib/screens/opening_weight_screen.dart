@@ -6,7 +6,9 @@ import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
 
 class OpeningWeightScreen extends StatefulWidget {
-  const OpeningWeightScreen({super.key});
+  const OpeningWeightScreen({super.key, this.embedded = false});
+
+  final bool embedded;
 
   @override
   State<OpeningWeightScreen> createState() => _OpeningWeightScreenState();
@@ -159,14 +161,9 @@ class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: const Text("OPENING WEIGHT"),
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
+    final body = _loading
+        ? const Center(child: CircularProgressIndicator())
+        : SingleChildScrollView(
         padding: const EdgeInsets.all(12),
         child: CenteredMaxWidth(
           child: Column(
@@ -267,7 +264,14 @@ class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
             ],
           ),
         ),
-      ),
+      );
+
+    if (widget.embedded) return body;
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(title: const Text("OPENING WEIGHT")),
+      body: body,
     );
   }
 }

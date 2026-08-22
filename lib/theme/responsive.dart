@@ -59,12 +59,52 @@ class SplitLayout extends StatelessWidget {
   }
 }
 
+/// Form stays pinned on the left (desktop); only the list pane scrolls.
+/// On a phone the two panes still stack inside one scroll view.
+class WorkbenchLayout extends StatelessWidget {
+  final Widget primary;
+  final Widget secondary;
+  final double primaryWidth;
+  final double gap;
+
+  const WorkbenchLayout({
+    super.key,
+    required this.primary,
+    required this.secondary,
+    this.primaryWidth = 380,
+    this.gap = 20,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (!Responsive.isWide(context)) {
+      return ListView(
+        padding: const EdgeInsets.all(12),
+        children: [primary, const SizedBox(height: 16), secondary],
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: primaryWidth,
+            child: SingleChildScrollView(child: primary),
+          ),
+          SizedBox(width: gap),
+          Expanded(
+            child: SingleChildScrollView(child: secondary),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// For screens that are a single column of content (rates, history,
-/// opening weight, customer/supplier master) — on desktop this keeps
-/// the exact same phone-width content but centers it, instead of
-/// stretching form fields and list tiles uncomfortably across a wide
-/// monitor. Wrap the existing ListView/body in this and nothing else
-/// needs to change.
+/// opening weight) — on desktop this keeps the same phone-width column.
 class CenteredMaxWidth extends StatelessWidget {
   final Widget child;
   final double maxWidth;

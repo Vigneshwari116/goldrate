@@ -3,15 +3,13 @@ import 'package:grate_app/theme/responsive.dart';
 import 'package:intl/intl.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
-import 'master_screen.dart';
-import 'customer_master_screen.dart';
-import 'supplier_master_screen.dart';
-import 'opening_weight_screen.dart';
-import 'history_screen.dart';
-import 'transaction_screen.dart';
+import 'app_shell.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, this.onOpen, this.embedded = false});
+
+  final void Function(AppPage page)? onOpen;
+  final bool embedded;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -55,9 +53,11 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  void _open(Widget screen) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => screen))
-        .then((_) => _load());
+  void _open(AppPage page) {
+    if (widget.onOpen != null) {
+      widget.onOpen!(page);
+      return;
+    }
   }
 
   Widget _banner({
@@ -112,7 +112,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 "tap to update",
             background: const Color(0xFFDCE8F5),
             foreground: AppColors.navy,
-            onTap: () => _open(const MasterScreen()),
+            onTap: () => _open(AppPage.rates),
           ),
         // Day-one only — vanishes forever once saved.
         if (!_openingWeightSet)
@@ -122,10 +122,23 @@ class _HomeScreenState extends State<HomeScreen> {
                 "starting stock and cash",
             background: Colors.amber[100]!,
             foreground: Colors.brown,
-            onTap: () => _open(const OpeningWeightScreen()),
+            onTap: () => _open(AppPage.openingWeight),
           ),
-        const SizedBox(height: 6),
-        // Primary actions — what staff actually taps all day long.
+        const SizedBox(height: 14),
+        Text(
+          _lastTime.isEmpty
+              ? "Live stock  ·  GWT ${(_stock['GWT'] ?? 0).toStringAsFixed(2)}  "
+                  "FWT ${(_stock['FWT'] ?? 0).toStringAsFixed(2)}  "
+                  "KWT ${(_stock['KWT'] ?? 0).toStringAsFixed(2)}  "
+                  "SWT ${(_stock['SWT'] ?? 0).toStringAsFixed(2)}"
+              : "Live stock  ·  GWT ${(_stock['GWT'] ?? 0).toStringAsFixed(2)}  "
+                  "FWT ${(_stock['FWT'] ?? 0).toStringAsFixed(2)}  "
+                  "KWT ${(_stock['KWT'] ?? 0).toStringAsFixed(2)}  "
+                  "SWT ${(_stock['SWT'] ?? 0).toStringAsFixed(2)}"
+                  "${_rates['G.P RATE'] != null ? '  ·  G.P ${_rates['G.P RATE']}' : ''}"
+                  "  ·  rates $_lastTime",
+          style: const TextStyle(fontSize: 12, color: AppColors.mutedBlue),
+        ),
         Row(
           children: [
             Expanded(
@@ -134,8 +147,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 label: "PURCHASE",
                 subtitle: "Stock coming in",
                 color: AppColors.navy,
-                onTap: () => _open(
-                    const TransactionScreen(kind: TransactionKind.purchase)),
+                onTap: () => _open(AppPage.purchase),
               ),
             ),
             const SizedBox(width: 12),
@@ -145,8 +157,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 label: "SALES",
                 subtitle: "Stock going out",
                 color: AppColors.mutedBlue,
-                onTap: () => _open(
-                    const TransactionScreen(kind: TransactionKind.sales)),
+                onTap: () => _open(AppPage.sales),
               ),
             ),
           ],
@@ -171,22 +182,32 @@ class _HomeScreenState extends State<HomeScreen> {
         _SecondaryTile(
           icon: Icons.people,
           label: "Customer Master",
-          onTap: () => _open(const CustomerMasterScreen()),
+          onTap: () => _open(AppPage.customers),
         ),
         _SecondaryTile(
           icon: Icons.local_shipping,
           label: "Supplier Master",
-          onTap: () => _open(const SupplierMasterScreen()),
+          onTap: () => _open(AppPage.suppliers),
         ),
         _SecondaryTile(
           icon: Icons.scale,
           label: "Opening Weight",
-          onTap: () => _open(const OpeningWeightScreen()),
+          onTap: () => _open(AppPage.openingWeight),
         ),
         _SecondaryTile(
-          icon: Icons.history,
-          label: "Rate Update Records",
-          onTap: () => _open(const HistoryScreen()),
+          icon: Icons.receipt_long,
+          label: "Receipt Voucher",
+          onTap: () => _open(AppPage.receipt),
+        ),
+        _SecondaryTile(
+          icon: Icons.bar_chart,
+          label: "Daily Reports",
+          onTap: () => _open(AppPage.reports),
+        ),
+        _SecondaryTile(
+          icon: Icons.inventory_2,
+          label: "Stock",
+          onTap: () => _open(AppPage.stock),
         ),
       ],
     );
@@ -194,19 +215,23 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final content = _loading
+        ? const Center(child: CircularProgressIndicator())
+        : SingleChildScrollView(
+            padding: const EdgeInsets.all(12),
+            child: SplitLayout(
+              primaryWidth: 420,
+              primary: _buildPrimaryColumn(),
+              secondary: _buildManageColumn(),
+            ),
+          );
+
+    if (widget.embedded) return content;
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(title: const Text("HOME")),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-        padding: const EdgeInsets.all(12),
-        child: SplitLayout(
-          primaryWidth: 420,
-          primary: _buildPrimaryColumn(),
-          secondary: _buildManageColumn(),
-        ),
-      ),
+      body: content,
     );
   }
 }

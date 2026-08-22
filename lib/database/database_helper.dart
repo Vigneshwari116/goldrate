@@ -21,7 +21,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 10,
+      version: 11,
       onCreate: _createDatabase,
       onUpgrade: _upgradeDatabase,
     );
@@ -122,6 +122,34 @@ class DatabaseHelper {
         balance TEXT,
         balanceUnit TEXT,
         staffName TEXT,
+        date TEXT,
+        time TEXT,
+        oldGrams TEXT,
+        oldRupees TEXT,
+        newGrams TEXT,
+        newRupees TEXT,
+        cashToGold TEXT,
+        goldRateUsed TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE vouchers(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        voucherType TEXT NOT NULL,
+        voucherNo INTEGER NOT NULL,
+        partyName TEXT,
+        isCustomer INTEGER NOT NULL,
+        paymentMode TEXT,
+        amount TEXT,
+        amountUnit TEXT,
+        cashToGold TEXT,
+        goldRateUsed TEXT,
+        oldGrams TEXT,
+        oldRupees TEXT,
+        newGrams TEXT,
+        newRupees TEXT,
+        narration TEXT,
         date TEXT,
         time TEXT
       )
@@ -274,6 +302,35 @@ class DatabaseHelper {
         ],
       );
     }
+    if (oldVersion < 11) {
+      await db.execute('ALTER TABLE transactions ADD COLUMN oldGrams TEXT');
+      await db.execute('ALTER TABLE transactions ADD COLUMN oldRupees TEXT');
+      await db.execute('ALTER TABLE transactions ADD COLUMN newGrams TEXT');
+      await db.execute('ALTER TABLE transactions ADD COLUMN newRupees TEXT');
+      await db.execute('ALTER TABLE transactions ADD COLUMN cashToGold TEXT');
+      await db.execute('ALTER TABLE transactions ADD COLUMN goldRateUsed TEXT');
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS vouchers(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          voucherType TEXT NOT NULL,
+          voucherNo INTEGER NOT NULL,
+          partyName TEXT,
+          isCustomer INTEGER NOT NULL,
+          paymentMode TEXT,
+          amount TEXT,
+          amountUnit TEXT,
+          cashToGold TEXT,
+          goldRateUsed TEXT,
+          oldGrams TEXT,
+          oldRupees TEXT,
+          newGrams TEXT,
+          newRupees TEXT,
+          narration TEXT,
+          date TEXT,
+          time TEXT
+        )
+      ''');
+    }
   }
 
   Future<bool> checkLogin(String username, String password) async {
@@ -361,6 +418,10 @@ class DatabaseHelper {
   }
 
 
+  Future<String> getDatabasePath() async {
+    return join(await getDatabasesPath(), 'jewellery.db');
+  }
+
   Future<int> insertCustomer(Map<String, dynamic> customer) async {
     final db = await database;
     return await db.insert('customers', customer);
@@ -429,6 +490,11 @@ class DatabaseHelper {
     );
     final maxBill = result.isNotEmpty ? result.first['maxBill'] as int? : null;
     return (maxBill ?? 0) + 1;
+  }
+
+  Future<List<Map<String, dynamic>>> getAllTransactions() async {
+    final db = await database;
+    return await db.query('transactions', orderBy: 'id DESC');
   }
 
   Future<int> insertTransaction(Map<String, dynamic> transaction) async {
@@ -581,5 +647,92 @@ class DatabaseHelper {
     }
 
     return stock;
+  }
+
+  // ---------- Receipt / payment vouchers ----------
+
+  Future<int> getNextVoucherNo(String voucherType) async {
+    final db = await database;
+    final result = await db.rawQuery(
+      'SELECT MAX(voucherNo) as maxNo FROM vouchers WHERE voucherType = ?',
+      [voucherType],
+    );
+    final maxNo = result.isNotEmpty ? result.first['maxNo'] as int? : null;
+    return (maxNo ?? 0) + 1;
+  }
+
+  Future<int> insertVoucher(Map<String, dynamic> voucher) async {
+    final db = await database;
+    return await db.insert('vouchers', voucher);
+  }
+
+  Future<List<Map<String, dynamic>>> getVouchers({String? voucherType}) async {
+    final db = await database;
+    if (voucherType == null) {
+      return await db.query('vouchers', orderBy: 'id DESC');
+    }
+    return await db.query(
+      'vouchers',
+      where: 'voucherType = ?',
+      whereArgs: [voucherType],
+      orderBy: 'id DESC',
+    );
+  }
+
+  Future<int> deleteVoucher(int id) async {
+    final db = await database;
+    return await db.delete('vouchers', where: 'id = ?', whereArgs: [id]);
+  }
+
+  /// Creates a name-only master row so a bill can still show a running
+  /// balance the next time that name is typed.
+  Future<void> ensureParty(
+    String name, {
+    required bool isCustomer,
+  }) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    final db = await database;
+    final table = isCustomer ? 'customers' : 'suppliers';
+    final rows = await db.query(table, where: 'name = ?', whereArgs: [trimmed]);
+    if (rows.isNotEmpty) return;
+    final now = DateTime.now();
+    final date =
+        '${now.day.toString().padLeft(2, '0')}-${now.month.toString().padLeft(2, '0')}-${now.year}';
+    final hour = now.hour % 12 == 0 ? 12 : now.hour % 12;
+    final ampm = now.hour >= 12 ? 'PM' : 'AM';
+    final time =
+        '${hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')} $ampm';
+    if (isCustomer) {
+      await insertCustomer({
+        'name': trimmed,
+        'mobile': '',
+        'city': '',
+        'cr': '0',
+        'dr': '0',
+        'drGross': '',
+        'drNet': '',
+        'narration': 'Opened from bill (name only)',
+        'balanceUnit': 'GRAMS',
+        'billRef': '',
+        'date': date,
+        'time': time,
+      });
+    } else {
+      await insertSupplier({
+        'name': trimmed,
+        'mobile': '',
+        'city': '',
+        'cr': '0',
+        'dr': '0',
+        'gross': '',
+        'net': '',
+        'narration': 'Opened from bill (name only)',
+        'balanceUnit': 'GRAMS',
+        'billRef': '',
+        'date': date,
+        'time': time,
+      });
+    }
   }
 }

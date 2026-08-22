@@ -10,6 +10,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 
 import '../database/database_helper.dart';
+import '../logic/gold_ledger.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
 
@@ -59,8 +60,13 @@ class _TransactionItem {
 
 class TransactionScreen extends StatefulWidget {
   final TransactionKind kind;
+  final bool embedded;
 
-  const TransactionScreen({super.key, required this.kind});
+  const TransactionScreen({
+    super.key,
+    required this.kind,
+    this.embedded = false,
+  });
 
   @override
   State<TransactionScreen> createState() => _TransactionScreenState();
@@ -119,11 +125,18 @@ class _TransactionScreenState extends State<TransactionScreen> {
   /// units is how balances quietly go wrong on paper books too.
   bool get _isGoldSettlement => _selectedPaymentMode == 'GOLD';
 
-  double get _balance => _isGoldSettlement
-      ? _totalPureWt - _paymentAmount
-      : _totalValue - _paymentAmount;
-
-  String get _balanceUnit => _isGoldSettlement ? 'GRAMS' : 'RUPEES';
+  SettlementResult get _settlement {
+    return settleLedger(
+      oldGrams: _partyOutstanding?['grams'] ?? 0,
+      oldRupees: _partyOutstanding?['rupees'] ?? 0,
+      billGrams: _totalPureWt,
+      billRupees: _totalValue,
+      paymentMode: _selectedPaymentMode,
+      paymentAmount: _paymentAmount,
+      ratePerGram: GoldLedger.goldRate(_rates),
+      billSign: _isPurchase ? -1 : 1,
+    );
+  }
 
   @override
   void initState() {
@@ -167,23 +180,14 @@ class _TransactionScreenState extends State<TransactionScreen> {
       _partySuggestions = query.isEmpty
           ? []
           : _partyNames
-          .where((n) =>
-      n.toLowerCase().contains(lower) && n.toLowerCase() != lower)
-          .take(4)
-          .toList();
+              .where((n) =>
+                  n.toLowerCase().contains(lower) && n.toLowerCase() != lower)
+              .take(4)
+              .toList();
     });
 
     if (query.isEmpty) {
-      setState(() => _partyOutstanding = null);
-      return;
-    }
-
-    // Only look up an outstanding balance for an exact existing name —
-    // partial typing shouldn't flash a stale/misleading figure.
-    final isKnownParty =
-    _partyNames.any((n) => n.toLowerCase() == lower);
-    if (!isKnownParty) {
-      setState(() => _partyOutstanding = null);
+      setState(() => _partyOutstanding = {'rupees': 0, 'grams': 0});
       return;
     }
 
@@ -203,24 +207,22 @@ class _TransactionScreenState extends State<TransactionScreen> {
   /// Turns a party's outstanding {rupees, grams} totals into one line
   /// like "Ramesh owes you ₹20,000 · 5.20g" — sign flips the wording
   /// to "you owe" when the shop is the one holding the balance.
-  String _outstandingSummary(Map<String, double> outstanding) {
+  String _outstandingLine(Map<String, double> outstanding) {
     final rupees = outstanding['rupees'] ?? 0;
     final grams = outstanding['grams'] ?? 0;
     final name = _partyController.text.trim();
-    final parts = <String>[];
-
+    final rate = GoldLedger.goldRate(_rates);
+    final asCash = GoldLedger.goldToCash(grams, rate);
+    final parts = <String>[
+      "Old balance ${grams.toStringAsFixed(3)} g",
+    ];
+    if (rate > 0) {
+      parts.add("= ₹${asCash.toStringAsFixed(2)} @ ${rate.toStringAsFixed(0)}");
+    }
     if (rupees.abs() > 0.01) {
-      parts.add(rupees > 0
-          ? "owes you ₹${rupees.toStringAsFixed(2)}"
-          : "you owe ₹${rupees.abs().toStringAsFixed(2)}");
+      parts.add("₹${rupees.toStringAsFixed(2)} book");
     }
-    if (grams.abs() > 0.01) {
-      parts.add(grams > 0
-          ? "owes you ${grams.toStringAsFixed(2)}g"
-          : "you owe ${grams.abs().toStringAsFixed(2)}g");
-    }
-
-    return "$name currently ${parts.join(' and ')}";
+    return "$name · ${parts.join(' · ')}";
   }
 
   void _addItem() {
@@ -293,6 +295,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
     final date = DateFormat("dd-MM-yyyy").format(DateTime.now());
     final time = DateFormat("hh:mm a").format(DateTime.now());
 
+    final s = _settlement;
     final record = {
       'transactionType': _transactionType,
       'billNo': _nextBillNo,
@@ -303,14 +306,24 @@ class _TransactionScreenState extends State<TransactionScreen> {
       'totalValue': _totalValue.toStringAsFixed(2),
       'paymentMode': _selectedPaymentMode,
       'paymentAmount': _paymentAmount.toStringAsFixed(2),
-      'balance': _balance.toStringAsFixed(_isGoldSettlement ? 3 : 2),
-      'balanceUnit': _balanceUnit,
+      'balance': s.newGrams.toStringAsFixed(3),
+      'balanceUnit': 'GRAMS',
       'date': date,
       'time': time,
+      'oldGrams': s.oldGrams.toStringAsFixed(3),
+      'oldRupees': s.oldRupees.toStringAsFixed(2),
+      'newGrams': s.newGrams.toStringAsFixed(3),
+      'newRupees': s.newRupees.toStringAsFixed(2),
+      'cashToGold': s.cashToGoldGrams.toStringAsFixed(3),
+      'goldRateUsed': s.ratePerGram.toStringAsFixed(2),
     };
 
+    await DatabaseHelper.instance.ensureParty(
+      _partyController.text.trim(),
+      isCustomer: _isCustomerParty,
+    );
     await DatabaseHelper.instance.insertTransaction(record);
-    await _postToLedger(date, time);
+    await _postToLedger(date, time, s);
 
     if (!mounted) return;
 
@@ -333,23 +346,25 @@ class _TransactionScreenState extends State<TransactionScreen> {
   /// column; a negative balance (shop owes the party) goes in CR —
   /// mirroring how the existing Customer/Supplier Master screens
   /// already use those two fields.
-  Future<void> _postToLedger(String date, String time) async {
-    final balance = _balance;
+  Future<void> _postToLedger(
+      String date, String time, SettlementResult s) async {
+    final deltaG = s.newGrams - s.oldGrams;
     final narration =
         "Bill #$_nextBillNo (${_isPurchase ? 'Purchase' : 'Sale'}) — "
-        "Wt ${_totalWt.toStringAsFixed(2)}, Pure ${_totalPureWt.toStringAsFixed(3)}, "
+        "GWT ${_totalWt.toStringAsFixed(2)}, Pure ${_totalPureWt.toStringAsFixed(3)}, "
         "Value ₹${_totalValue.toStringAsFixed(2)}, "
-        "$_selectedPaymentMode ${_paymentAmount.toStringAsFixed(2)}";
+        "${s.paymentLabel}. Old ${s.oldGrams.toStringAsFixed(3)}g → "
+        "New ${s.newGrams.toStringAsFixed(3)}g";
 
     final baseEntry = {
       'name': _partyController.text.trim(),
       'mobile': '',
       'city': '',
-      'cr': balance < 0 ? balance.abs().toStringAsFixed(2) : '0',
-      'dr': balance > 0 ? balance.toStringAsFixed(2) : '0',
+      'cr': deltaG < 0 ? deltaG.abs().toStringAsFixed(3) : '0',
+      'dr': deltaG > 0 ? deltaG.toStringAsFixed(3) : '0',
       'narration': narration,
-      'balanceUnit': _balanceUnit,
-      'billRef': 'Bill #$_nextBillNo',
+      'balanceUnit': 'GRAMS',
+      'billRef': '${_isPurchase ? 'PUR' : 'SAL'}-$_nextBillNo',
       'date': date,
       'time': time,
     };
@@ -698,9 +713,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
                     .toList(),
               ),
             ),
-          if (_partyOutstanding != null &&
-              ((_partyOutstanding!['rupees'] ?? 0).abs() > 0.01 ||
-                  (_partyOutstanding!['grams'] ?? 0).abs() > 0.01))
+          if (_partyController.text.trim().isNotEmpty)
             Container(
               margin: const EdgeInsets.only(top: 8),
               padding: const EdgeInsets.symmetric(
@@ -711,7 +724,9 @@ class _TransactionScreenState extends State<TransactionScreen> {
                 border: Border.all(color: AppColors.border),
               ),
               child: Text(
-                _outstandingSummary(_partyOutstanding!),
+                _partyOutstanding == null
+                    ? "${_partyController.text.trim()} · looking up old balance…"
+                    : _outstandingLine(_partyOutstanding!),
                 style: const TextStyle(
                     fontSize: 12.5,
                     fontWeight: FontWeight.w600,
@@ -856,8 +871,11 @@ class _TransactionScreenState extends State<TransactionScreen> {
             ],
           ),
           const SizedBox(height: 10),
-          _totalRow("BALANCE ($_balanceUnit)", _balance,
-              highlight: true, decimals: _isGoldSettlement ? 3 : 2),
+          _conversionCard(),
+          const SizedBox(height: 10),
+          _totalRow("OLD BALANCE (g)", _settlement.oldGrams, decimals: 3),
+          _totalRow("NEW BALANCE (g)", _settlement.newGrams,
+              highlight: true, decimals: 3),
           const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
@@ -884,6 +902,47 @@ class _TransactionScreenState extends State<TransactionScreen> {
       ),
     );
   }
+  Widget _conversionCard() {
+    final s = _settlement;
+    final rate = s.ratePerGram;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE8F5EC),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _isGoldSettlement
+                ? "Gold payment ${s.paymentAmount.toStringAsFixed(3)} g"
+                : rate <= 0
+                    ? "Set today's G.P RATE to convert cash into gold"
+                    : "Cash ₹${s.paymentAmount.toStringAsFixed(2)} → "
+                        "${s.cashToGoldGrams.toStringAsFixed(3)} g  "
+                        "(rate ₹${rate.toStringAsFixed(0)}/g)",
+            style: const TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              color: AppColors.totalGreen,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            "Bill ${_isPurchase ? 'PUR' : 'SAL'}-$_nextBillNo  ·  "
+            "GWT ${_totalWt.toStringAsFixed(2)}  ·  "
+            "${s.paymentMode}  ·  "
+            "Balance gold ${s.newGrams.toStringAsFixed(3)} g",
+            style: const TextStyle(fontSize: 11.5, color: Colors.black54),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildHistorySection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -982,6 +1041,16 @@ class _TransactionScreenState extends State<TransactionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final content = _loading
+        ? const Center(child: CircularProgressIndicator())
+        : WorkbenchLayout(
+            primaryWidth: 420,
+            primary: _buildFormCard(),
+            secondary: _buildHistorySection(),
+          );
+
+    if (widget.embedded) return content;
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -994,16 +1063,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
           ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-        padding: const EdgeInsets.all(12),
-        child: SplitLayout(
-          primaryWidth: 420,
-          primary: _buildFormCard(),
-          secondary: _buildHistorySection(),
-        ),
-      ),
+      body: content,
     );
   }
 
