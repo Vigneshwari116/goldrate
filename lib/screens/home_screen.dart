@@ -1,14 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:grate_app/theme/responsive.dart';
 import 'package:intl/intl.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
+import '../utils/number_format.dart';
+import '../utils/stock_ledger.dart';
 import 'master_screen.dart';
-import 'customer_master_screen.dart';
-import 'supplier_master_screen.dart';
 import 'opening_weight_screen.dart';
-import 'history_screen.dart';
-import 'transaction_screen.dart';
+import '../widgets/app_shell.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -18,12 +16,10 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  Map<String, String> _rates = {};
-  Map<String, double> _stock = {};
   String _lastDate = '';
-  String _lastTime = '';
   bool _openingWeightSet = true;
   bool _loading = true;
+  List<StockSummaryRow> _stock = [];
 
   bool get _ratesSetToday {
     final today = DateFormat("dd-MM-yyyy").format(DateTime.now());
@@ -37,18 +33,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _load() async {
-    final rows = await DatabaseHelper.instance.getRates();
     final stats = await DatabaseHelper.instance.getUpdateStats();
     final opening = await DatabaseHelper.instance.getOpeningWeight();
-    final stock = await DatabaseHelper.instance.getCurrentStock();
+    final stock = await DatabaseHelper.instance.getStockSummary();
     if (!mounted) return;
     setState(() {
-      _rates = {
-        for (final r in rows)
-          (r['rateName'] ?? '').toString(): (r['rateValue'] ?? '').toString()
-      };
       _lastDate = stats['lastDate'] as String;
-      _lastTime = stats['lastTime'] as String;
       _openingWeightSet = opening != null;
       _stock = stock;
       _loading = false;
@@ -58,6 +48,10 @@ class _HomeScreenState extends State<HomeScreen> {
   void _open(Widget screen) {
     Navigator.push(context, MaterialPageRoute(builder: (_) => screen))
         .then((_) => _load());
+  }
+
+  void _goShell(int index) {
+    ShellNavigateScope.maybeOf(context)?.goTo(index);
   }
 
   Widget _banner({
@@ -125,7 +119,6 @@ class _HomeScreenState extends State<HomeScreen> {
             onTap: () => _open(const OpeningWeightScreen()),
           ),
         const SizedBox(height: 6),
-        // Primary actions — what staff actually taps all day long.
         Row(
           children: [
             Expanded(
@@ -134,8 +127,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 label: "PURCHASE",
                 subtitle: "Stock coming in",
                 color: AppColors.navy,
-                onTap: () => _open(
-                    const TransactionScreen(kind: TransactionKind.purchase)),
+                onTap: () => _goShell(2),
               ),
             ),
             const SizedBox(width: 12),
@@ -145,48 +137,74 @@ class _HomeScreenState extends State<HomeScreen> {
                 label: "SALES",
                 subtitle: "Stock going out",
                 color: AppColors.mutedBlue,
-                onTap: () => _open(
-                    const TransactionScreen(kind: TransactionKind.sales)),
+                onTap: () => _goShell(1),
               ),
             ),
           ],
         ),
-      ],
-    );
-  }
-
-  Widget _buildManageColumn() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Text(
-          "MANAGE",
-          style: TextStyle(
+        const SizedBox(height: 18),
+        InkWell(
+          onTap: () => _goShell(3),
+          child: const Text(
+            'CURRENT STOCK',
+            style: TextStyle(
               fontSize: 12,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w700,
               letterSpacing: 0.4,
-              color: AppColors.mutedBlue),
+              color: AppColors.mutedBlue,
+            ),
+          ),
         ),
         const SizedBox(height: 8),
-        _SecondaryTile(
-          icon: Icons.people,
-          label: "Customer Master",
-          onTap: () => _open(const CustomerMasterScreen()),
-        ),
-        _SecondaryTile(
-          icon: Icons.local_shipping,
-          label: "Supplier Master",
-          onTap: () => _open(const SupplierMasterScreen()),
-        ),
-        _SecondaryTile(
-          icon: Icons.scale,
-          label: "Opening Weight",
-          onTap: () => _open(const OpeningWeightScreen()),
-        ),
-        _SecondaryTile(
-          icon: Icons.history,
-          label: "Rate Update Records",
-          onTap: () => _open(const HistoryScreen()),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final row in _stock)
+              SizedBox(
+                width: 160,
+                child: Material(
+                  color: AppColors.cardWhite,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    side: const BorderSide(color: AppColors.border),
+                  ),
+                  child: InkWell(
+                    onTap: () => _goShell(3),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            row.label,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppColors.mutedBlue,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            formatWeight(row.current),
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.navy,
+                            ),
+                          ),
+                          Text(
+                            'Open ${formatWeight(row.opening)}',
+                            style: const TextStyle(
+                                fontSize: 11, color: Colors.black54),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
       ],
     );
@@ -196,16 +214,22 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text("HOME")),
+      appBar: AppBar(
+        leading: shellMenuButton(context),
+        title: const Text("HOME"),
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-        padding: const EdgeInsets.all(12),
-        child: SplitLayout(
-          primaryWidth: 420,
-          primary: _buildPrimaryColumn(),
-          secondary: _buildManageColumn(),
-        ),
+          : LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(12),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: constraints.maxWidth),
+              child: _buildPrimaryColumn(),
+            ),
+          );
+        },
       ),
     );
   }
@@ -256,39 +280,6 @@ class _PrimaryTile extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _SecondaryTile extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  const _SecondaryTile({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: AppColors.cardWhite,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: ListTile(
-        dense: true,
-        leading: Icon(icon, color: AppColors.navy, size: 20),
-        title: Text(label,
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-        trailing:
-        const Icon(Icons.chevron_right, color: AppColors.mutedBlue, size: 20),
-        onTap: onTap,
       ),
     );
   }

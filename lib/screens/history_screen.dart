@@ -4,7 +4,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
-import '../theme/responsive.dart';
+import '../widgets/app_shell.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -84,6 +84,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
+        leading: shellMenuButton(context),
         title: Text(
           history.isEmpty
               ? "RATE UPDATE RECORDS"
@@ -116,20 +117,20 @@ class _HistoryScreenState extends State<HistoryScreen> {
           style: TextStyle(fontSize: 13, color: Colors.black54),
         ),
       )
-          : CenteredMaxWidth(
-        maxWidth: 560,
-        child: ListView.builder(
+          : ListView.builder(
           padding: const EdgeInsets.fromLTRB(12, 12, 12, 80),
           itemCount: history.length,
           itemBuilder: (context, index) {
             final row = history[index];
-            return Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              decoration: BoxDecoration(
-                color: AppColors.cardWhite,
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Material(
+              color: AppColors.cardWhite,
+              shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.border),
+                side: const BorderSide(color: AppColors.border),
               ),
+              clipBehavior: Clip.antiAlias,
               child: ListTile(
                 dense: true,
                 leading: CircleAvatar(
@@ -154,10 +155,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   const TextStyle(fontSize: 11.5, color: Colors.black54),
                 ),
               ),
+              ),
             );
           },
         ),
-      ),
       floatingActionButton: history.isEmpty
           ? null
           : FloatingActionButton.extended(

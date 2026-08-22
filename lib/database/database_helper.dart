@@ -1,7 +1,10 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
+
+import '../utils/stock_ledger.dart';
 
 class DatabaseHelper {
   DatabaseHelper._();
@@ -17,7 +20,7 @@ class DatabaseHelper {
   }
 
   Future<Database> _initDatabase() async {
-    String path = join(await getDatabasesPath(), 'jewellery.db');
+    String path = await getDatabaseFilePath();
 
     return await openDatabase(
       path,
@@ -447,6 +450,25 @@ class DatabaseHelper {
     );
   }
 
+  Future<int> updateTransaction(int id, Map<String, dynamic> transaction) async {
+    final db = await database;
+    return await db.update(
+      'transactions',
+      transaction,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> deleteLedgerForBill({
+    required String billRef,
+    required bool isCustomer,
+  }) async {
+    final db = await database;
+    final table = isCustomer ? 'customers' : 'suppliers';
+    await db.delete(table, where: 'billRef = ?', whereArgs: [billRef]);
+  }
+
   Future<int> deleteTransaction(int id) async {
     final db = await database;
     return await db.delete(
@@ -536,6 +558,107 @@ class DatabaseHelper {
     );
   }
 
+  Future<List<Map<String, dynamic>>> getTransactionsForMonth(
+      int month, int year) async {
+    final db = await database;
+    final suffix =
+        '-${month.toString().padLeft(2, '0')}-${year.toString()}';
+    return await db.query(
+      'transactions',
+      where: 'date LIKE ?',
+      whereArgs: ['%$suffix'],
+      orderBy: 'id DESC',
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getTransactionsForParty(
+    String name, {
+    String? transactionType,
+  }) async {
+    final db = await database;
+    if (transactionType == null) {
+      return await db.query(
+        'transactions',
+        where: 'partyName = ?',
+        whereArgs: [name],
+        orderBy: 'id DESC',
+      );
+    }
+    return await db.query(
+      'transactions',
+      where: 'partyName = ? AND transactionType = ?',
+      whereArgs: [name, transactionType],
+      orderBy: 'id DESC',
+    );
+  }
+
+  Future<String> getPartyMobile(
+    String name, {
+    required bool isCustomer,
+  }) async {
+    final db = await database;
+    final table = isCustomer ? 'customers' : 'suppliers';
+    final rows = await db.query(
+      table,
+      columns: ['mobile'],
+      where: 'name = ?',
+      whereArgs: [name],
+      limit: 1,
+    );
+    if (rows.isEmpty) return '';
+    return (rows.first['mobile'] ?? '').toString();
+  }
+
+  /// Absolute path of the live `jewellery.db` file.
+  /// On an installed Windows app this is
+  /// `%APPDATA%\com.example\grate_app\jewellery.db`.
+  Future<String> getDatabaseFilePath() async {
+    return join(await getDatabasesPath(), 'jewellery.db');
+  }
+
+  Future<void> closeDatabase() async {
+    await _database?.close();
+    _database = null;
+  }
+
+  /// Flushes WAL so a file copy of `jewellery.db` is complete, then
+  /// copies that file to [destinationPath], replacing any older copy.
+  Future<void> copyDatabaseTo(String destinationPath) async {
+    final db = await database;
+    await db.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+    final source = File(await getDatabaseFilePath());
+    if (!await source.exists()) {
+      throw StateError('Database file was not found.');
+    }
+    final dest = File(destinationPath);
+    await dest.parent.create(recursive: true);
+    if (await dest.exists()) {
+      await dest.delete();
+    }
+    await source.copy(destinationPath);
+  }
+
+  /// Replaces the live database with [backupPath], then re-opens it.
+  /// Any WAL/SHM sidecar files are removed so SQLite starts clean.
+  Future<void> restoreDatabaseFrom(String backupPath) async {
+    final backup = File(backupPath);
+    if (!await backup.exists()) {
+      throw StateError('Backup file was not found.');
+    }
+
+    await _database?.close();
+    _database = null;
+
+    final livePath = await getDatabaseFilePath();
+    final wal = File('$livePath-wal');
+    final shm = File('$livePath-shm');
+    if (await wal.exists()) await wal.delete();
+    if (await shm.exists()) await shm.delete();
+    await backup.copy(livePath);
+
+    await database;
+  }
+
   // ---------- Live current stock ----------
 
   /// Current stock, per metal type, calculated live as:
@@ -581,5 +704,38 @@ class DatabaseHelper {
     }
 
     return stock;
+  }
+
+  List<dynamic> _itemsOf(Map<String, dynamic> row) {
+    try {
+      return jsonDecode((row['items'] ?? '[]').toString()) as List<dynamic>;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<List<StockSummaryRow>> getStockSummary() async {
+    final opening = await getOpeningWeight();
+    final db = await database;
+    final txs = await db.query('transactions', orderBy: 'id ASC');
+    return buildStockSummary(
+      openingByType: openingStockFromRow(opening),
+      transactions: txs,
+      itemsOf: _itemsOf,
+    );
+  }
+
+  Future<List<StockLedgerRow>> getStockLedger(String metalType) async {
+    final opening = await getOpeningWeight();
+    final db = await database;
+    final txs = await db.query('transactions', orderBy: 'id ASC');
+    return buildStockLedger(
+      metalType: metalType,
+      openingByType: openingStockFromRow(opening),
+      openingDate: (opening?['date'] ?? '').toString(),
+      openingTime: (opening?['time'] ?? '').toString(),
+      transactionsOldestFirst: txs,
+      itemsOf: _itemsOf,
+    );
   }
 }

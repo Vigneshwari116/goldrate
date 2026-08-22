@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
-import '../theme/responsive.dart';
+import '../utils/number_format.dart';
+import '../widgets/app_shell.dart';
 import 'history_screen.dart';
 import 'customer_master_screen.dart';
 import 'supplier_master_screen.dart';
@@ -52,8 +53,9 @@ class _MasterScreenState extends State<MasterScreen> {
     _controllers.clear();
 
     for (final item in data) {
-      _controllers[item['id']] =
-          TextEditingController(text: (item['rateValue'] ?? '').toString());
+      _controllers[item['id']] = TextEditingController(
+        text: orZero(item['rateValue']?.toString()),
+      );
     }
 
     if (!mounted) return;
@@ -80,9 +82,9 @@ class _MasterScreenState extends State<MasterScreen> {
       final id = item['id'] as int;
       final rateName = item['rateName'] as String;
       final controller = _controllers[id]!;
-      final parsed = double.tryParse(controller.text.trim());
+      final parsed = double.tryParse(orZero(controller.text));
 
-      if (parsed == null) continue; // skip blank/invalid fields
+      if (parsed == null) continue;
 
       await DatabaseHelper.instance.updateRate(
         id,
@@ -116,6 +118,7 @@ class _MasterScreenState extends State<MasterScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
+        leading: shellMenuButton(context),
         title: const Text("MASTER / RATES"),
         actions: [
           IconButton(
@@ -144,7 +147,7 @@ class _MasterScreenState extends State<MasterScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.scale, size: 20),
-            tooltip: 'Opening Weight',
+            tooltip: 'Stock',
             onPressed: () {
               Navigator.push(
                 context,
@@ -170,9 +173,7 @@ class _MasterScreenState extends State<MasterScreen> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : CenteredMaxWidth(
-        maxWidth: 560,
-        child: Column(
+          : Column(
           children: [
             // Single global "Last Updated" header
             Container(
@@ -233,11 +234,18 @@ class _MasterScreenState extends State<MasterScreen> {
                           child: TextField(
                             controller: controller,
                             style: const TextStyle(fontSize: 14),
+                            textInputAction: index == rates.length - 1
+                                ? TextInputAction.done
+                                : TextInputAction.next,
+                            onSubmitted: (_) {
+                              if (index == rates.length - 1) saveAllRates();
+                            },
                             keyboardType:
                             const TextInputType.numberWithOptions(
                                 decimal: true),
                             decoration: const InputDecoration(
                               isDense: true,
+                              hintText: '0',
                               contentPadding: EdgeInsets.symmetric(
                                   horizontal: 10, vertical: 10),
                             ),
@@ -272,7 +280,6 @@ class _MasterScreenState extends State<MasterScreen> {
             ),
           ],
         ),
-      ),
     );
   }
 }

@@ -10,6 +10,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
+import '../widgets/app_shell.dart';
+import '../utils/number_format.dart';
 
 /// Every raw row in `suppliers` is one visit/entry — this groups all of
 /// a person's entries together and nets their cr/dr into one running
@@ -80,7 +82,14 @@ List<_PartySummary> _buildSummaries(List<Map<String, dynamic>> rows) {
 }
 
 class SupplierMasterScreen extends StatefulWidget {
-  const SupplierMasterScreen({super.key});
+  final String? initialName;
+  final bool popAfterSave;
+
+  const SupplierMasterScreen({
+    super.key,
+    this.initialName,
+    this.popAfterSave = false,
+  });
 
   @override
   State<SupplierMasterScreen> createState() => _SupplierMasterScreenState();
@@ -92,10 +101,10 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen> {
   final _nameController = TextEditingController();
   final _mobileController = TextEditingController();
   final _cityController = TextEditingController();
-  final _crController = TextEditingController();
-  final _drController = TextEditingController();
-  final _grossController = TextEditingController();
-  final _netController = TextEditingController();
+  final _crController = TextEditingController(text: '0');
+  final _drController = TextEditingController(text: '0');
+  final _grossController = TextEditingController(text: '0');
+  final _netController = TextEditingController(text: '0');
   final _narrationController = TextEditingController();
   final _searchController = TextEditingController();
 
@@ -112,6 +121,10 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen> {
   @override
   void initState() {
     super.initState();
+    final seed = widget.initialName?.trim() ?? '';
+    if (seed.isNotEmpty) {
+      _nameController.text = seed;
+    }
     loadSuppliers();
     _searchController.addListener(_applySearch);
   }
@@ -160,10 +173,10 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen> {
     _nameController.clear();
     _mobileController.clear();
     _cityController.clear();
-    _crController.clear();
-    _drController.clear();
-    _grossController.clear();
-    _netController.clear();
+    _crController.text = '0';
+    _drController.text = '0';
+    _grossController.text = '0';
+    _netController.text = '0';
     _narrationController.clear();
     _formKey.currentState?.reset();
   }
@@ -182,10 +195,10 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen> {
       'name': _nameController.text.trim(),
       'mobile': _mobileController.text.trim(),
       'city': _cityController.text.trim(),
-      'cr': _crController.text.trim(),
-      'dr': _drController.text.trim(),
-      'gross': _grossController.text.trim(),
-      'net': _netController.text.trim(),
+      'cr': orZero(_crController.text),
+      'dr': orZero(_drController.text),
+      'gross': orZero(_grossController.text),
+      'net': orZero(_netController.text),
       'narration': _narrationController.text.trim(),
       'balanceUnit': 'RUPEES',
       'billRef': '',
@@ -198,6 +211,12 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen> {
     if (!mounted) return;
 
     setState(() => _saving = false);
+
+    if (widget.popAfterSave) {
+      Navigator.pop(context, record['name'] as String);
+      return;
+    }
+
     _clearForm();
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -233,13 +252,8 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen> {
   }
 
   String _entryLine(Map<String, dynamic> e) {
-    final cr = double.tryParse((e['cr'] ?? '').toString()) ?? 0;
-    final dr = double.tryParse((e['dr'] ?? '').toString()) ?? 0;
-    final unit = (e['balanceUnit'] ?? 'RUPEES').toString();
-    final unitLabel = unit == 'GRAMS' ? 'g' : '₹';
-    if (dr > 0) return "DR $unitLabel${dr.toStringAsFixed(2)}";
-    if (cr > 0) return "CR $unitLabel${cr.toStringAsFixed(2)}";
-    return "No balance";
+    return "CR ${formatAmount(e['cr'])}  DR ${formatAmount(e['dr'])}  "
+        "GROSS ${formatWeight(e['gross'])}  NET ${formatWeight(e['net'])}";
   }
 
   // Drill-down view — every raw visit/entry behind one person's name,
@@ -406,10 +420,10 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen> {
         s['name'],
         s['mobile'],
         s['city'],
-        s['cr'],
-        s['dr'],
-        s['gross'],
-        s['net'],
+        formatAmount(s['cr']),
+        formatAmount(s['dr']),
+        formatWeight(s['gross']),
+        formatWeight(s['net']),
         s['balanceUnit'],
         s['billRef'],
         s['date'],
@@ -486,6 +500,7 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen> {
 
   Widget _buildFormCard() {
     return Container(
+      width: double.infinity,
       decoration: BoxDecoration(
         color: AppColors.cardWhite,
         borderRadius: BorderRadius.circular(8),
@@ -560,22 +575,6 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        TextField(
-          controller: _searchController,
-          style: const TextStyle(fontSize: 13),
-          decoration: InputDecoration(
-            hintText: "Search by name or mobile",
-            hintStyle: const TextStyle(fontSize: 13),
-            prefixIcon: const Icon(Icons.search, size: 20),
-            suffixIcon: _searchController.text.isNotEmpty
-                ? IconButton(
-              icon: const Icon(Icons.clear, size: 18),
-              onPressed: () => _searchController.clear(),
-            )
-                : null,
-          ),
-        ),
-        const SizedBox(height: 12),
         Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(vertical: 8),
@@ -601,12 +600,13 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen> {
             ),
           )
         else
-          Container(
-            decoration: BoxDecoration(
-              color: AppColors.cardWhite,
+          Material(
+            color: AppColors.cardWhite,
+            shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: AppColors.border),
+              side: const BorderSide(color: AppColors.border),
             ),
+            clipBehavior: Clip.antiAlias,
             child: Column(
               children: List.generate(_summaries.length, (index) {
                 final summary = _summaries[index];
@@ -614,52 +614,48 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen> {
                 final hasBalance = summary.rupees.abs() > 0.01 ||
                     summary.grams.abs() > 0.01;
 
-                return Container(
-                  decoration: BoxDecoration(
-                    border: isLast
-                        ? null
-                        : const Border(
-                      bottom: BorderSide(color: AppColors.border),
-                    ),
-                  ),
-                  child: ListTile(
-                    dense: true,
-                    onTap: () => _showPartyDetails(summary),
-                    leading: CircleAvatar(
-                      radius: 16,
-                      backgroundColor: AppColors.headerBand,
-                      child: Text(
-                        "${summary.entries.length}",
-                        style:
-                        const TextStyle(fontSize: 11, color: AppColors.navy),
+                return Column(
+                  children: [
+                    ListTile(
+                      dense: true,
+                      onTap: () => _showPartyDetails(summary),
+                      leading: CircleAvatar(
+                        radius: 16,
+                        backgroundColor: AppColors.headerBand,
+                        child: Text(
+                          "${summary.entries.length}",
+                          style: const TextStyle(
+                              fontSize: 11, color: AppColors.navy),
+                        ),
                       ),
-                    ),
-                    title: Text(
-                      summary.name,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w600, fontSize: 13),
-                    ),
-                    subtitle: Text(
-                      "${summary.mobile.isEmpty ? '-' : summary.mobile}"
-                          " · ${summary.city.isEmpty ? '-' : summary.city}\n"
-                          "${_outstandingLine(summary)}",
-                      style: TextStyle(
-                        fontSize: 11.5,
-                        color: hasBalance ? AppColors.navy : Colors.black54,
-                        fontWeight:
-                        hasBalance ? FontWeight.w600 : FontWeight.normal,
+                      title: Text(
+                        summary.name,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w600, fontSize: 13),
                       ),
+                      subtitle: Text(
+                        "${summary.mobile.isEmpty ? '-' : summary.mobile}"
+                            " · ${summary.city.isEmpty ? '-' : summary.city}\n"
+                            "${_outstandingLine(summary)}",
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: hasBalance ? AppColors.navy : Colors.black54,
+                          fontWeight:
+                          hasBalance ? FontWeight.w600 : FontWeight.normal,
+                        ),
+                      ),
+                      isThreeLine: true,
+                      trailing: summary.mobile.isNotEmpty
+                          ? IconButton(
+                        icon: const Icon(Icons.call,
+                            color: Colors.green, size: 18),
+                        onPressed: () => _callSupplier(summary.mobile),
+                      )
+                          : const Icon(Icons.chevron_right,
+                          color: AppColors.mutedBlue, size: 20),
                     ),
-                    isThreeLine: true,
-                    trailing: summary.mobile.isNotEmpty
-                        ? IconButton(
-                      icon: const Icon(Icons.call,
-                          color: Colors.green, size: 18),
-                      onPressed: () => _callSupplier(summary.mobile),
-                    )
-                        : const Icon(Icons.chevron_right,
-                        color: AppColors.mutedBlue, size: 20),
-                  ),
+                    if (!isLast) const Divider(height: 1),
+                  ],
                 );
               }),
             ),
@@ -668,29 +664,69 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen> {
     );
   }
 
+  Widget _buildBottomSearch() {
+    return Material(
+      elevation: 10,
+      color: Colors.white,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+          child: TextField(
+            controller: _searchController,
+            style: const TextStyle(fontSize: 13),
+            decoration: InputDecoration(
+              hintText: "Search supplier by name or mobile",
+              hintStyle: const TextStyle(fontSize: 13),
+              prefixIcon: const Icon(Icons.search, size: 20),
+              filled: true,
+              fillColor: AppColors.background,
+              suffixIcon: _searchController.text.isNotEmpty
+                  ? IconButton(
+                icon: const Icon(Icons.clear, size: 18),
+                onPressed: () => _searchController.clear(),
+              )
+                  : null,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text("SUPPLIER MASTER"),
+        leading: widget.popAfterSave ? null : shellMenuButton(context),
+        title: Text(
+          widget.popAfterSave ? "NEW SUPPLIER" : "SUPPLIER MASTER",
+        ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.share, size: 20),
-            tooltip: 'Share supplier list',
-            onPressed: _shareSuppliers,
-          ),
+          if (!widget.popAfterSave)
+            IconButton(
+              icon: const Icon(Icons.share, size: 20),
+              tooltip: 'Share supplier list',
+              onPressed: _shareSuppliers,
+            ),
         ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-        padding: const EdgeInsets.all(12),
-        child: SplitLayout(
-          primaryWidth: 380,
-          primary: _buildFormCard(),
-          secondary: _buildListSection(),
-        ),
+          : Column(
+        children: [
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: SplitLayout(
+                primary: _buildFormCard(),
+                secondary: _buildListSection(),
+              ),
+            ),
+          ),
+          _buildBottomSearch(),
+        ],
       ),
     );
   }
