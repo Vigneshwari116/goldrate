@@ -218,3 +218,147 @@ class DailyTotals {
     );
   }
 }
+
+/// One row of a customer/supplier name-wise gold statement (grams).
+class PartyNameWiseRow {
+  final String name;
+  final double opening;
+  final double debit;
+  final double credit;
+
+  const PartyNameWiseRow({
+    required this.name,
+    required this.opening,
+    required this.debit,
+    required this.credit,
+  });
+
+  double get closing => opening + debit - credit;
+
+  List<String> toTableCells() => [
+        name,
+        opening.toStringAsFixed(3),
+        debit.toStringAsFixed(3),
+        credit.toStringAsFixed(3),
+        closing.toStringAsFixed(3),
+      ];
+}
+
+DateTime? parseAppDate(String? raw) {
+  if (raw == null || raw.isEmpty) return null;
+  try {
+    final p = raw.split(RegExp(r'[-/]'));
+    if (p.length < 3) return null;
+    return DateTime(int.parse(p[2]), int.parse(p[1]), int.parse(p[0]));
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Gold grams received as payment on a bill or voucher.
+double goldPaidOnRow(Map<String, dynamic> row) {
+  final mode = (row['paymentMode'] ?? '').toString().toUpperCase();
+  if (mode == 'GOLD') {
+    return double.tryParse(
+            (row['paymentAmount'] ?? row['amount'] ?? '').toString()) ??
+        0;
+  }
+  return double.tryParse((row['cashToGold'] ?? '').toString()) ?? 0;
+}
+
+class _NameWiseAcc {
+  double opening = 0;
+  double debit = 0;
+  double credit = 0;
+}
+
+/// Customer: Debit (Sales), Credit (Payment).
+/// Supplier: Debit (Payment), Credit (Purchase).
+/// Closing = Opening + Debit − Credit, in grams.
+List<PartyNameWiseRow> buildPartyNameWise({
+  required bool customer,
+  required Iterable<String> knownNames,
+  required List<Map<String, dynamic>> transactions,
+  required List<Map<String, dynamic>> vouchers,
+  DateTime? from,
+  DateTime? to,
+  bool allHistory = false,
+}) {
+  final acc = <String, _NameWiseAcc>{};
+  void ensure(String name) {
+    final n = name.trim();
+    if (n.isEmpty) return;
+    acc.putIfAbsent(n, () => _NameWiseAcc());
+  }
+
+  for (final n in knownNames) {
+    ensure(n);
+  }
+
+  final fromDay = from == null
+      ? null
+      : DateTime(from.year, from.month, from.day);
+  final toDay = to == null ? null : DateTime(to.year, to.month, to.day);
+
+  void apply(String name, DateTime? date, double debit, double credit) {
+    ensure(name);
+    final a = acc[name.trim()];
+    if (a == null) return;
+    if (allHistory || fromDay == null || toDay == null) {
+      a.debit += debit;
+      a.credit += credit;
+      return;
+    }
+    final day = date == null
+        ? fromDay
+        : DateTime(date.year, date.month, date.day);
+    if (day.isBefore(fromDay)) {
+      a.opening += debit - credit;
+    } else if (!day.isAfter(toDay)) {
+      a.debit += debit;
+      a.credit += credit;
+    }
+  }
+
+  for (final bill in transactions) {
+    final type = (bill['transactionType'] ?? '').toString();
+    final name = (bill['partyName'] ?? '').toString();
+    final grams = double.tryParse((bill['totalPureWt'] ?? '').toString()) ?? 0;
+    final paid = goldPaidOnRow(bill);
+    final date = parseAppDate(bill['date']?.toString());
+    if (customer && type == 'SALES') {
+      apply(name, date, grams, paid);
+    } else if (!customer && type == 'PURCHASE') {
+      apply(name, date, paid, grams);
+    }
+  }
+
+  for (final v in vouchers) {
+    final name = (v['partyName'] ?? '').toString();
+    final flag = v['isCustomer'];
+    final isCust = flag == 1 || flag == true || flag == '1'
+        ? true
+        : flag == 0 || flag == false || flag == '0'
+            ? false
+            : (v['voucherType'] ?? '').toString() == 'RECEIPT';
+    if (customer != isCust) continue;
+    final paid = goldPaidOnRow(v);
+    final date = parseAppDate(v['date']?.toString());
+    if (customer) {
+      apply(name, date, 0, paid);
+    } else {
+      apply(name, date, paid, 0);
+    }
+  }
+
+  final names = acc.keys.toList()..sort();
+  return [
+    for (final n in names)
+      PartyNameWiseRow(
+        name: n,
+        opening: acc[n]!.opening,
+        debit: acc[n]!.debit,
+        credit: acc[n]!.credit,
+      ),
+  ];
+}

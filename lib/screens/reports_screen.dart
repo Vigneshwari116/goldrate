@@ -20,6 +20,8 @@ enum _ReportTab {
   purchaseAudit,
   customerLedger,
   supplierLedger,
+  customerNameWise,
+  supplierNameWise,
 }
 
 class ReportsScreen extends StatefulWidget {
@@ -238,6 +240,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
             tab(_ReportTab.purchaseAudit, 'PURCHASE AUDIT'),
             tab(_ReportTab.customerLedger, 'CUSTOMER LEDGER'),
             tab(_ReportTab.supplierLedger, 'SUPPLIER LEDGER'),
+            tab(_ReportTab.customerNameWise, 'CUSTOMER NAME WISE'),
+            tab(_ReportTab.supplierNameWise, 'SUPPLIER NAME WISE'),
           ],
         ),
       ),
@@ -321,6 +325,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
         return _partyLedger(_customers, 'CUSTOMER LEDGER MATRIX');
       case _ReportTab.supplierLedger:
         return _partyLedger(_suppliers, 'SUPPLIER LEDGER MATRIX');
+      case _ReportTab.customerNameWise:
+        return _nameWise(customer: true);
+      case _ReportTab.supplierNameWise:
+        return _nameWise(customer: false);
     }
   }
 
@@ -477,6 +485,51 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
+  Widget _nameWise({required bool customer}) {
+    final known = (customer ? _customers : _suppliers)
+        .map((e) => (e['name'] ?? '').toString())
+        .where((n) => n.trim().isNotEmpty);
+    final rows = buildPartyNameWise(
+      customer: customer,
+      knownNames: known,
+      transactions: _txns,
+      vouchers: _vouchers,
+      from: _from,
+      to: _to,
+      allHistory: _allHistory,
+    );
+    final headers = customer
+        ? const [
+            'Customer Name',
+            'Opening Balance',
+            'Debit (Sales)',
+            'Credit (Payment)',
+            'Closing Balance',
+          ]
+        : const [
+            'Supplier Name',
+            'Opening Balance',
+            'Debit (Payment)',
+            'Credit (Purchase)',
+            'Closing Balance',
+          ];
+    final table = [for (final r in rows) r.toTableCells()];
+    final closingTotal =
+        rows.fold<double>(0, (sum, r) => sum + r.closing);
+    return _reportShell(
+      title: customer
+          ? 'CUSTOMER NAME WISE GOLD STATEMENT'
+          : 'SUPPLIER NAME WISE GOLD STATEMENT',
+      records: rows.length,
+      units: closingTotal,
+      total: closingTotal,
+      totalText: 'CLOSING: ${closingTotal.toStringAsFixed(3)} g',
+      child: _htmlTable(table, headers: headers, evenFlex: true),
+      pdfRows: table,
+      headers: headers,
+    );
+  }
+
   Widget _htmlTable(List<List<String>> rows,
       {List<String> headers = const [
         'BILL NO',
@@ -484,9 +537,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
         'RATE',
         'QTY',
         'AMOUNT',
-      ]}) {
+      ],
+      bool evenFlex = false}) {
     if (rows.isEmpty) {
       return const Center(child: Text('No records in this filter'));
+    }
+    int flexFor(int i) {
+      if (evenFlex) return 2;
+      return i == 1 ? 4 : 2;
     }
     return ListView(
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
@@ -498,7 +556,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             children: [
               for (var i = 0; i < headers.length; i++)
                 Expanded(
-                  flex: i == 1 ? 4 : 2,
+                  flex: flexFor(i),
                   child: Text(headers[i],
                       style: const TextStyle(
                           fontSize: 11, fontWeight: FontWeight.w700)),
@@ -518,7 +576,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               children: [
                 for (var i = 0; i < row.length; i++)
                   Expanded(
-                    flex: i == 1 ? 4 : 2,
+                    flex: flexFor(i),
                     child: Text(row[i], style: const TextStyle(fontSize: 12)),
                   ),
               ],
@@ -542,6 +600,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       'QTY',
       'AMOUNT',
     ],
+    String? totalText,
   }) {
     return Padding(
       padding: const EdgeInsets.all(12),
@@ -579,7 +638,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                         horizontal: 14, vertical: 10),
                     color: AppColors.navy,
                     child: Text(
-                      'TOTAL: ₹${total.toStringAsFixed(2)}',
+                      totalText ?? 'TOTAL: ₹${total.toStringAsFixed(2)}',
                       style: const TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w800),
                     ),
@@ -602,8 +661,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     ),
                   ),
                 ),
-                onPressed: () => _printPdf(title, headers, pdfRows, total),
-                child: Text('PRINT A4 ${title.contains('PURCHASE') ? 'PURCHASE' : 'GOLD'} AUDIT REPORT (PDF)'),
+                onPressed: () => _printPdf(
+                  title,
+                  headers,
+                  pdfRows,
+                  total,
+                  totalText: totalText,
+                ),
+                child: const Text('SHARE PDF — THEN PRINT FROM THE SHARE APP'),
               ),
             ),
           ],
@@ -616,8 +681,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
     String title,
     List<String> headers,
     List<List<String>> rows,
-    double total,
-  ) async {
+    double total, {
+    String? totalText,
+  }) async {
     final doc = pw.Document();
     doc.addPage(
       pw.MultiPage(
@@ -630,7 +696,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
           pw.Text(_filterLabel, style: const pw.TextStyle(fontSize: 10)),
           pw.SizedBox(height: 8),
-          pw.Text('TOTAL: Rs. ${total.toStringAsFixed(2)}',
+          pw.Text(totalText ?? 'TOTAL: Rs. ${total.toStringAsFixed(2)}',
               style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
           pw.SizedBox(height: 10),
           if (rows.isEmpty)
@@ -654,6 +720,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final dir = await getTemporaryDirectory();
     final file = File('${dir.path}/${title.replaceAll(' ', '_')}.pdf');
     await file.writeAsBytes(bytes);
-    await Share.shareXFiles([XFile(file.path)], subject: title);
+    await Share.shareXFiles(
+      [XFile(file.path)],
+      subject: title,
+      text:
+          'Share this PDF first. Print it from WhatsApp, Files, or any printer app.',
+    );
   }
 }

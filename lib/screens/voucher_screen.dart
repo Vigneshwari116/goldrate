@@ -1,10 +1,16 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:share_plus/share_plus.dart';
 
 import '../database/database_helper.dart';
 import '../logic/gold_ledger.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
+import '../widgets/material_tile_card.dart';
 
 /// Receipt from a customer (they pay gold or cash) or payment to a
 /// supplier. Cash is converted to gold at today's G.P RATE.
@@ -180,14 +186,79 @@ class _VoucherScreenState extends State<VoucherScreen> {
       });
     }
 
+    final saved = {
+      'voucherType': type,
+      'voucherNo': _nextNo,
+      'partyName': name,
+      'paymentMode': _mode,
+      'amount': amount.toStringAsFixed(2),
+      'cashToGold': s.cashToGoldGrams.toStringAsFixed(3),
+      'goldRateUsed': s.ratePerGram.toStringAsFixed(2),
+      'oldGrams': s.oldGrams.toStringAsFixed(3),
+      'newGrams': s.newGrams.toStringAsFixed(3),
+      'narration': _narrationController.text.trim(),
+      'date': date,
+      'time': time,
+    };
+
     if (!mounted) return;
     setState(() => _saving = false);
     _partyController.clear();
     _amountController.clear();
     _narrationController.clear();
     _toast(
-        'Voucher #$type-$_nextNo saved. New gold balance ${s.newGrams.toStringAsFixed(3)} g');
-    _load();
+        'Voucher #$type-${saved['voucherNo']} saved. New gold balance ${s.newGrams.toStringAsFixed(3)} g');
+    await _load();
+    if (!mounted) return;
+    await _shareVoucherPdf(saved);
+  }
+
+  Future<void> _shareVoucherPdf(Map<String, dynamic> row) async {
+    final type = (row['voucherType'] ?? 'RECEIPT').toString();
+    final no = row['voucherNo'];
+    final doc = pw.Document();
+    doc.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(28),
+        build: (context) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text('JEWELLERY MANAGEMENT',
+                style: pw.TextStyle(
+                    fontSize: 16, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 4),
+            pw.Text('$type VOUCHER',
+                style: pw.TextStyle(
+                    fontSize: 13, fontWeight: pw.FontWeight.bold)),
+            pw.Divider(),
+            pw.Text('Voucher No: $type-$no'),
+            pw.Text('Date: ${row['date'] ?? ''}  ${row['time'] ?? ''}'),
+            pw.Text('Name: ${row['partyName'] ?? ''}'),
+            pw.SizedBox(height: 10),
+            pw.Text('Mode: ${row['paymentMode'] ?? ''}'),
+            pw.Text('Amount: ${row['amount'] ?? ''}'),
+            pw.Text('Cash to gold: ${row['cashToGold'] ?? '0'} g'),
+            pw.Text('G.P rate used: ${row['goldRateUsed'] ?? ''}'),
+            pw.Text('Old gold: ${row['oldGrams'] ?? ''} g'),
+            pw.Text('New gold: ${row['newGrams'] ?? ''} g'),
+            if ((row['narration'] ?? '').toString().isNotEmpty)
+              pw.Text('Narration: ${row['narration']}'),
+            pw.SizedBox(height: 16),
+            pw.Text('Share this PDF, then print from the share app if needed.',
+                style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+          ],
+        ),
+      ),
+    );
+    final bytes = await doc.save();
+    final dir = await getTemporaryDirectory();
+    final file = File('${dir.path}/${type}_$no.pdf');
+    await file.writeAsBytes(bytes);
+    await Share.shareXFiles(
+      [XFile(file.path)],
+      subject: '$type voucher #$no - ${row['partyName'] ?? ''}',
+    );
   }
 
   void _toast(String msg) {
@@ -242,17 +313,20 @@ class _VoucherScreenState extends State<VoucherScreen> {
             ),
           ),
           if (_suggestions.isNotEmpty)
-            Column(
-              children: _suggestions
-                  .map((n) => ListTile(
-                        dense: true,
-                        title: Text(n, style: const TextStyle(fontSize: 13)),
-                        onTap: () {
-                          _partyController.text = n;
-                          setState(() => _suggestions = []);
-                        },
-                      ))
-                  .toList(),
+            MaterialTileCard(
+              radius: 6,
+              child: Column(
+                children: _suggestions
+                    .map((n) => ListTile(
+                          dense: true,
+                          title: Text(n, style: const TextStyle(fontSize: 13)),
+                          onTap: () {
+                            _partyController.text = n;
+                            setState(() => _suggestions = []);
+                          },
+                        ))
+                    .toList(),
+              ),
             ),
           const SizedBox(height: 8),
           Text(
@@ -351,21 +425,21 @@ class _VoucherScreenState extends State<VoucherScreen> {
           )
         else
           ..._history.map((row) {
-            return Container(
+            return MaterialTileCard(
               margin: const EdgeInsets.only(bottom: 8),
-              decoration: BoxDecoration(
-                color: AppColors.cardWhite,
-                border: Border.all(color: AppColors.border),
-                borderRadius: BorderRadius.circular(8),
-              ),
               child: ListTile(
                 dense: true,
+                onTap: () => _shareVoucherPdf(row),
                 title: Text('${row['partyName']}  ·  ${row['voucherType']}-#${row['voucherNo']}'),
                 subtitle: Text(
                   '${row['paymentMode']} ${row['amount']}  '
                   'cash→gold ${row['cashToGold'] ?? '0'} g  '
                   'old ${row['oldGrams']} → new ${row['newGrams']}  '
                   '${row['date']} ${row['time']}',
+                ),
+                trailing: IconButton(
+                  icon: const Icon(Icons.share, size: 18, color: AppColors.mutedBlue),
+                  onPressed: () => _shareVoucherPdf(row),
                 ),
               ),
             );

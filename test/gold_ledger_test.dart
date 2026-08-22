@@ -65,6 +65,72 @@ void main() {
     expect(result.newGrams, closeTo(-8.25, 0.0001));
   });
 
+  test('customer name-wise uses sales as debit and payments as credit', () {
+    final rows = buildPartyNameWise(
+      customer: true,
+      knownNames: ['Ravi'],
+      transactions: [
+        {
+          'transactionType': 'SALES',
+          'partyName': 'Ravi',
+          'totalPureWt': '12.500',
+          'paymentMode': 'CASH',
+          'paymentAmount': '0',
+          'cashToGold': '0',
+          'date': '01-08-2026',
+        },
+        {
+          'transactionType': 'SALES',
+          'partyName': 'Ravi',
+          'totalPureWt': '2.000',
+          'paymentMode': 'CASH',
+          'cashToGold': '1.000',
+          'date': '10-08-2026',
+        },
+      ],
+      vouchers: [
+        {
+          'partyName': 'Ravi',
+          'isCustomer': 1,
+          'voucherType': 'RECEIPT',
+          'paymentMode': 'GOLD',
+          'amount': '3.000',
+          'date': '10-08-2026',
+        },
+      ],
+      from: DateTime(2026, 8, 10),
+      to: DateTime(2026, 8, 10),
+    );
+    expect(rows, hasLength(1));
+    expect(rows.first.opening, closeTo(12.5, 0.0001));
+    expect(rows.first.debit, closeTo(2.0, 0.0001));
+    expect(rows.first.credit, closeTo(4.0, 0.0001));
+    expect(rows.first.closing, closeTo(10.5, 0.0001));
+  });
+
+  test('supplier name-wise uses payments as debit and purchases as credit', () {
+    final rows = buildPartyNameWise(
+      customer: false,
+      knownNames: ['Meena'],
+      transactions: [
+        {
+          'transactionType': 'PURCHASE',
+          'partyName': 'Meena',
+          'totalPureWt': '8.250',
+          'paymentMode': 'CASH',
+          'cashToGold': '0',
+          'date': '05-08-2026',
+        },
+      ],
+      vouchers: const [],
+      allHistory: true,
+    );
+    expect(rows.first.opening, 0);
+    expect(rows.first.debit, 0);
+    expect(rows.first.credit, closeTo(8.25, 0.0001));
+    expect(rows.first.closing, closeTo(-8.25, 0.0001));
+  });
+
   test('daily totals accumulate sales and purchase credit automatically', () {
     final totals = const DailyTotals()
         .addSale(

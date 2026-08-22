@@ -13,6 +13,7 @@ import '../database/database_helper.dart';
 import '../logic/gold_ledger.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
+import '../widgets/material_tile_card.dart';
 
 enum TransactionKind { purchase, sales }
 
@@ -394,37 +395,14 @@ class _TransactionScreenState extends State<TransactionScreen> {
 
     await _load();
     if (!mounted) return;
-    await _offerPrints(savedRow);
+    await _shareEstimateThenAccounts(savedRow);
   }
 
-  Future<void> _offerPrints(Map<String, dynamic> row) async {
-    await showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(
-          _isPurchase ? 'Purchase saved' : 'Sale saved',
-          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-        ),
-        content: const Text(
-          'Print the estimate (weight) and the accounts bill (money). '
-          'Both use the same saved bill number. Nothing extra is stored.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => _shareEstimate(row),
-            child: const Text('PRINT ESTIMATE'),
-          ),
-          TextButton(
-            onPressed: () => _shareAccountsBill(row),
-            child: const Text('PRINT ACCOUNTS BILL'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('CLOSE'),
-          ),
-        ],
-      ),
-    );
+  /// Share estimate PDF, then accounts PDF. Print from the share sheet.
+  Future<void> _shareEstimateThenAccounts(Map<String, dynamic> row) async {
+    await _shareEstimate(row);
+    if (!mounted) return;
+    await _shareAccountsBill(row);
   }
 
   /// Posts this bill's balance to the matching party's ledger table —
@@ -797,7 +775,9 @@ class _TransactionScreenState extends State<TransactionScreen> {
       [XFile(file.path)],
       subject:
           '${estimate ? 'Estimate' : 'Accounts bill'} #${row['billNo']} - ${row['partyName'] ?? ''}',
-      text: '${_isPurchase ? 'Purchase' : 'Sales'} ${estimate ? 'estimate' : 'accounts bill'}',
+      text:
+          '${_isPurchase ? 'Purchase' : 'Sales'} ${estimate ? 'estimate' : 'accounts bill'}. '
+          'Share this PDF, then print from the share app if needed.',
     );
   }
 
@@ -928,13 +908,9 @@ class _TransactionScreenState extends State<TransactionScreen> {
             ],
           ),
           if (_partySuggestions.isNotEmpty)
-            Container(
+            MaterialTileCard(
               margin: const EdgeInsets.only(top: 4),
-              decoration: BoxDecoration(
-                color: AppColors.cardWhite,
-                border: Border.all(color: AppColors.border),
-                borderRadius: BorderRadius.circular(6),
-              ),
+              radius: 6,
               child: Column(
                 children: _partySuggestions
                     .map((name) => ListTile(
@@ -1258,12 +1234,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
             ),
           )
         else
-          Container(
-            decoration: BoxDecoration(
-              color: AppColors.cardWhite,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: AppColors.border),
-            ),
+          MaterialTileCard(
             child: Column(
               children: List.generate(_history.length, (index) {
                 final row = _history[index];
@@ -1307,7 +1278,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
                         IconButton(
                           icon: const Icon(Icons.share,
                               color: AppColors.mutedBlue, size: 18),
-                          onPressed: () => _offerPrints(row),
+                          onPressed: () => _shareEstimateThenAccounts(row),
                         ),
                         IconButton(
                           icon: const Icon(Icons.delete,
