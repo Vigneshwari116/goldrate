@@ -11,6 +11,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../database/database_helper.dart';
 import '../logic/gold_ledger.dart';
+import '../pdf/pdf_kit.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
 import '../widgets/material_tile_card.dart';
@@ -554,7 +555,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
         closing.abs() < 0.0005 ? 'NIL' : '${closing.toStringAsFixed(3)} g';
     final kind = row['transactionType'] == 'PURCHASE' ? 'PUR' : 'SAL';
 
-    final doc = pw.Document();
+    final doc = await PdfKit.document();
     doc.addPage(
       pw.Page(
         pageFormat: PdfPageFormat.a5,
@@ -671,7 +672,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
     final kind = row['transactionType'] == 'PURCHASE' ? 'PUR' : 'SAL';
     final cashToGold = (row['cashToGold'] ?? '').toString();
 
-    final doc = pw.Document();
+    final doc = await PdfKit.document();
     doc.addPage(
       pw.Page(
         pageFormat: PdfPageFormat.a5,
@@ -768,17 +769,19 @@ class _TransactionScreenState extends State<TransactionScreen> {
         estimate ? await _buildEstimatePdf(row) : await _buildAccountsPdf(row);
     final kind = _isPurchase ? 'purchase' : 'sales';
     final type = estimate ? 'estimate' : 'accounts';
-    final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/${kind}_${type}_${row['billNo']}.pdf');
-    await file.writeAsBytes(bytes);
-    await Share.shareXFiles(
-      [XFile(file.path)],
+    final file = await PdfKit.sharePdf(
+      bytes: bytes,
+      fileName: '${kind}_${type}_${row['billNo']}.pdf',
       subject:
           '${estimate ? 'Estimate' : 'Accounts bill'} #${row['billNo']} - ${row['partyName'] ?? ''}',
       text:
           '${_isPurchase ? 'Purchase' : 'Sales'} ${estimate ? 'estimate' : 'accounts bill'}. '
-          'Share this PDF, then print from the share app if needed.',
+          'Share this PDF, then print from the share app or the opened PDF window.',
     );
+    if (!mounted) return;
+    if (!(Platform.isAndroid || Platform.isIOS)) {
+      _showMessage('PDF saved: ${file.path}');
+    }
   }
 
   Future<void> _shareEstimate(Map<String, dynamic> row) =>

@@ -101,7 +101,7 @@ void main() {
       from: DateTime(2026, 8, 10),
       to: DateTime(2026, 8, 10),
     );
-    expect(rows, hasLength(1));
+    expect(rows.first.types, 'SALES, RECEIPT');
     expect(rows.first.opening, closeTo(12.5, 0.0001));
     expect(rows.first.debit, closeTo(2.0, 0.0001));
     expect(rows.first.credit, closeTo(4.0, 0.0001));
@@ -126,9 +126,20 @@ void main() {
       allHistory: true,
     );
     expect(rows.first.opening, 0);
+    expect(rows.first.types, 'PURCHASE');
     expect(rows.first.debit, 0);
     expect(rows.first.credit, closeTo(8.25, 0.0001));
     expect(rows.first.closing, closeTo(-8.25, 0.0001));
+  });
+
+  test('ledger entry type and payment mode labels', () {
+    expect(ledgerEntryType('SAL-12'), 'SALES');
+    expect(ledgerEntryType('PUR-4'), 'PURCHASE');
+    expect(ledgerEntryType('RECEIPT-3'), 'RECEIPT');
+    expect(ledgerEntryType('PAYMENT-2'), 'PAYMENT');
+    expect(paymentModeLabel('upi'), 'UPI');
+    expect(paymentModeLabel(''), 'PAYMENT');
+    expect(paymentModeLabel('GOLD'), 'GOLD');
   });
 
   test('daily totals accumulate sales and purchase credit automatically', () {

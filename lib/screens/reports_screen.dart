@@ -1,16 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:share_plus/share_plus.dart';
 
 import '../database/database_helper.dart';
 import '../logic/gold_ledger.dart';
+import '../pdf/pdf_kit.dart';
 import '../theme/app_theme.dart';
 
 enum _ReportTab {
@@ -418,37 +416,50 @@ class _ReportsScreenState extends State<ReportsScreen> {
       }
       final billNo =
           '${bill['transactionType'] == 'PURCHASE' ? 'PUR' : 'SAL'}-${bill['billNo']}';
+      final name = '${bill['partyName'] ?? ''}';
+      final mode = paymentModeLabel(bill['paymentMode']?.toString());
       if (items.isEmpty) {
         table.add([
           billNo,
-          '${bill['partyName']}',
+          name,
+          '-',
+          mode,
           '-',
           '${bill['totalPureWt']} g',
-          '₹${bill['totalValue']}',
+          'Rs.${bill['totalValue']}',
         ]);
       }
       for (final item in items) {
         if (item is! Map) continue;
         table.add([
           billNo,
-          '${item['type']}  ${bill['partyName']}  '
-              'mode ${bill['paymentMode']}  '
-              'old ${bill['oldGrams'] ?? '-'}g → new ${bill['newGrams'] ?? bill['balance']}g'
-              '${(bill['cashToGold'] ?? '0') != '0.000' && (bill['cashToGold'] ?? '') != '' && (bill['cashToGold'] ?? '0') != '0' ? '  cash→gold ${bill['cashToGold']}g' : ''}',
-          '₹${(item['rate'] ?? 0)}',
-          'x${item['weight']} gwt',
-          '₹${((item['value'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
+          name,
+          '${item['type'] ?? ''}',
+          mode,
+          'Rs.${item['rate'] ?? 0}',
+          '${item['weight']} g',
+          'Rs.${((item['value'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
         ]);
       }
     }
 
+    const headers = [
+      'BILL NO',
+      'NAME',
+      'PARTICULARS',
+      'MODE',
+      'RATE',
+      'QTY',
+      'AMOUNT',
+    ];
     return _reportShell(
       title: title,
       records: rows.length,
       units: units,
       total: total,
-      child: _htmlTable(table),
+      child: _htmlTable(table, headers: headers, columnFlex: const [2, 3, 2, 2, 2, 2, 2]),
       pdfRows: table,
+      headers: headers,
     );
   }
 
@@ -462,26 +473,29 @@ class _ReportsScreenState extends State<ReportsScreen> {
       total += dr;
       table.add([
         (e['billRef'] ?? '-').toString(),
-        '${e['name']}  ${(e['narration'] ?? '')}',
-        (e['balanceUnit'] ?? '').toString(),
+        ledgerEntryType((e['billRef'] ?? '').toString()),
+        (e['name'] ?? '').toString(),
+        (e['narration'] ?? '').toString(),
         dr > 0 ? 'DR ${dr.toStringAsFixed(3)}' : 'CR ${cr.toStringAsFixed(3)}',
         e['date']?.toString() ?? '',
       ]);
     }
+    const headers = [
+      'BILL NO',
+      'TYPE',
+      'NAME',
+      'PARTICULARS',
+      'QTY',
+      'DATE',
+    ];
     return _reportShell(
       title: title,
       records: rows.length,
       units: 0,
       total: total,
-      child: _htmlTable(table, headers: const [
-        'BILL NO',
-        'PARTICULARS',
-        'UNIT',
-        'QTY',
-        'DATE',
-      ]),
+      child: _htmlTable(table, headers: headers, columnFlex: const [2, 2, 3, 4, 2, 2]),
       pdfRows: table,
-      headers: const ['BILL NO', 'PARTICULARS', 'UNIT', 'QTY', 'DATE'],
+      headers: headers,
     );
   }
 
@@ -501,13 +515,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final headers = customer
         ? const [
             'Customer Name',
+            'Type',
             'Opening Balance',
             'Debit (Sales)',
-            'Credit (Payment)',
+            'Credit (Receipt)',
             'Closing Balance',
           ]
         : const [
             'Supplier Name',
+            'Type',
             'Opening Balance',
             'Debit (Payment)',
             'Credit (Purchase)',
@@ -538,11 +554,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
         'QTY',
         'AMOUNT',
       ],
-      bool evenFlex = false}) {
+      bool evenFlex = false,
+      List<int>? columnFlex}) {
     if (rows.isEmpty) {
       return const Center(child: Text('No records in this filter'));
     }
     int flexFor(int i) {
+      if (columnFlex != null && i < columnFlex.length) return columnFlex[i];
       if (evenFlex) return 2;
       return i == 1 ? 4 : 2;
     }
@@ -668,7 +686,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   total,
                   totalText: totalText,
                 ),
-                child: const Text('SHARE PDF — THEN PRINT FROM THE SHARE APP'),
+                child: Text(
+                  Platform.isAndroid || Platform.isIOS
+                      ? 'SHARE PDF — THEN PRINT FROM WHATSAPP / FILES'
+                      : 'SAVE PDF AND OPEN — THEN PRINT FROM THE PDF WINDOW',
+                ),
               ),
             ),
           ],
@@ -684,7 +706,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     double total, {
     String? totalText,
   }) async {
-    final doc = pw.Document();
+    final doc = await PdfKit.document();
     doc.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
@@ -702,7 +724,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           if (rows.isEmpty)
             pw.Text('No records')
           else
-            pw.Table.fromTextArray(
+            pw.TableHelper.fromTextArray(
               headers: headers,
               data: rows,
               headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9),
@@ -713,18 +735,18 @@ class _ReportsScreenState extends State<ReportsScreen> {
       ),
     );
     final bytes = await doc.save();
-    await _shareBytes(bytes, title);
-  }
-
-  Future<void> _shareBytes(Uint8List bytes, String title) async {
-    final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/${title.replaceAll(' ', '_')}.pdf');
-    await file.writeAsBytes(bytes);
-    await Share.shareXFiles(
-      [XFile(file.path)],
+    final file = await PdfKit.sharePdf(
+      bytes: bytes,
+      fileName: title,
       subject: title,
       text:
           'Share this PDF first. Print it from WhatsApp, Files, or any printer app.',
     );
+    if (!mounted) return;
+    if (!(Platform.isAndroid || Platform.isIOS)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('PDF saved: ${file.path}')),
+      );
+    }
   }
 }

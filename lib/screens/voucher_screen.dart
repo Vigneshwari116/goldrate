@@ -1,13 +1,13 @@
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:share_plus/share_plus.dart';
 
 import '../database/database_helper.dart';
 import '../logic/gold_ledger.dart';
+import '../pdf/pdf_kit.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
 import '../widgets/material_tile_card.dart';
@@ -216,7 +216,7 @@ class _VoucherScreenState extends State<VoucherScreen> {
   Future<void> _shareVoucherPdf(Map<String, dynamic> row) async {
     final type = (row['voucherType'] ?? 'RECEIPT').toString();
     final no = row['voucherNo'];
-    final doc = pw.Document();
+    final doc = await PdfKit.document();
     doc.addPage(
       pw.Page(
         pageFormat: PdfPageFormat.a4,
@@ -252,13 +252,15 @@ class _VoucherScreenState extends State<VoucherScreen> {
       ),
     );
     final bytes = await doc.save();
-    final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/${type}_$no.pdf');
-    await file.writeAsBytes(bytes);
-    await Share.shareXFiles(
-      [XFile(file.path)],
+    final file = await PdfKit.sharePdf(
+      bytes: bytes,
+      fileName: '${type}_$no.pdf',
       subject: '$type voucher #$no - ${row['partyName'] ?? ''}',
     );
+    if (!mounted) return;
+    if (!(Platform.isAndroid || Platform.isIOS)) {
+      _toast('PDF saved: ${file.path}');
+    }
   }
 
   void _toast(String msg) {

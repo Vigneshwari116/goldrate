@@ -222,12 +222,14 @@ class DailyTotals {
 /// One row of a customer/supplier name-wise gold statement (grams).
 class PartyNameWiseRow {
   final String name;
+  final String types;
   final double opening;
   final double debit;
   final double credit;
 
   const PartyNameWiseRow({
     required this.name,
+    required this.types,
     required this.opening,
     required this.debit,
     required this.credit,
@@ -237,11 +239,31 @@ class PartyNameWiseRow {
 
   List<String> toTableCells() => [
         name,
+        types,
         opening.toStringAsFixed(3),
         debit.toStringAsFixed(3),
         credit.toStringAsFixed(3),
         closing.toStringAsFixed(3),
       ];
+}
+
+String ledgerEntryType(String billRef) {
+  final r = billRef.toUpperCase();
+  if (r.startsWith('SAL')) return 'SALES';
+  if (r.startsWith('PUR')) return 'PURCHASE';
+  if (r.contains('RECEIPT') || r.startsWith('RCPT')) return 'RECEIPT';
+  if (r.contains('PAYMENT') || r.startsWith('PAY')) return 'PAYMENT';
+  return '-';
+}
+
+String paymentModeLabel(String? raw) {
+  final m = (raw ?? '').trim().toUpperCase();
+  if (m == 'CASH' || m == 'UPI' || m == 'GOLD') return m;
+  if (m.contains('UPI')) return 'UPI';
+  if (m.contains('CASH')) return 'CASH';
+  if (m.contains('GOLD')) return 'GOLD';
+  if (m.isEmpty) return 'PAYMENT';
+  return m;
 }
 
 DateTime? parseAppDate(String? raw) {
@@ -270,6 +292,7 @@ class _NameWiseAcc {
   double opening = 0;
   double debit = 0;
   double credit = 0;
+  final types = <String>{};
 }
 
 /// Customer: Debit (Sales), Credit (Payment).
@@ -300,13 +323,20 @@ List<PartyNameWiseRow> buildPartyNameWise({
       : DateTime(from.year, from.month, from.day);
   final toDay = to == null ? null : DateTime(to.year, to.month, to.day);
 
-  void apply(String name, DateTime? date, double debit, double credit) {
+  void apply(
+    String name,
+    DateTime? date,
+    double debit,
+    double credit,
+    String kind,
+  ) {
     ensure(name);
     final a = acc[name.trim()];
     if (a == null) return;
     if (allHistory || fromDay == null || toDay == null) {
       a.debit += debit;
       a.credit += credit;
+      if (debit > 0 || credit > 0) a.types.add(kind);
       return;
     }
     final day = date == null
@@ -317,6 +347,7 @@ List<PartyNameWiseRow> buildPartyNameWise({
     } else if (!day.isAfter(toDay)) {
       a.debit += debit;
       a.credit += credit;
+      if (debit > 0 || credit > 0) a.types.add(kind);
     }
   }
 
@@ -327,9 +358,9 @@ List<PartyNameWiseRow> buildPartyNameWise({
     final paid = goldPaidOnRow(bill);
     final date = parseAppDate(bill['date']?.toString());
     if (customer && type == 'SALES') {
-      apply(name, date, grams, paid);
+      apply(name, date, grams, paid, 'SALES');
     } else if (!customer && type == 'PURCHASE') {
-      apply(name, date, paid, grams);
+      apply(name, date, paid, grams, 'PURCHASE');
     }
   }
 
@@ -345,9 +376,9 @@ List<PartyNameWiseRow> buildPartyNameWise({
     final paid = goldPaidOnRow(v);
     final date = parseAppDate(v['date']?.toString());
     if (customer) {
-      apply(name, date, 0, paid);
+      apply(name, date, 0, paid, 'RECEIPT');
     } else {
-      apply(name, date, paid, 0);
+      apply(name, date, paid, 0, 'PAYMENT');
     }
   }
 
@@ -356,6 +387,7 @@ List<PartyNameWiseRow> buildPartyNameWise({
     for (final n in names)
       PartyNameWiseRow(
         name: n,
+        types: acc[n]!.types.isEmpty ? '-' : acc[n]!.types.join(', '),
         opening: acc[n]!.opening,
         debit: acc[n]!.debit,
         credit: acc[n]!.credit,
