@@ -3,48 +3,48 @@ import 'package:grate_app/logic/gold_ledger.dart';
 
 void main() {
   test('cash converts to gold at the given rate', () {
-    expect(GoldLedger.cashToGold(75500, 15100), closeTo(5, 0.0001));
-    expect(GoldLedger.goldToCash(50, 15100), closeTo(755000, 0.01));
+    expect(GoldLedger.cashToGold(30200, 15100), closeTo(2, 0.0001));
+    expect(GoldLedger.goldToCash(2, 15100), closeTo(30200, 0.01));
   });
 
-  test('unpaid 50g sale adds 50g to the customer gold balance', () {
+  test('unpaid sale adds the billed weight to the customer gold balance', () {
     final result = settleLedger(
       oldGrams: 0,
       oldRupees: 0,
-      billGrams: 50,
-      billRupees: 755000,
+      billGrams: 12.5,
+      billRupees: 188750,
       paymentMode: 'CASH',
       paymentAmount: 0,
       ratePerGram: 15100,
       billSign: 1,
     );
-    expect(result.newGrams, closeTo(50, 0.0001));
+    expect(result.newGrams, closeTo(12.5, 0.0001));
     expect(result.cashToGoldGrams, 0);
   });
 
-  test('cash receipt against a 50g balance converts rupees into gold', () {
+  test('cash receipt converts rupees into gold and reduces the gold balance', () {
     final result = settleLedger(
-      oldGrams: 50,
-      oldRupees: 755000,
+      oldGrams: 12.5,
+      oldRupees: 188750,
       billGrams: 0,
       billRupees: 0,
       paymentMode: 'CASH',
-      paymentAmount: 755000,
+      paymentAmount: 188750,
       ratePerGram: 15100,
       billSign: 1,
     );
-    expect(result.cashToGoldGrams, closeTo(50, 0.0001));
+    expect(result.cashToGoldGrams, closeTo(12.5, 0.0001));
     expect(result.newGrams, closeTo(0, 0.0001));
   });
 
-  test('gold receipt voucher of 50g clears a 50g sales balance', () {
+  test('gold receipt voucher reduces the gold balance by grams paid', () {
     final result = settleLedger(
-      oldGrams: 50,
+      oldGrams: 12.5,
       oldRupees: 0,
       billGrams: 0,
       billRupees: 0,
       paymentMode: 'GOLD',
-      paymentAmount: 50,
+      paymentAmount: 12.5,
       ratePerGram: 15100,
       billSign: 1,
     );
@@ -55,34 +55,34 @@ void main() {
     final result = settleLedger(
       oldGrams: 0,
       oldRupees: 0,
-      billGrams: 50,
-      billRupees: 755000,
+      billGrams: 8.25,
+      billRupees: 124575,
       paymentMode: 'CASH',
       paymentAmount: 0,
       ratePerGram: 15100,
       billSign: -1,
     );
-    expect(result.newGrams, closeTo(-50, 0.0001));
+    expect(result.newGrams, closeTo(-8.25, 0.0001));
   });
 
   test('daily totals accumulate sales and purchase credit automatically', () {
     final totals = const DailyTotals()
         .addSale(
-          grams: 50,
+          grams: 12.5,
           amount: 1000,
-          unpaidGrams: 50,
+          unpaidGrams: 12.5,
           unpaidAmount: 1000,
         )
         .addPurchase(
-          grams: 20,
+          grams: 8.25,
           amount: 400,
-          unpaidGrams: 20,
+          unpaidGrams: 8.25,
           unpaidAmount: 400,
         );
     expect(totals.salesBills, 1);
     expect(totals.purchaseBills, 1);
-    expect(totals.salesCreditGrams, 50);
-    expect(totals.purchaseCreditGrams, 20);
+    expect(totals.salesCreditGrams, 12.5);
+    expect(totals.purchaseCreditGrams, 8.25);
     expect(totals.salesAmount, 1000);
   });
 }
