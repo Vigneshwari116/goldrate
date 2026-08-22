@@ -4,6 +4,7 @@ import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
 import '../utils/number_format.dart';
+import '../widgets/app_shell.dart';
 import 'history_screen.dart';
 import 'customer_master_screen.dart';
 import 'supplier_master_screen.dart';
@@ -118,6 +119,7 @@ class _MasterScreenState extends State<MasterScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
+        leading: shellMenuButton(context),
         title: const Text("MASTER / RATES"),
         actions: [
           IconButton(
@@ -235,6 +237,12 @@ class _MasterScreenState extends State<MasterScreen> {
                           child: TextField(
                             controller: controller,
                             style: const TextStyle(fontSize: 14),
+                            textInputAction: index == rates.length - 1
+                                ? TextInputAction.done
+                                : TextInputAction.next,
+                            onSubmitted: (_) {
+                              if (index == rates.length - 1) saveAllRates();
+                            },
                             keyboardType:
                             const TextInputType.numberWithOptions(
                                 decimal: true),

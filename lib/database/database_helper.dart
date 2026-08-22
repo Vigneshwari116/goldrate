@@ -537,6 +537,57 @@ class DatabaseHelper {
     );
   }
 
+  Future<List<Map<String, dynamic>>> getTransactionsForMonth(
+      int month, int year) async {
+    final db = await database;
+    final suffix =
+        '-${month.toString().padLeft(2, '0')}-${year.toString()}';
+    return await db.query(
+      'transactions',
+      where: 'date LIKE ?',
+      whereArgs: ['%$suffix'],
+      orderBy: 'id DESC',
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getTransactionsForParty(
+    String name, {
+    String? transactionType,
+  }) async {
+    final db = await database;
+    if (transactionType == null) {
+      return await db.query(
+        'transactions',
+        where: 'partyName = ?',
+        whereArgs: [name],
+        orderBy: 'id DESC',
+      );
+    }
+    return await db.query(
+      'transactions',
+      where: 'partyName = ? AND transactionType = ?',
+      whereArgs: [name, transactionType],
+      orderBy: 'id DESC',
+    );
+  }
+
+  Future<String> getPartyMobile(
+    String name, {
+    required bool isCustomer,
+  }) async {
+    final db = await database;
+    final table = isCustomer ? 'customers' : 'suppliers';
+    final rows = await db.query(
+      table,
+      columns: ['mobile'],
+      where: 'name = ?',
+      whereArgs: [name],
+      limit: 1,
+    );
+    if (rows.isEmpty) return '';
+    return (rows.first['mobile'] ?? '').toString();
+  }
+
   /// Absolute path of the live `jewellery.db` file.
   /// On an installed Windows app this is
   /// `%APPDATA%\com.example\grate_app\jewellery.db`.

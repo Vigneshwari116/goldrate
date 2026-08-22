@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
+import '../widgets/app_shell.dart';
 import '../utils/number_format.dart';
 
 /// Every raw row in `suppliers` is one visit/entry — this groups all of
@@ -669,6 +670,7 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
+        leading: shellMenuButton(context),
         title: const Text("SUPPLIER MASTER"),
         actions: [
           IconButton(

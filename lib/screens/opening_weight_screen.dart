@@ -5,6 +5,7 @@ import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
 import '../utils/number_format.dart';
+import '../widgets/app_shell.dart';
 
 class OpeningWeightScreen extends StatefulWidget {
   const OpeningWeightScreen({super.key});
@@ -163,6 +164,7 @@ class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
+        leading: shellMenuButton(context),
         title: const Text("OPENING WEIGHT"),
       ),
       body: _loading

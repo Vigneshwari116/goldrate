@@ -10,6 +10,7 @@ import 'opening_weight_screen.dart';
 import 'history_screen.dart';
 import 'transaction_screen.dart';
 import 'backup_screen.dart';
+import '../widgets/app_shell.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -202,7 +203,10 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text("HOME")),
+      appBar: AppBar(
+        leading: shellMenuButton(context),
+        title: const Text("HOME"),
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(

@@ -5,14 +5,14 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
 import '../utils/number_format.dart';
+import '../services/estimate_bill_pdf.dart';
+import '../widgets/app_shell.dart';
 
 enum TransactionKind { purchase, sales }
 
@@ -25,12 +25,14 @@ const Map<String, String> kItemTypeToRateName = {
 
 class _TransactionItem {
   final String type;
+  final String token;
   final double weight;
   final double touch;
   final double rate;
 
   _TransactionItem({
     required this.type,
+    this.token = '',
     required this.weight,
     required this.touch,
     required this.rate,
@@ -42,6 +44,7 @@ class _TransactionItem {
 
   Map<String, dynamic> toJson() => {
     'type': type,
+    'token': token,
     'weight': weight,
     'touch': touch,
     'pureWt': double.parse(pureWt.toStringAsFixed(3)),
@@ -52,6 +55,7 @@ class _TransactionItem {
   factory _TransactionItem.fromJson(Map<String, dynamic> json) =>
       _TransactionItem(
         type: json['type'] as String,
+        token: (json['token'] ?? '').toString(),
         weight: (json['weight'] as num).toDouble(),
         touch: (json['touch'] as num).toDouble(),
         rate: (json['rate'] as num?)?.toDouble() ?? 0,
@@ -74,9 +78,16 @@ class _TransactionScreenState extends State<TransactionScreen> {
   static final RegExp _numberRegex = RegExp(r'^\d+(\.\d+)?$');
 
   final _partyController = TextEditingController();
+  final _tokenController = TextEditingController();
   final _weightController = TextEditingController();
   final _touchController = TextEditingController();
   final _paymentAmountController = TextEditingController();
+
+  final _partyFocus = FocusNode();
+  final _tokenFocus = FocusNode();
+  final _weightFocus = FocusNode();
+  final _touchFocus = FocusNode();
+  final _paymentFocus = FocusNode();
 
   String _selectedItemType = _itemTypes.first;
   String _selectedPaymentMode = _paymentModes.first;
@@ -136,9 +147,15 @@ class _TransactionScreenState extends State<TransactionScreen> {
   @override
   void dispose() {
     _partyController.dispose();
+    _tokenController.dispose();
     _weightController.dispose();
     _touchController.dispose();
     _paymentAmountController.dispose();
+    _partyFocus.dispose();
+    _tokenFocus.dispose();
+    _weightFocus.dispose();
+    _touchFocus.dispose();
+    _paymentFocus.dispose();
     super.dispose();
   }
 
@@ -248,13 +265,16 @@ class _TransactionScreenState extends State<TransactionScreen> {
     setState(() {
       _items.add(_TransactionItem(
         type: _selectedItemType,
+        token: _tokenController.text.trim(),
         weight: weight,
         touch: touch,
         rate: rate,
       ));
+      _tokenController.clear();
       _weightController.clear();
       _touchController.clear();
     });
+    _tokenFocus.requestFocus();
   }
 
   void _removeItem(int index) {
@@ -267,6 +287,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
 
   void _clearForm() {
     _partyController.clear();
+    _tokenController.clear();
     _weightController.clear();
     _touchController.clear();
     _paymentAmountController.clear();
@@ -319,11 +340,14 @@ class _TransactionScreenState extends State<TransactionScreen> {
 
     final billNoSaved = _nextBillNo;
     final partyName = _partyController.text.trim();
+    final savedRecord = Map<String, dynamic>.from(record);
     _clearForm();
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text("Bill #$billNoSaved saved and posted to $partyName's ledger")),
     );
+
+    await _shareBill(savedRecord);
 
     _load();
   }
@@ -454,102 +478,33 @@ class _TransactionScreenState extends State<TransactionScreen> {
     final items = (jsonDecode(row['items'] as String) as List)
         .map((e) => _TransactionItem.fromJson(e as Map<String, dynamic>))
         .toList();
-
-    final doc = pw.Document();
-
-    doc.addPage(
-      pw.Page(
-        pageFormat: PdfPageFormat.a5,
-        margin: const pw.EdgeInsets.all(24),
-        build: (context) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.Center(
-              child: pw.Text(
-                'JEWELLERY MANAGEMENT',
-                style:
-                pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
-              ),
-            ),
-            pw.Center(
-              child: pw.Text(
-                row['transactionType'] == 'PURCHASE'
-                    ? 'PURCHASE BILL'
-                    : 'SALES BILL',
-                style: pw.TextStyle(fontSize: 11, color: PdfColors.grey700),
-              ),
-            ),
-            pw.SizedBox(height: 14),
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Text('Bill No: ${row['billNo']}',
-                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-                pw.Text('${row['date'] ?? ''}  ${row['time'] ?? ''}'),
-              ],
-            ),
-            pw.SizedBox(height: 4),
-            pw.Text('Party: ${row['partyName'] ?? '-'}'),
-            pw.SizedBox(height: 12),
-            pw.Table.fromTextArray(
-              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-              headerDecoration:
-              const pw.BoxDecoration(color: PdfColors.grey300),
-              cellAlignment: pw.Alignment.centerLeft,
-              cellPadding: const pw.EdgeInsets.symmetric(
-                  horizontal: 6, vertical: 4),
-              headers: ['Type', 'Wt', 'Touch %', 'Pure Wt', 'Rate', 'Value (Rs.)'],
-              data: items
-                  .map((item) => [
-                item.type,
-                item.weight.toStringAsFixed(3),
-                item.touch.toStringAsFixed(3),
-                item.pureWt.toStringAsFixed(3),
-                item.rate.toStringAsFixed(0),
-                item.value.toStringAsFixed(2),
-              ])
-                  .toList(),
-            ),
-            pw.SizedBox(height: 10),
-            pw.Divider(),
-            _pdfRow('Total Wt', row['totalWt']),
-            _pdfRow('Total Pure Wt', row['totalPureWt']),
-            _pdfRow('Total Value (Rs.)', row['totalValue']),
-            pw.SizedBox(height: 8),
-            _pdfRow('Payment (${row['paymentMode'] ?? '-'})',
-                row['paymentAmount']),
-            _pdfRow('Balance (${row['balanceUnit'] ?? ''})', row['balance'],
-                bold: true),
-            pw.SizedBox(height: 16),
-            pw.Center(
-              child: pw.Text(
-                'Thank you',
-                style:
-                pw.TextStyle(fontSize: 10, color: PdfColors.grey600),
-              ),
-            ),
-          ],
-        ),
-      ),
+    final phone = await DatabaseHelper.instance.getPartyMobile(
+      (row['partyName'] ?? '').toString(),
+      isCustomer: (row['transactionType'] ?? '') != 'PURCHASE',
     );
-
-    return doc.save();
-  }
-
-  pw.Widget _pdfRow(String label, dynamic value, {bool bold = false}) {
-    final style = pw.TextStyle(
-      fontSize: bold ? 13 : 11,
-      fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
-    );
-    return pw.Padding(
-      padding: const pw.EdgeInsets.symmetric(vertical: 2),
-      child: pw.Row(
-        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-        children: [
-          pw.Text(label, style: style),
-          pw.Text('${value ?? '-'}', style: style),
-        ],
-      ),
+    final balance = (row['balance'] ?? '').toString();
+    final unit = (row['balanceUnit'] ?? '').toString();
+    final closing = (double.tryParse(balance) ?? 0).abs() < 0.001
+        ? 'NIL'
+        : '$balance $unit';
+    return buildEstimateBillPdf(
+      billNo: '${row['billNo']}',
+      date: (row['date'] ?? '').toString(),
+      time: (row['time'] ?? '').toString(),
+      name: (row['partyName'] ?? '').toString(),
+      phone: phone,
+      lines: [
+        for (var i = 0; i < items.length; i++)
+          EstimateLine(
+            sno: i + 1,
+            token: items[i].token,
+            weight: items[i].weight,
+            touch: items[i].touch,
+            pureWt: items[i].pureWt,
+          ),
+      ],
+      closingBalance: closing,
+      goldRate: _rates['G.P RATE'],
     );
   }
 
@@ -690,6 +645,9 @@ class _TransactionScreenState extends State<TransactionScreen> {
           const SizedBox(height: 12),
           TextFormField(
             controller: _partyController,
+            focusNode: _partyFocus,
+            textInputAction: TextInputAction.next,
+            onFieldSubmitted: (_) => _tokenFocus.requestFocus(),
             style: const TextStyle(fontSize: 14),
             decoration: InputDecoration(
               label: Text(
@@ -752,7 +710,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
           Row(
             children: [
               Expanded(
-                flex: 3,
+                flex: 2,
                 child: DropdownButtonFormField<String>(
                   value: _selectedItemType,
                   decoration: const InputDecoration(label: Text("Type")),
@@ -766,9 +724,24 @@ class _TransactionScreenState extends State<TransactionScreen> {
               ),
               const SizedBox(width: 8),
               Expanded(
+                flex: 2,
+                child: TextFormField(
+                  controller: _tokenController,
+                  focusNode: _tokenFocus,
+                  textInputAction: TextInputAction.next,
+                  onFieldSubmitted: (_) => _weightFocus.requestFocus(),
+                  style: const TextStyle(fontSize: 14),
+                  decoration: const InputDecoration(label: Text("Token")),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
                 flex: 3,
                 child: TextFormField(
                   controller: _weightController,
+                  focusNode: _weightFocus,
+                  textInputAction: TextInputAction.next,
+                  onFieldSubmitted: (_) => _touchFocus.requestFocus(),
                   keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
                   style: const TextStyle(fontSize: 14),
@@ -781,6 +754,9 @@ class _TransactionScreenState extends State<TransactionScreen> {
                 flex: 3,
                 child: TextFormField(
                   controller: _touchController,
+                  focusNode: _touchFocus,
+                  textInputAction: TextInputAction.done,
+                  onFieldSubmitted: (_) => _addItem(),
                   keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
                   style: const TextStyle(fontSize: 14),
@@ -811,23 +787,21 @@ class _TransactionScreenState extends State<TransactionScreen> {
                 ),
                 dataTextStyle: const TextStyle(fontSize: 12.5),
                 columns: const [
-                  DataColumn(label: Text('TYPE')),
+                  DataColumn(label: Text('SNo')),
+                  DataColumn(label: Text('TOKEN')),
                   DataColumn(label: Text('WT'), numeric: true),
                   DataColumn(label: Text('TOUCH'), numeric: true),
-                  DataColumn(label: Text('PURE WT'), numeric: true),
-                  DataColumn(label: Text('RATE'), numeric: true),
-                  DataColumn(label: Text('VALUE'), numeric: true),
+                  DataColumn(label: Text('PURE'), numeric: true),
                   DataColumn(label: Text('')),
                 ],
                 rows: List.generate(_items.length, (index) {
                   final item = _items[index];
                   return DataRow(cells: [
-                    DataCell(Text(item.type)),
+                    DataCell(Text('${index + 1}')),
+                    DataCell(Text(item.token.isEmpty ? '-' : item.token)),
                     DataCell(Text(formatWeight(item.weight))),
                     DataCell(Text(formatWeight(item.touch))),
                     DataCell(Text(formatWeight(item.pureWt))),
-                    DataCell(Text(item.rate.toStringAsFixed(0))),
-                    DataCell(Text(formatAmount(item.value))),
                     DataCell(
                       IconButton(
                         icon: const Icon(Icons.close,
@@ -877,6 +851,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
                 flex: 3,
                 child: TextFormField(
                   controller: _paymentAmountController,
+                  focusNode: _paymentFocus,
+                  textInputAction: TextInputAction.done,
                   keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
                   style: const TextStyle(fontSize: 14),
@@ -1020,6 +996,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
       backgroundColor: AppColors.background,
       appBar: AppBar(
         title: Text(_title),
+        leading: shellMenuButton(context),
         actions: [
           IconButton(
             icon: const Icon(Icons.share, size: 20),

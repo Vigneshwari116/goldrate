@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
-import 'home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -44,12 +43,7 @@ class _LoginScreenState extends State<LoginScreen> {
       // since that's what staff taps dozens of times a day. Rates
       // (Master) are a once-a-day job reached from Home, not the
       // screen you return to after every bill.
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const HomeScreen(),
-        ),
-      );
+      Navigator.pushReplacementNamed(context, '/app');
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -89,6 +83,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 TextField(
                   controller: usernameController,
                   style: const TextStyle(fontSize: 14),
+                  textInputAction: TextInputAction.next,
                   decoration: const InputDecoration(
                     labelText: "Username",
                   ),

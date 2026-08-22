@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_shell.dart';
 
 class BackupScreen extends StatefulWidget {
   const BackupScreen({super.key});
@@ -97,7 +98,10 @@ class _BackupScreenState extends State<BackupScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('BACKUP')),
+      appBar: AppBar(
+        leading: shellMenuButton(context),
+        title: const Text('BACKUP'),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

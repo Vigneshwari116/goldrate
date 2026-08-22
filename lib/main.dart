@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'screens/login_screen.dart';
 import 'theme/app_theme.dart';
+import 'widgets/app_shell.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -62,6 +63,10 @@ class JewelleryApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.theme,
       home: const LoginScreen(),
+      routes: {
+        '/login': (_) => const LoginScreen(),
+        '/app': (_) => const AppShell(),
+      },
       builder: (context, child) {
         return MediaQuery(
           data: MediaQuery.of(context).copyWith(

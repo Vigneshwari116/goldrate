@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
+import '../widgets/app_shell.dart';
 import '../utils/number_format.dart';
 import 'supplier_master_screen.dart';
 
@@ -685,6 +686,7 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
+        leading: shellMenuButton(context),
         title: const Text("CUSTOMER MASTER"),
         actions: [
           IconButton(
