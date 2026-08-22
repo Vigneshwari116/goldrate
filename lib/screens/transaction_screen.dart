@@ -381,15 +381,50 @@ class _TransactionScreenState extends State<TransactionScreen> {
 
     setState(() => _saving = false);
 
+    final savedRow = Map<String, dynamic>.from(record);
     final billNoSaved = _nextBillNo;
     final partyName = _partyController.text.trim();
     _clearForm();
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("Bill #$billNoSaved saved and posted to $partyName's ledger")),
+      SnackBar(
+          content: Text(
+              "Bill #$billNoSaved saved and posted to $partyName's ledger")),
     );
 
-    _load();
+    await _load();
+    if (!mounted) return;
+    await _offerPrints(savedRow);
+  }
+
+  Future<void> _offerPrints(Map<String, dynamic> row) async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          _isPurchase ? 'Purchase saved' : 'Sale saved',
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+        ),
+        content: const Text(
+          'Print the estimate (weight) and the accounts bill (money). '
+          'Both use the same saved bill number. Nothing extra is stored.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => _shareEstimate(row),
+            child: const Text('PRINT ESTIMATE'),
+          ),
+          TextButton(
+            onPressed: () => _shareAccountsBill(row),
+            child: const Text('PRINT ACCOUNTS BILL'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('CLOSE'),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Posts this bill's balance to the matching party's ledger table —
@@ -505,8 +540,12 @@ class _TransactionScreenState extends State<TransactionScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => _shareBill(row),
-            child: const Text("SHARE"),
+            onPressed: () => _shareEstimate(row),
+            child: const Text("ESTIMATE"),
+          ),
+          TextButton(
+            onPressed: () => _shareAccountsBill(row),
+            child: const Text("ACCOUNTS BILL"),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -516,89 +555,213 @@ class _TransactionScreenState extends State<TransactionScreen> {
       ),
     );
   }
-  Future<Uint8List> _buildBillPdf(Map<String, dynamic> row) async {
-    final items = (jsonDecode(row['items'] as String) as List)
+  List<_TransactionItem> _itemsFromRow(Map<String, dynamic> row) {
+    return (jsonDecode((row['items'] ?? '[]').toString()) as List)
         .map((e) => _TransactionItem.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  Future<Uint8List> _buildEstimatePdf(Map<String, dynamic> row) async {
+    final items = _itemsFromRow(row);
+    final phone = await DatabaseHelper.instance.getPartyPhone(
+      (row['partyName'] ?? '').toString(),
+      isCustomer: _isCustomerParty,
+    );
+    final totalWt =
+        items.fold<double>(0, (sum, item) => sum + item.weight);
+    final totalPure =
+        items.fold<double>(0, (sum, item) => sum + item.pureWt);
+    final closing = double.tryParse((row['newGrams'] ?? row['balance'] ?? '0').toString()) ?? 0;
+    final closingLabel =
+        closing.abs() < 0.0005 ? 'NIL' : '${closing.toStringAsFixed(3)} g';
+    final kind = row['transactionType'] == 'PURCHASE' ? 'PUR' : 'SAL';
 
     final doc = pw.Document();
-
     doc.addPage(
       pw.Page(
         pageFormat: PdfPageFormat.a5,
-        margin: const pw.EdgeInsets.all(24),
+        margin: const pw.EdgeInsets.all(22),
+        build: (context) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+          children: [
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text('ESTIMATE ONLY',
+                    style: pw.TextStyle(
+                        fontSize: 16, fontWeight: pw.FontWeight.bold)),
+                pw.Text(
+                  row['transactionType'] == 'PURCHASE'
+                      ? 'PURCHASE'
+                      : 'SALES',
+                  style: const pw.TextStyle(fontSize: 10),
+                ),
+              ],
+            ),
+            pw.SizedBox(height: 10),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(8),
+              decoration: pw.BoxDecoration(
+                border: pw.Border.all(color: PdfColors.blueGrey),
+              ),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text('Time: ${row['time'] ?? ''}'),
+                  pw.Text('Date: ${row['date'] ?? ''}'),
+                  pw.Text('Name: ${row['partyName'] ?? '-'}'),
+                  if (phone.isNotEmpty) pw.Text('Phone: $phone'),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 12),
+            pw.TableHelper.fromTextArray(
+              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10),
+              headerDecoration:
+                  const pw.BoxDecoration(color: PdfColors.blueGrey100),
+              cellStyle: const pw.TextStyle(fontSize: 10),
+              cellAlignments: {
+                0: pw.Alignment.centerLeft,
+                1: pw.Alignment.centerRight,
+                2: pw.Alignment.centerRight,
+                3: pw.Alignment.centerRight,
+              },
+              headers: ['SNo', 'Weight', 'Touch', 'Pure'],
+              data: [
+                for (var i = 0; i < items.length; i++)
+                  [
+                    '${i + 1}',
+                    items[i].weight.toStringAsFixed(3),
+                    items[i].touch.toStringAsFixed(2),
+                    items[i].pureWt.toStringAsFixed(3),
+                  ],
+              ],
+            ),
+            pw.SizedBox(height: 8),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.end,
+              children: [
+                pw.SizedBox(
+                  width: 220,
+                  child: pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Text('Total Weight',
+                          style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                      pw.Text(totalWt.toStringAsFixed(3),
+                          style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            pw.SizedBox(height: 10),
+            _pdfRow('PURE GOLD', totalPure.toStringAsFixed(3), bold: true),
+            _pdfRow('CLOSING BALANCE', closingLabel, bold: true),
+            pw.Divider(),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text('Bill No. $kind-${row['billNo']}'),
+                pw.Text('${row['date'] ?? ''}'),
+              ],
+            ),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text('Name: ${row['partyName'] ?? '-'}'),
+                pw.Text('Weight: ${totalWt.toStringAsFixed(3)}'),
+              ],
+            ),
+            pw.Align(
+              alignment: pw.Alignment.centerRight,
+              child: pw.Text('${items.length}'),
+            ),
+          ],
+        ),
+      ),
+    );
+    return doc.save();
+  }
+
+  Future<Uint8List> _buildAccountsPdf(Map<String, dynamic> row) async {
+    final items = _itemsFromRow(row);
+    final phone = await DatabaseHelper.instance.getPartyPhone(
+      (row['partyName'] ?? '').toString(),
+      isCustomer: _isCustomerParty,
+    );
+    final kind = row['transactionType'] == 'PURCHASE' ? 'PUR' : 'SAL';
+    final cashToGold = (row['cashToGold'] ?? '').toString();
+
+    final doc = pw.Document();
+    doc.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a5,
+        margin: const pw.EdgeInsets.all(22),
         build: (context) => pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
             pw.Center(
               child: pw.Text(
                 'JEWELLERY MANAGEMENT',
-                style:
-                pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
+                style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
               ),
             ),
             pw.Center(
               child: pw.Text(
                 row['transactionType'] == 'PURCHASE'
-                    ? 'PURCHASE BILL'
-                    : 'SALES BILL',
-                style: pw.TextStyle(fontSize: 11, color: PdfColors.grey700),
+                    ? 'PURCHASE ACCOUNTS BILL'
+                    : 'SALES ACCOUNTS BILL',
+                style: const pw.TextStyle(fontSize: 11),
               ),
             ),
-            pw.SizedBox(height: 14),
+            pw.SizedBox(height: 12),
             pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
-                pw.Text('Bill No: ${row['billNo']}',
+                pw.Text('Bill No: $kind-${row['billNo']}',
                     style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
                 pw.Text('${row['date'] ?? ''}  ${row['time'] ?? ''}'),
               ],
             ),
-            pw.SizedBox(height: 4),
-            pw.Text('Party: ${row['partyName'] ?? '-'}'),
-            pw.SizedBox(height: 12),
-            pw.Table.fromTextArray(
-              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+            pw.Text('Name: ${row['partyName'] ?? '-'}'),
+            if (phone.isNotEmpty) pw.Text('Phone: $phone'),
+            pw.SizedBox(height: 10),
+            pw.TableHelper.fromTextArray(
+              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9),
               headerDecoration:
-              const pw.BoxDecoration(color: PdfColors.grey300),
-              cellAlignment: pw.Alignment.centerLeft,
-              cellPadding: const pw.EdgeInsets.symmetric(
-                  horizontal: 6, vertical: 4),
-              headers: ['Type', 'Wt', 'Touch %', 'Pure Wt', 'Rate', 'Value (Rs.)'],
-              data: items
-                  .map((item) => [
-                item.type,
-                item.weight.toStringAsFixed(2),
-                item.touch.toStringAsFixed(2),
-                item.pureWt.toStringAsFixed(3),
-                item.rate.toStringAsFixed(0),
-                item.value.toStringAsFixed(2),
-              ])
-                  .toList(),
+                  const pw.BoxDecoration(color: PdfColors.grey300),
+              cellStyle: const pw.TextStyle(fontSize: 9),
+              headers: ['SNo', 'Type', 'Weight', 'Touch %', 'Pure', 'Rate', 'Value Rs.'],
+              data: [
+                for (var i = 0; i < items.length; i++)
+                  [
+                    '${i + 1}',
+                    items[i].type,
+                    items[i].weight.toStringAsFixed(3),
+                    items[i].touch.toStringAsFixed(2),
+                    items[i].pureWt.toStringAsFixed(3),
+                    items[i].rate.toStringAsFixed(0),
+                    items[i].value.toStringAsFixed(2),
+                  ],
+              ],
             ),
             pw.SizedBox(height: 10),
             pw.Divider(),
-            _pdfRow('Total Wt', row['totalWt']),
-            _pdfRow('Total Pure Wt', row['totalPureWt']),
+            _pdfRow('Total Weight', (row['totalWt'] ?? '').toString()),
+            _pdfRow('Total Pure Wt', (row['totalPureWt'] ?? '').toString()),
             _pdfRow('Total Value (Rs.)', row['totalValue']),
-            pw.SizedBox(height: 8),
-            _pdfRow('Payment (${row['paymentMode'] ?? '-'})',
-                row['paymentAmount']),
-            _pdfRow('Balance (${row['balanceUnit'] ?? ''})', row['balance'],
+            pw.SizedBox(height: 6),
+            _pdfRow('Payment (${row['paymentMode'] ?? '-'})', row['paymentAmount']),
+            if (cashToGold.isNotEmpty && cashToGold != '0.000')
+              _pdfRow('Cash to gold', '$cashToGold g'),
+            _pdfRow('Old gold balance', '${row['oldGrams'] ?? '-'} g'),
+            _pdfRow('New gold balance', '${row['newGrams'] ?? row['balance'] ?? '-'} g',
                 bold: true),
-            pw.SizedBox(height: 16),
-            pw.Center(
-              child: pw.Text(
-                'Thank you',
-                style:
-                pw.TextStyle(fontSize: 10, color: PdfColors.grey600),
-              ),
-            ),
           ],
         ),
       ),
     );
-
     return doc.save();
   }
 
@@ -619,18 +782,30 @@ class _TransactionScreenState extends State<TransactionScreen> {
     );
   }
 
-  Future<void> _shareBill(Map<String, dynamic> row) async {
-    final bytes = await _buildBillPdf(row);
+  Future<void> _sharePdf(
+    Map<String, dynamic> row, {
+    required bool estimate,
+  }) async {
+    final bytes =
+        estimate ? await _buildEstimatePdf(row) : await _buildAccountsPdf(row);
+    final kind = _isPurchase ? 'purchase' : 'sales';
+    final type = estimate ? 'estimate' : 'accounts';
     final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/bill_${row['billNo']}.pdf');
+    final file = File('${dir.path}/${kind}_${type}_${row['billNo']}.pdf');
     await file.writeAsBytes(bytes);
-
     await Share.shareXFiles(
       [XFile(file.path)],
-      subject: "Bill #${row['billNo']} - ${row['partyName'] ?? ''}",
-      text: '${_isPurchase ? 'Purchase' : 'Sales'} bill',
+      subject:
+          '${estimate ? 'Estimate' : 'Accounts bill'} #${row['billNo']} - ${row['partyName'] ?? ''}',
+      text: '${_isPurchase ? 'Purchase' : 'Sales'} ${estimate ? 'estimate' : 'accounts bill'}',
     );
   }
+
+  Future<void> _shareEstimate(Map<String, dynamic> row) =>
+      _sharePdf(row, estimate: true);
+
+  Future<void> _shareAccountsBill(Map<String, dynamic> row) =>
+      _sharePdf(row, estimate: false);
 
   String _historyCsvEscape(String value) {
     if (value.contains(',') || value.contains('"') || value.contains('\n')) {
@@ -1132,7 +1307,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
                         IconButton(
                           icon: const Icon(Icons.share,
                               color: AppColors.mutedBlue, size: 18),
-                          onPressed: () => _shareBill(row),
+                          onPressed: () => _offerPrints(row),
                         ),
                         IconButton(
                           icon: const Icon(Icons.delete,

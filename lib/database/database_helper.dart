@@ -541,6 +541,28 @@ class DatabaseHelper {
     return names;
   }
 
+  Future<String> getPartyPhone(
+    String name, {
+    required bool isCustomer,
+  }) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return '';
+    final db = await database;
+    final table = isCustomer ? 'customers' : 'suppliers';
+    final rows = await db.query(
+      table,
+      columns: ['mobile'],
+      where: 'name = ?',
+      whereArgs: [trimmed],
+      orderBy: 'id DESC',
+    );
+    for (final row in rows) {
+      final mobile = (row['mobile'] ?? '').toString().trim();
+      if (mobile.isNotEmpty) return mobile;
+    }
+    return '';
+  }
+
   /// Sums every ledger row on record for this name into a running
   /// outstanding total — kept as two separate totals (rupees owed vs
   /// grams owed) rather than one number, since a cash bill's balance
@@ -587,9 +609,6 @@ class DatabaseHelper {
     };
   }
 
-  /// Staff names already used on a saved bill, for the login screen's
-  /// "who is this" picker — no full auth, just enough to know who
-  /// saved which bill.
   Future<List<String>> getDistinctStaffNames() async {
     final db = await database;
     final rows = await db.query('transactions',
