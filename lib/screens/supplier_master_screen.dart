@@ -498,41 +498,76 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen> {
         key: _formKey,
         child: Column(
           children: [
-            _field("Supplier Name", _nameController, validator: _validateName),
-            _field(
-              "Mobile",
-              _mobileController,
-              keyboardType: TextInputType.phone,
-              inputFormatters: [
-                FilteringTextInputFormatter.digitsOnly,
-                LengthLimitingTextInputFormatter(10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: _field("Supplier Name", _nameController,
+                      validator: _validateName),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _field(
+                    "Mobile",
+                    _mobileController,
+                    keyboardType: TextInputType.phone,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(10),
+                    ],
+                    validator: _validateMobile,
+                  ),
+                ),
               ],
-              validator: _validateMobile,
             ),
             _field("City", _cityController),
-            _field(
-              "CR (Credit)",
-              _crController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              validator: (v) => _validateNumber(v),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: _field(
+                    "CR (Credit)",
+                    _crController,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    validator: (v) => _validateNumber(v),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _field(
+                    "DR (Debit)",
+                    _drController,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    validator: (v) => _validateNumber(v),
+                  ),
+                ),
+              ],
             ),
-            _field(
-              "DR (Debit)",
-              _drController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              validator: (v) => _validateNumber(v),
-            ),
-            _field(
-              "GROSS",
-              _grossController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              validator: (v) => _validateNumber(v),
-            ),
-            _field(
-              "NET",
-              _netController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              validator: (v) => _validateNumber(v),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: _field(
+                    "GROSS",
+                    _grossController,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    validator: (v) => _validateNumber(v),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _field(
+                    "NET",
+                    _netController,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    validator: (v) => _validateNumber(v),
+                  ),
+                ),
+              ],
             ),
             _field("Narration", _narrationController),
             SizedBox(
@@ -683,7 +718,7 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen> {
     final content = _loading
         ? const Center(child: CircularProgressIndicator())
         : WorkbenchLayout(
-            primaryWidth: 380,
+            equalSplit: true,
             primary: _buildFormCard(),
             secondary: _buildListSection(),
           );

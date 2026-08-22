@@ -66,13 +66,15 @@ class WorkbenchLayout extends StatelessWidget {
   final Widget secondary;
   final double primaryWidth;
   final double gap;
+  final bool equalSplit;
 
   const WorkbenchLayout({
     super.key,
     required this.primary,
     required this.secondary,
     this.primaryWidth = 380,
-    this.gap = 20,
+    this.gap = 16,
+    this.equalSplit = false,
   });
 
   @override
@@ -81,6 +83,26 @@ class WorkbenchLayout extends StatelessWidget {
       return ListView(
         padding: const EdgeInsets.all(12),
         children: [primary, const SizedBox(height: 16), secondary],
+      );
+    }
+
+    if (equalSplit) {
+      return Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              flex: 3,
+              child: SingleChildScrollView(child: primary),
+            ),
+            SizedBox(width: gap),
+            Expanded(
+              flex: 2,
+              child: SingleChildScrollView(child: secondary),
+            ),
+          ],
+        ),
       );
     }
 

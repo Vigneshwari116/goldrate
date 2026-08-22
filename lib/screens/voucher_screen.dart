@@ -292,7 +292,7 @@ class _VoucherScreenState extends State<VoucherScreen> {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: const Color(0xFFE8F5EC),
+              color: AppColors.headerBand,
               borderRadius: BorderRadius.circular(6),
             ),
             child: Text(
@@ -302,7 +302,7 @@ class _VoucherScreenState extends State<VoucherScreen> {
                       ? 'Set G.P RATE to convert cash to gold'
                       : '₹${s.paymentAmount.toStringAsFixed(2)} → ${s.cashToGoldGrams.toStringAsFixed(3)} g',
               style: const TextStyle(
-                  fontWeight: FontWeight.w600, color: AppColors.totalGreen),
+                  fontWeight: FontWeight.w600, color: AppColors.navy),
             ),
           ),
           const SizedBox(height: 8),
@@ -375,7 +375,7 @@ class _VoucherScreenState extends State<VoucherScreen> {
 
     final content = _loading
         ? const Center(child: CircularProgressIndicator())
-        : WorkbenchLayout(primary: form, secondary: list, primaryWidth: 420);
+        : WorkbenchLayout(equalSplit: true, primary: form, secondary: list);
 
     if (widget.embedded) return content;
     return Scaffold(

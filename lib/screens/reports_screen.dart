@@ -577,7 +577,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 14, vertical: 10),
-                    color: AppColors.totalGreen,
+                    color: AppColors.navy,
                     child: Text(
                       'TOTAL: ₹${total.toStringAsFixed(2)}',
                       style: const TextStyle(
@@ -594,7 +594,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               height: 46,
               child: ElevatedButton(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.totalGreen,
+                  backgroundColor: AppColors.navy,
                   shape: const RoundedRectangleBorder(
                     borderRadius: BorderRadius.only(
                       bottomLeft: Radius.circular(8),

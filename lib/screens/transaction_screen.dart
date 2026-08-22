@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
@@ -79,9 +79,11 @@ class _TransactionScreenState extends State<TransactionScreen> {
   static final RegExp _numberRegex = RegExp(r'^\d+(\.\d+)?$');
 
   final _partyController = TextEditingController();
-  final _weightController = TextEditingController();
-  final _touchController = TextEditingController();
-  final _paymentAmountController = TextEditingController();
+  final _weightController = TextEditingController(text: '0.000');
+  final _touchController = TextEditingController(text: '0.00');
+  final _paymentAmountController = TextEditingController(text: '0.00');
+  final _weightFocus = FocusNode();
+  final _touchFocus = FocusNode();
 
   String _selectedItemType = _itemTypes.first;
   String _selectedPaymentMode = _paymentModes.first;
@@ -151,6 +153,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
     _weightController.dispose();
     _touchController.dispose();
     _paymentAmountController.dispose();
+    _weightFocus.dispose();
+    _touchFocus.dispose();
     super.dispose();
   }
 
@@ -204,33 +208,83 @@ class _TransactionScreenState extends State<TransactionScreen> {
     setState(() => _partySuggestions = []);
   }
 
-  /// Turns a party's outstanding {rupees, grams} totals into one line
-  /// like "Ramesh owes you ₹20,000 · 5.20g" — sign flips the wording
-  /// to "you owe" when the shop is the one holding the balance.
-  String _outstandingLine(Map<String, double> outstanding) {
-    final rupees = outstanding['rupees'] ?? 0;
-    final grams = outstanding['grams'] ?? 0;
-    final name = _partyController.text.trim();
-    final rate = GoldLedger.goldRate(_rates);
-    final asCash = GoldLedger.goldToCash(grams, rate);
-    final parts = <String>[
-      "Old balance ${grams.toStringAsFixed(3)} g",
-    ];
-    if (rate > 0) {
-      parts.add("= ₹${asCash.toStringAsFixed(2)} @ ${rate.toStringAsFixed(0)}");
+  Widget _ledgerChip(String label, String value) {
+    return Expanded(
+      child: Container(
+        margin: const EdgeInsets.only(right: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppColors.headerBand,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label,
+                style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.mutedBlue)),
+            const SizedBox(height: 4),
+            Text(value,
+                style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.navy)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _partyLedgerRow() {
+    final o = _partyOutstanding;
+    if (_partyController.text.trim().isEmpty) return const SizedBox.shrink();
+    if (o == null) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 8),
+        child: Text('Looking up CR / DR / gold…',
+            style: TextStyle(fontSize: 12, color: AppColors.mutedBlue)),
+      );
     }
-    if (rupees.abs() > 0.01) {
-      parts.add("₹${rupees.toStringAsFixed(2)} book");
-    }
-    return "$name · ${parts.join(' · ')}";
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Row(
+        children: [
+          _ledgerChip(
+            'CR',
+            '₹${(o['crRupees'] ?? 0).toStringAsFixed(2)}  ·  '
+            '${(o['crGrams'] ?? 0).toStringAsFixed(3)} g',
+          ),
+          _ledgerChip(
+            'DR',
+            '₹${(o['drRupees'] ?? 0).toStringAsFixed(2)}  ·  '
+            '${(o['drGrams'] ?? 0).toStringAsFixed(3)} g',
+          ),
+          _ledgerChip(
+            'GOLD',
+            '${(o['grams'] ?? 0).toStringAsFixed(3)} g',
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _resetWeightFields() {
+    _weightController.text = '0.000';
+    _touchController.text = '0.00';
+    _weightFocus.requestFocus();
   }
 
   void _addItem() {
     final weight = double.tryParse(_weightController.text.trim());
     final touch = double.tryParse(_touchController.text.trim());
 
-    if (weight == null || !_numberRegex.hasMatch(_weightController.text.trim())) {
-      _showMessage("Enter a valid weight");
+    if (weight == null ||
+        !_numberRegex.hasMatch(_weightController.text.trim()) ||
+        weight <= 0) {
+      _showMessage("Enter a weight greater than 0.000");
       return;
     }
     if (touch == null || !_numberRegex.hasMatch(_touchController.text.trim())) {
@@ -253,9 +307,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
         touch: touch,
         rate: rate,
       ));
-      _weightController.clear();
-      _touchController.clear();
     });
+    _resetWeightFields();
   }
 
   void _removeItem(int index) {
@@ -268,9 +321,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
 
   void _clearForm() {
     _partyController.clear();
-    _weightController.clear();
-    _touchController.clear();
-    _paymentAmountController.clear();
+    _resetWeightFields();
+    _paymentAmountController.text = '0.00';
     setState(() {
       _items.clear();
       _selectedItemType = _itemTypes.first;
@@ -653,9 +705,9 @@ class _TransactionScreenState extends State<TransactionScreen> {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: AppColors.border),
       ),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(16),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
@@ -681,17 +733,24 @@ class _TransactionScreenState extends State<TransactionScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          TextFormField(
-            controller: _partyController,
-            style: const TextStyle(fontSize: 14),
-            decoration: InputDecoration(
-              label: Text(
-                  _isCustomerParty ? "Customer Name" : "Supplier Name"),
-              helperText: _isCustomerParty
-                  ? "Existing customers show as you type"
-                  : "Existing suppliers show as you type",
-              helperStyle: const TextStyle(fontSize: 11),
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: TextFormField(
+                  controller: _partyController,
+                  style: const TextStyle(fontSize: 14),
+                  textInputAction: TextInputAction.next,
+                  decoration: InputDecoration(
+                    label: Text(_isCustomerParty
+                        ? "Customer Name"
+                        : "Supplier Name"),
+                    helperText: "Type a saved name to load CR, DR and gold",
+                    helperStyle: const TextStyle(fontSize: 11),
+                  ),
+                ),
+              ),
+            ],
           ),
           if (_partySuggestions.isNotEmpty)
             Container(
@@ -704,38 +763,18 @@ class _TransactionScreenState extends State<TransactionScreen> {
               child: Column(
                 children: _partySuggestions
                     .map((name) => ListTile(
-                  dense: true,
-                  visualDensity: VisualDensity.compact,
-                  title: Text(name,
-                      style: const TextStyle(fontSize: 13)),
-                  onTap: () => _selectParty(name),
-                ))
+                          dense: true,
+                          visualDensity: VisualDensity.compact,
+                          title: Text(name, style: const TextStyle(fontSize: 13)),
+                          onTap: () => _selectParty(name),
+                        ))
                     .toList(),
               ),
             ),
-          if (_partyController.text.trim().isNotEmpty)
-            Container(
-              margin: const EdgeInsets.only(top: 8),
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 10, vertical: 8),
-              decoration: BoxDecoration(
-                color: AppColors.headerBand,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: Text(
-                _partyOutstanding == null
-                    ? "${_partyController.text.trim()} · looking up old balance…"
-                    : _outstandingLine(_partyOutstanding!),
-                style: const TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.navy),
-              ),
-            ),
+          _partyLedgerRow(),
           const SizedBox(height: 14),
           const Text(
-            "ADD WEIGHT LINE",
+            "WEIGHT LINES  ·  type weight and touch, then press Enter",
             style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
@@ -745,16 +784,14 @@ class _TransactionScreenState extends State<TransactionScreen> {
           Row(
             children: [
               Expanded(
-                flex: 3,
+                flex: 2,
                 child: DropdownButtonFormField<String>(
                   value: _selectedItemType,
                   decoration: const InputDecoration(label: Text("Type")),
                   items: _itemTypes
-                      .map((t) =>
-                      DropdownMenuItem(value: t, child: Text(t)))
+                      .map((t) => DropdownMenuItem(value: t, child: Text(t)))
                       .toList(),
-                  onChanged: (v) =>
-                      setState(() => _selectedItemType = v!),
+                  onChanged: (v) => setState(() => _selectedItemType = v!),
                 ),
               ),
               const SizedBox(width: 8),
@@ -762,11 +799,21 @@ class _TransactionScreenState extends State<TransactionScreen> {
                 flex: 3,
                 child: TextFormField(
                   controller: _weightController,
+                  focusNode: _weightFocus,
                   keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
+                      const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                  ],
+                  textInputAction: TextInputAction.next,
+                  textAlign: TextAlign.right,
                   style: const TextStyle(fontSize: 14),
-                  decoration:
-                  const InputDecoration(label: Text("Weight")),
+                  decoration: const InputDecoration(label: Text("Weight (g)")),
+                  onTap: () => _weightController.selection = TextSelection(
+                    baseOffset: 0,
+                    extentOffset: _weightController.text.length,
+                  ),
+                  onFieldSubmitted: (_) => _touchFocus.requestFocus(),
                 ),
               ),
               const SizedBox(width: 8),
@@ -774,57 +821,27 @@ class _TransactionScreenState extends State<TransactionScreen> {
                 flex: 3,
                 child: TextFormField(
                   controller: _touchController,
+                  focusNode: _touchFocus,
                   keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
+                      const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                  ],
+                  textInputAction: TextInputAction.done,
+                  textAlign: TextAlign.right,
                   style: const TextStyle(fontSize: 14),
-                  decoration:
-                  const InputDecoration(label: Text("Touch %")),
+                  decoration: const InputDecoration(label: Text("Touch %")),
+                  onTap: () => _touchController.selection = TextSelection(
+                    baseOffset: 0,
+                    extentOffset: _touchController.text.length,
+                  ),
+                  onFieldSubmitted: (_) => _addItem(),
                 ),
-              ),
-              const SizedBox(width: 8),
-              IconButton(
-                icon: const Icon(Icons.add_circle,
-                    color: AppColors.navy, size: 28),
-                onPressed: _addItem,
-                tooltip: 'Add line',
               ),
             ],
           ),
-          if (_items.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            ...List.generate(_items.length, (index) {
-              final item = _items[index];
-              return Container(
-                margin: const EdgeInsets.only(bottom: 6),
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 8),
-                decoration: BoxDecoration(
-                  color: AppColors.headerBand,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        "${item.type}  •  Wt ${item.weight}  •  "
-                            "Touch ${item.touch}%  •  Pure "
-                            "${item.pureWt.toStringAsFixed(3)}  •  "
-                            "₹${item.value.toStringAsFixed(2)}",
-                        style: const TextStyle(fontSize: 12.5),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close,
-                          size: 16, color: Colors.redAccent),
-                      onPressed: () => _removeItem(index),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                    ),
-                  ],
-                ),
-              );
-            }),
-          ],
+          const SizedBox(height: 10),
+          _itemsTable(),
           const Divider(height: 24, color: AppColors.border),
           _totalRow("TOTAL WT", _totalWt),
           _totalRow("TOTAL PURE WT", _totalPureWt, decimals: 3),
@@ -902,6 +919,100 @@ class _TransactionScreenState extends State<TransactionScreen> {
       ),
     );
   }
+  Widget _itemsTable() {
+    final headerStyle = const TextStyle(
+      fontSize: 11,
+      fontWeight: FontWeight.w700,
+      color: AppColors.navy,
+    );
+    final cellStyle = const TextStyle(fontSize: 12.5);
+
+    Widget head(String text, {int flex = 2, TextAlign align = TextAlign.left}) {
+      return Expanded(
+        flex: flex,
+        child: Text(text, style: headerStyle, textAlign: align),
+      );
+    }
+
+    Widget cell(String text, {int flex = 2, TextAlign align = TextAlign.left}) {
+      return Expanded(
+        flex: flex,
+        child: Text(text, style: cellStyle, textAlign: align),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: AppColors.border),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Column(
+        children: [
+          Container(
+            color: AppColors.tableHeader,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Row(
+              children: [
+                head('TYPE', flex: 2),
+                head('WEIGHT', flex: 2, align: TextAlign.right),
+                head('TOUCH %', flex: 2, align: TextAlign.right),
+                head('PURE WT', flex: 2, align: TextAlign.right),
+                head('RATE', flex: 2, align: TextAlign.right),
+                head('VALUE ₹', flex: 3, align: TextAlign.right),
+                const SizedBox(width: 28),
+              ],
+            ),
+          ),
+          if (_items.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 18),
+              child: Text(
+                'No lines yet — enter weight and touch, then press Enter',
+                style: TextStyle(fontSize: 12, color: Colors.black54),
+              ),
+            )
+          else
+            for (var i = 0; i < _items.length; i++)
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: i.isEven ? Colors.white : AppColors.headerBand,
+                  border: const Border(
+                    top: BorderSide(color: AppColors.border),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    cell(_items[i].type, flex: 2),
+                    cell(_items[i].weight.toStringAsFixed(3),
+                        flex: 2, align: TextAlign.right),
+                    cell(_items[i].touch.toStringAsFixed(2),
+                        flex: 2, align: TextAlign.right),
+                    cell(_items[i].pureWt.toStringAsFixed(3),
+                        flex: 2, align: TextAlign.right),
+                    cell(_items[i].rate.toStringAsFixed(0),
+                        flex: 2, align: TextAlign.right),
+                    cell(_items[i].value.toStringAsFixed(2),
+                        flex: 3, align: TextAlign.right),
+                    SizedBox(
+                      width: 28,
+                      child: IconButton(
+                        icon: const Icon(Icons.close,
+                            size: 16, color: Colors.redAccent),
+                        onPressed: () => _removeItem(i),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+        ],
+      ),
+    );
+  }
+
   Widget _conversionCard() {
     final s = _settlement;
     final rate = s.ratePerGram;
@@ -909,7 +1020,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: const Color(0xFFE8F5EC),
+        color: AppColors.headerBand,
         borderRadius: BorderRadius.circular(6),
         border: Border.all(color: AppColors.border),
       ),
@@ -927,7 +1038,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
             style: const TextStyle(
               fontSize: 12.5,
               fontWeight: FontWeight.w600,
-              color: AppColors.totalGreen,
+              color: AppColors.navy,
             ),
           ),
           const SizedBox(height: 4),
@@ -1044,7 +1155,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
     final content = _loading
         ? const Center(child: CircularProgressIndicator())
         : WorkbenchLayout(
-            primaryWidth: 420,
+            equalSplit: true,
             primary: _buildFormCard(),
             secondary: _buildHistorySection(),
           );

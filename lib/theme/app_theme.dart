@@ -16,8 +16,7 @@ class AppColors {
   static const accentBlue = Color(0xFF1E4E76);
   static const drawerNavy = Color(0xFF1B2A38);
   static const drawerActive = Color(0xFF3D6A8A);
-  static const totalGreen = Color(0xFF1B6B3A);
-  static const tabActive = Color(0xFF2E6F8A);
+  static const tabActive = Color(0xFF3D5A73);
 }
 
 class AppTextSizes {

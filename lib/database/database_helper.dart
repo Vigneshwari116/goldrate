@@ -556,6 +556,10 @@ class DatabaseHelper {
 
     double rupees = 0;
     double grams = 0;
+    double crRupees = 0;
+    double drRupees = 0;
+    double crGrams = 0;
+    double drGrams = 0;
 
     for (final row in rows) {
       final cr = double.tryParse((row['cr'] ?? '').toString()) ?? 0;
@@ -564,12 +568,23 @@ class DatabaseHelper {
       final net = dr - cr;
       if (unit == 'GRAMS') {
         grams += net;
+        crGrams += cr;
+        drGrams += dr;
       } else {
         rupees += net;
+        crRupees += cr;
+        drRupees += dr;
       }
     }
 
-    return {'rupees': rupees, 'grams': grams};
+    return {
+      'rupees': rupees,
+      'grams': grams,
+      'crRupees': crRupees,
+      'drRupees': drRupees,
+      'crGrams': crGrams,
+      'drGrams': drGrams,
+    };
   }
 
   /// Staff names already used on a saved bill, for the login screen's
