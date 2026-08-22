@@ -35,5 +35,6 @@ RUN curl -fsSL https://storage.googleapis.com/flutter_infra_release/releases/sta
     && mkdir -p /opt \
     && tar -xf /tmp/flutter.tar.xz -C /opt \
     && rm /tmp/flutter.tar.xz \
+    && git config --global --add safe.directory /opt/flutter \
     && flutter config --no-analytics \
     && flutter precache --linux --web
