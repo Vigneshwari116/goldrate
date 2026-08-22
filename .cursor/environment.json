@@ -1,0 +1,16 @@
+{
+  "name": "Goldrate Flutter",
+  "user": "ubuntu",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "install": "chmod +x .cursor/cloud-agent-install.sh && .cursor/cloud-agent-install.sh",
+  "terminals": [
+    {
+      "name": "Flutter App",
+      "command": "flutter run -d linux",
+      "description": "Runs the Jewellery Management app on Linux desktop (SQLite-backed)."
+    }
+  ]
+}
