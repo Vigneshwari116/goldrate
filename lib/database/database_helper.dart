@@ -450,6 +450,25 @@ class DatabaseHelper {
     );
   }
 
+  Future<int> updateTransaction(int id, Map<String, dynamic> transaction) async {
+    final db = await database;
+    return await db.update(
+      'transactions',
+      transaction,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> deleteLedgerForBill({
+    required String billRef,
+    required bool isCustomer,
+  }) async {
+    final db = await database;
+    final table = isCustomer ? 'customers' : 'suppliers';
+    await db.delete(table, where: 'billRef = ?', whereArgs: [billRef]);
+  }
+
   Future<int> deleteTransaction(int id) async {
     final db = await database;
     return await db.delete(

@@ -54,14 +54,19 @@ class _TransactionItem {
     'value': value,
   };
 
-  factory _TransactionItem.fromJson(Map<String, dynamic> json) =>
-      _TransactionItem(
-        type: json['type'] as String,
-        token: (json['token'] ?? '').toString(),
-        weight: (json['weight'] as num).toDouble(),
-        touch: (json['touch'] as num).toDouble(),
-        rate: (json['rate'] as num?)?.toDouble() ?? 0,
-      );
+  factory _TransactionItem.fromJson(Map<String, dynamic> json) {
+    double n(dynamic v) {
+      if (v is num) return v.toDouble();
+      return double.tryParse('$v') ?? 0;
+    }
+    return _TransactionItem(
+      type: (json['type'] ?? 'GWT').toString(),
+      token: (json['token'] ?? '').toString(),
+      weight: n(json['weight']),
+      touch: n(json['touch']),
+      rate: n(json['rate']),
+    );
+  }
 }
 
 class TransactionScreen extends StatefulWidget {
@@ -80,11 +85,13 @@ class _TransactionScreenState extends State<TransactionScreen> {
   static final RegExp _numberRegex = RegExp(r'^\d+(\.\d+)?$');
 
   final _partyController = TextEditingController();
+  final _tokenController = TextEditingController();
   final _weightController = TextEditingController();
   final _touchController = TextEditingController();
   final _paymentAmountController = TextEditingController();
 
   final _partyFocus = FocusNode();
+  final _tokenFocus = FocusNode();
   final _weightFocus = FocusNode();
   final _touchFocus = FocusNode();
   final _paymentFocus = FocusNode();
@@ -95,6 +102,10 @@ class _TransactionScreenState extends State<TransactionScreen> {
   final List<_TransactionItem> _items = [];
 
   int _nextBillNo = 1;
+  int? _editingId;
+  int? _editingBillNo;
+  String? _editingDate;
+  String? _editingTime;
   bool _loading = true;
   bool _saving = false;
 
@@ -113,6 +124,10 @@ class _TransactionScreenState extends State<TransactionScreen> {
   String get _transactionType => _isPurchase ? 'PURCHASE' : 'SALES';
 
   String get _title => _isPurchase ? 'PURCHASE' : 'SALES';
+
+  int get _billNoOnForm => _editingBillNo ?? _nextBillNo;
+
+  bool get _isEditing => _editingId != null;
 
   double get _totalWt =>
       _items.fold(0, (sum, item) => sum + item.weight);
@@ -147,10 +162,12 @@ class _TransactionScreenState extends State<TransactionScreen> {
   @override
   void dispose() {
     _partyController.dispose();
+    _tokenController.dispose();
     _weightController.dispose();
     _touchController.dispose();
     _paymentAmountController.dispose();
     _partyFocus.dispose();
+    _tokenFocus.dispose();
     _weightFocus.dispose();
     _touchFocus.dispose();
     _paymentFocus.dispose();
@@ -249,7 +266,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
 
   Future<void> _onPartySubmitted() async {
     final ok = await _ensureKnownParty();
-    if (ok && mounted) _weightFocus.requestFocus();
+    if (ok && mounted) _tokenFocus.requestFocus();
   }
 
   /// Turns a party's outstanding {rupees, grams} totals into one line
@@ -299,26 +316,41 @@ class _TransactionScreenState extends State<TransactionScreen> {
     setState(() {
       _items.add(_TransactionItem(
         type: _selectedItemType,
+        token: _tokenController.text.trim(),
         weight: weight,
         touch: touch,
         rate: rate,
       ));
+      _tokenController.clear();
       _weightController.clear();
       _touchController.clear();
     });
-    _weightFocus.requestFocus();
+    _tokenFocus.requestFocus();
   }
 
   void _removeItem(int index) {
     setState(() => _items.removeAt(index));
   }
 
+  void _editLine(int index) {
+    final item = _items[index];
+    setState(() {
+      _selectedItemType = _itemTypes.contains(item.type) ? item.type : _itemTypes.first;
+      _tokenController.text = item.token;
+      _weightController.text = formatWeight(item.weight);
+      _touchController.text = formatWeight(item.touch);
+      _items.removeAt(index);
+    });
+    _weightFocus.requestFocus();
+  }
+
   void _showMessage(String message) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  void _clearForm() {
+  void _clearForm({bool keepBillCounter = false}) {
     _partyController.clear();
+    _tokenController.clear();
     _weightController.clear();
     _touchController.clear();
     _paymentAmountController.clear();
@@ -328,6 +360,12 @@ class _TransactionScreenState extends State<TransactionScreen> {
       _selectedPaymentMode = _paymentModes.first;
       _partySuggestions = [];
       _partyOutstanding = null;
+      if (!keepBillCounter) {
+        _editingId = null;
+        _editingBillNo = null;
+        _editingDate = null;
+        _editingTime = null;
+      }
     });
   }
 
@@ -340,12 +378,16 @@ class _TransactionScreenState extends State<TransactionScreen> {
 
     setState(() => _saving = true);
 
-    final date = DateFormat("dd-MM-yyyy").format(DateTime.now());
-    final time = DateFormat("hh:mm a").format(DateTime.now());
+    final date = _editingDate ??
+        DateFormat("dd-MM-yyyy").format(DateTime.now());
+    final time = _isEditing
+        ? (_editingTime ?? DateFormat("hh:mm:ss a").format(DateTime.now()))
+        : DateFormat("hh:mm:ss a").format(DateTime.now());
+    final billNo = _billNoOnForm;
 
     final record = {
       'transactionType': _transactionType,
-      'billNo': _nextBillNo,
+      'billNo': billNo,
       'partyName': _partyController.text.trim(),
       'items': jsonEncode(_items.map((i) => i.toJson()).toList()),
       'totalWt': formatWeight(_totalWt),
@@ -359,20 +401,35 @@ class _TransactionScreenState extends State<TransactionScreen> {
       'time': time,
     };
 
-    await DatabaseHelper.instance.insertTransaction(record);
-    await _postToLedger(date, time);
+    if (_isEditing) {
+      await DatabaseHelper.instance.updateTransaction(_editingId!, record);
+      await DatabaseHelper.instance.deleteLedgerForBill(
+        billRef: 'Bill #$billNo',
+        isCustomer: _isCustomerParty,
+      );
+    } else {
+      await DatabaseHelper.instance.insertTransaction(record);
+    }
+    await _postToLedger(date, time, billNo);
 
     if (!mounted) return;
 
     setState(() => _saving = false);
 
-    final billNoSaved = _nextBillNo;
+    final billNoSaved = billNo;
     final partyName = _partyController.text.trim();
     final savedRecord = Map<String, dynamic>.from(record);
+    final wasEdit = _isEditing;
     _clearForm();
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("Bill #$billNoSaved saved and posted to $partyName's ledger")),
+      SnackBar(
+        content: Text(
+          wasEdit
+              ? "Bill #$billNoSaved updated — weights recalculated"
+              : "Bill #$billNoSaved saved and posted to $partyName's ledger",
+        ),
+      ),
     );
 
     await _shareBill(savedRecord);
@@ -386,10 +443,10 @@ class _TransactionScreenState extends State<TransactionScreen> {
   /// column; a negative balance (shop owes the party) goes in CR —
   /// mirroring how the existing Customer/Supplier Master screens
   /// already use those two fields.
-  Future<void> _postToLedger(String date, String time) async {
+  Future<void> _postToLedger(String date, String time, int billNo) async {
     final balance = _balance;
     final narration =
-        "Bill #$_nextBillNo (${_isPurchase ? 'Purchase' : 'Sale'}) — "
+        "Bill #$billNo (${_isPurchase ? 'Purchase' : 'Sale'}) — "
         "Wt ${formatWeight(_totalWt)}, Pure ${formatWeight(_totalPureWt)}, "
         "Value ₹${_totalValue.toStringAsFixed(2)}, "
         "$_selectedPaymentMode ${_paymentAmount.toStringAsFixed(2)}";
@@ -402,7 +459,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
       'dr': balance > 0 ? formatAmount(balance) : '0.00',
       'narration': narration,
       'balanceUnit': _balanceUnit,
-      'billRef': 'Bill #$_nextBillNo',
+      'billRef': 'Bill #$billNo',
       'date': date,
       'time': time,
     };
@@ -422,7 +479,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
     }
   }
 
-  Future<void> _confirmDelete(int id) async {
+  Future<void> _confirmDelete(Map<String, dynamic> row) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -442,9 +499,39 @@ class _TransactionScreenState extends State<TransactionScreen> {
     );
 
     if (confirmed == true) {
-      await DatabaseHelper.instance.deleteTransaction(id);
+      final billNo = row['billNo'];
+      await DatabaseHelper.instance.deleteLedgerForBill(
+        billRef: 'Bill #$billNo',
+        isCustomer: _isCustomerParty,
+      );
+      await DatabaseHelper.instance.deleteTransaction(row['id'] as int);
+      if (_editingId == row['id']) _clearForm();
       _load();
     }
+  }
+
+  void _beginEdit(Map<String, dynamic> row) {
+    final items = (jsonDecode(row['items'] as String) as List)
+        .map((e) => _TransactionItem.fromJson(e as Map<String, dynamic>))
+        .toList();
+    _partyController.text = (row['partyName'] ?? '').toString();
+    _paymentAmountController.text = (row['paymentAmount'] ?? '').toString();
+    final mode = (row['paymentMode'] ?? 'CASH').toString();
+    setState(() {
+      _editingId = row['id'] as int;
+      final rawNo = row['billNo'];
+      _editingBillNo =
+          rawNo is int ? rawNo : int.tryParse('$rawNo');
+      _editingDate = (row['date'] ?? '').toString();
+      _editingTime = (row['time'] ?? '').toString();
+      _items
+        ..clear()
+        ..addAll(items);
+      _selectedPaymentMode =
+          _paymentModes.contains(mode) ? mode : _paymentModes.first;
+      _partySuggestions = [];
+    });
+    _onPartyTextChanged();
   }
 
   void _showBillDetails(Map<String, dynamic> row) {
@@ -491,6 +578,13 @@ class _TransactionScreenState extends State<TransactionScreen> {
         ),
         actions: [
           TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _beginEdit(row);
+            },
+            child: const Text("EDIT"),
+          ),
+          TextButton(
             onPressed: () => _shareBill(row),
             child: const Text("SHARE"),
           ),
@@ -525,13 +619,13 @@ class _TransactionScreenState extends State<TransactionScreen> {
         for (var i = 0; i < items.length; i++)
           EstimateLine(
             sno: i + 1,
+            token: items[i].token,
             weight: items[i].weight,
             touch: items[i].touch,
             pureWt: items[i].pureWt,
           ),
       ],
       closingBalance: closing,
-      goldRate: _rates['G.P RATE'],
     );
   }
 
@@ -658,7 +752,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
               ),
               const SizedBox(width: 8),
               Text(
-                "$_nextBillNo",
+                "$_billNoOnForm${_isEditing ? '  (EDIT)' : ''}",
                 style: const TextStyle(
                     fontSize: 15, fontWeight: FontWeight.bold),
               ),
@@ -752,6 +846,25 @@ class _TransactionScreenState extends State<TransactionScreen> {
               ),
               const SizedBox(width: 8),
               Expanded(
+                flex: 2,
+                child: TextFormField(
+                  controller: _tokenController,
+                  focusNode: _tokenFocus,
+                  textInputAction: TextInputAction.next,
+                  onFieldSubmitted: (_) => _weightFocus.requestFocus(),
+                  style: const TextStyle(fontSize: 14),
+                  decoration: const InputDecoration(
+                    label: Text("Token"),
+                    hintText: "optional",
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
                 flex: 3,
                 child: TextFormField(
                   controller: _weightController,
@@ -794,6 +907,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(
+                showCheckboxColumn: false,
                 headingRowColor:
                     WidgetStateProperty.all(AppColors.tableHeader),
                 headingTextStyle: const TextStyle(
@@ -804,6 +918,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
                 dataTextStyle: const TextStyle(fontSize: 12.5),
                 columns: const [
                   DataColumn(label: Text('SNo')),
+                  DataColumn(label: Text('TOKEN')),
                   DataColumn(label: Text('WT'), numeric: true),
                   DataColumn(label: Text('TOUCH'), numeric: true),
                   DataColumn(label: Text('PURE'), numeric: true),
@@ -811,8 +926,11 @@ class _TransactionScreenState extends State<TransactionScreen> {
                 ],
                 rows: List.generate(_items.length, (index) {
                   final item = _items[index];
-                  return DataRow(cells: [
+                  return DataRow(
+                    onSelectChanged: (_) => _editLine(index),
+                    cells: [
                     DataCell(Text('${index + 1}')),
+                    DataCell(Text(item.token.isEmpty ? '-' : item.token)),
                     DataCell(Text(formatWeight(item.weight))),
                     DataCell(Text(formatWeight(item.touch))),
                     DataCell(Text(formatWeight(item.pureWt))),
@@ -833,8 +951,15 @@ class _TransactionScreenState extends State<TransactionScreen> {
           if (_items.isNotEmpty) ...[
             const Divider(height: 24, color: AppColors.border),
             _totalRow("TOTAL WT", _totalWt, decimals: 3),
-            _totalRow("TOTAL PURE WT", _totalPureWt, decimals: 3),
+            _totalRow("PURE GOLD", _totalPureWt, decimals: 3),
             _totalRow("TOTAL VALUE (₹)", _totalValue),
+            const Padding(
+              padding: EdgeInsets.only(top: 4),
+              child: Text(
+                "Tap a line to change weight or touch — pure recalculates.",
+                style: TextStyle(fontSize: 11.5, color: Colors.black54),
+              ),
+            ),
           ],
           const SizedBox(height: 14),
           const Text(
@@ -884,6 +1009,22 @@ class _TransactionScreenState extends State<TransactionScreen> {
           _totalRow("BALANCE ($_balanceUnit)", _balance,
               highlight: true, decimals: _isGoldSettlement ? 3 : 2),
           const SizedBox(height: 16),
+          if (_isEditing) ...[
+            SizedBox(
+              width: double.infinity,
+              height: 40,
+              child: OutlinedButton(
+                onPressed: _saving
+                    ? null
+                    : () {
+                        _clearForm();
+                        _load();
+                      },
+                child: const Text('CANCEL EDIT'),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
           SizedBox(
             width: double.infinity,
             height: 42,
@@ -902,7 +1043,9 @@ class _TransactionScreenState extends State<TransactionScreen> {
                   strokeWidth: 2,
                 ),
               )
-                  : Text(_isPurchase ? "SAVE PURCHASE" : "SAVE SALE"),
+                  : Text(_isEditing
+                      ? (_isPurchase ? "UPDATE PURCHASE" : "UPDATE SALE")
+                      : (_isPurchase ? "SAVE PURCHASE" : "SAVE SALE")),
             ),
           ),
         ],
@@ -987,7 +1130,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
                         IconButton(
                           icon: const Icon(Icons.delete,
                               color: Colors.redAccent, size: 18),
-                          onPressed: () => _confirmDelete(row['id'] as int),
+                          onPressed: () => _confirmDelete(row),
                         ),
                       ],
                     ),
