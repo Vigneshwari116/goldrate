@@ -7,14 +7,12 @@ import '../utils/number_format.dart';
 
 class EstimateLine {
   final int sno;
-  final String token;
   final double weight;
   final double touch;
   final double pureWt;
 
   EstimateLine({
     required this.sno,
-    required this.token,
     required this.weight,
     required this.touch,
     required this.pureWt,
@@ -110,7 +108,6 @@ Future<Uint8List> buildEstimateBillPdf({
                 pw.TableRow(
                   children: [
                     _h('SNo', headerStyle),
-                    _h('Token', headerStyle),
                     _h('Weight', headerStyle),
                     _h('Touch', headerStyle),
                     _h('Pure', headerStyle),
@@ -120,7 +117,6 @@ Future<Uint8List> buildEstimateBillPdf({
                   pw.TableRow(
                     children: [
                       _c('${line.sno}', cellStyle),
-                      _c(line.token.isEmpty ? '-' : line.token, cellStyle),
                       _c(formatWeight(line.weight), cellStyle),
                       _c(formatWeight(line.touch), cellStyle),
                       _c(formatWeight(line.pureWt), cellStyle),

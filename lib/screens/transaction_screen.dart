@@ -80,13 +80,11 @@ class _TransactionScreenState extends State<TransactionScreen> {
   static final RegExp _numberRegex = RegExp(r'^\d+(\.\d+)?$');
 
   final _partyController = TextEditingController();
-  final _tokenController = TextEditingController();
   final _weightController = TextEditingController();
   final _touchController = TextEditingController();
   final _paymentAmountController = TextEditingController();
 
   final _partyFocus = FocusNode();
-  final _tokenFocus = FocusNode();
   final _weightFocus = FocusNode();
   final _touchFocus = FocusNode();
   final _paymentFocus = FocusNode();
@@ -149,12 +147,10 @@ class _TransactionScreenState extends State<TransactionScreen> {
   @override
   void dispose() {
     _partyController.dispose();
-    _tokenController.dispose();
     _weightController.dispose();
     _touchController.dispose();
     _paymentAmountController.dispose();
     _partyFocus.dispose();
-    _tokenFocus.dispose();
     _weightFocus.dispose();
     _touchFocus.dispose();
     _paymentFocus.dispose();
@@ -253,7 +249,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
 
   Future<void> _onPartySubmitted() async {
     final ok = await _ensureKnownParty();
-    if (ok && mounted) _tokenFocus.requestFocus();
+    if (ok && mounted) _weightFocus.requestFocus();
   }
 
   /// Turns a party's outstanding {rupees, grams} totals into one line
@@ -303,16 +299,14 @@ class _TransactionScreenState extends State<TransactionScreen> {
     setState(() {
       _items.add(_TransactionItem(
         type: _selectedItemType,
-        token: _tokenController.text.trim(),
         weight: weight,
         touch: touch,
         rate: rate,
       ));
-      _tokenController.clear();
       _weightController.clear();
       _touchController.clear();
     });
-    _tokenFocus.requestFocus();
+    _weightFocus.requestFocus();
   }
 
   void _removeItem(int index) {
@@ -325,7 +319,6 @@ class _TransactionScreenState extends State<TransactionScreen> {
 
   void _clearForm() {
     _partyController.clear();
-    _tokenController.clear();
     _weightController.clear();
     _touchController.clear();
     _paymentAmountController.clear();
@@ -532,7 +525,6 @@ class _TransactionScreenState extends State<TransactionScreen> {
         for (var i = 0; i < items.length; i++)
           EstimateLine(
             sno: i + 1,
-            token: items[i].token,
             weight: items[i].weight,
             touch: items[i].touch,
             pureWt: items[i].pureWt,
@@ -645,6 +637,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
   }
   Widget _buildFormCard() {
     return Container(
+      width: double.infinity,
       decoration: BoxDecoration(
         color: AppColors.cardWhite,
         borderRadius: BorderRadius.circular(8),
@@ -744,6 +737,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
           Row(
             children: [
               Expanded(
+                flex: 2,
                 child: DropdownButtonFormField<String>(
                   value: _selectedItemType,
                   isExpanded: true,
@@ -758,21 +752,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: TextFormField(
-                  controller: _tokenController,
-                  focusNode: _tokenFocus,
-                  textInputAction: TextInputAction.next,
-                  onFieldSubmitted: (_) => _weightFocus.requestFocus(),
-                  style: const TextStyle(fontSize: 14),
-                  decoration: const InputDecoration(label: Text("Token")),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
+                flex: 3,
                 child: TextFormField(
                   controller: _weightController,
                   focusNode: _weightFocus,
@@ -787,6 +767,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
               ),
               const SizedBox(width: 8),
               Expanded(
+                flex: 3,
                 child: TextFormField(
                   controller: _touchController,
                   focusNode: _touchFocus,
@@ -823,7 +804,6 @@ class _TransactionScreenState extends State<TransactionScreen> {
                 dataTextStyle: const TextStyle(fontSize: 12.5),
                 columns: const [
                   DataColumn(label: Text('SNo')),
-                  DataColumn(label: Text('TOKEN')),
                   DataColumn(label: Text('WT'), numeric: true),
                   DataColumn(label: Text('TOUCH'), numeric: true),
                   DataColumn(label: Text('PURE'), numeric: true),
@@ -833,7 +813,6 @@ class _TransactionScreenState extends State<TransactionScreen> {
                   final item = _items[index];
                   return DataRow(cells: [
                     DataCell(Text('${index + 1}')),
-                    DataCell(Text(item.token.isEmpty ? '-' : item.token)),
                     DataCell(Text(formatWeight(item.weight))),
                     DataCell(Text(formatWeight(item.touch))),
                     DataCell(Text(formatWeight(item.pureWt))),
@@ -1040,10 +1019,9 @@ class _TransactionScreenState extends State<TransactionScreen> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
+          : Padding(
         padding: const EdgeInsets.all(12),
         child: SplitLayout(
-          primaryWidth: 420,
           primary: _buildFormCard(),
           secondary: _buildHistorySection(),
         ),

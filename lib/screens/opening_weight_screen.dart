@@ -3,7 +3,6 @@ import 'package:intl/intl.dart';
 
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
-import '../theme/responsive.dart';
 import '../utils/number_format.dart';
 import '../widgets/app_shell.dart';
 
@@ -171,8 +170,7 @@ class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
         padding: const EdgeInsets.all(12),
-        child: CenteredMaxWidth(
-          child: Column(
+        child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               if (_saved != null) ...[
@@ -269,7 +267,6 @@ class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
               ],
             ],
           ),
-        ),
       ),
     );
   }

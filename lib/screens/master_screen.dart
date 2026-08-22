@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
-import '../theme/responsive.dart';
 import '../utils/number_format.dart';
 import '../widgets/app_shell.dart';
 import 'history_screen.dart';
@@ -174,9 +173,7 @@ class _MasterScreenState extends State<MasterScreen> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : CenteredMaxWidth(
-        maxWidth: 560,
-        child: Column(
+          : Column(
           children: [
             // Single global "Last Updated" header
             Container(
@@ -283,7 +280,6 @@ class _MasterScreenState extends State<MasterScreen> {
             ),
           ],
         ),
-      ),
     );
   }
 }

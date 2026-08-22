@@ -4,7 +4,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
-import '../theme/responsive.dart';
 import '../widgets/app_shell.dart';
 
 class HistoryScreen extends StatefulWidget {
@@ -118,9 +117,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
           style: TextStyle(fontSize: 13, color: Colors.black54),
         ),
       )
-          : CenteredMaxWidth(
-        maxWidth: 560,
-        child: ListView.builder(
+          : ListView.builder(
           padding: const EdgeInsets.fromLTRB(12, 12, 12, 80),
           itemCount: history.length,
           itemBuilder: (context, index) {
@@ -162,7 +159,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
             );
           },
         ),
-      ),
       floatingActionButton: history.isEmpty
           ? null
           : FloatingActionButton.extended(

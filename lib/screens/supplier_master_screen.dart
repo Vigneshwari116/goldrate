@@ -500,6 +500,7 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen> {
 
   Widget _buildFormCard() {
     return Container(
+      width: double.infinity,
       decoration: BoxDecoration(
         color: AppColors.cardWhite,
         borderRadius: BorderRadius.circular(8),
@@ -716,10 +717,9 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen> {
           : Column(
         children: [
           Expanded(
-            child: SingleChildScrollView(
+            child: Padding(
               padding: const EdgeInsets.all(12),
               child: SplitLayout(
-                primaryWidth: 380,
                 primary: _buildFormCard(),
                 secondary: _buildListSection(),
               ),

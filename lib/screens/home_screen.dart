@@ -151,9 +151,16 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-        padding: const EdgeInsets.all(12),
-        child: _buildPrimaryColumn(),
+          : LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(12),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: constraints.maxWidth),
+              child: _buildPrimaryColumn(),
+            ),
+          );
+        },
       ),
     );
   }
