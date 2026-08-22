@@ -125,13 +125,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
           itemCount: history.length,
           itemBuilder: (context, index) {
             final row = history[index];
-            return Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              decoration: BoxDecoration(
-                color: AppColors.cardWhite,
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Material(
+              color: AppColors.cardWhite,
+              shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.border),
+                side: const BorderSide(color: AppColors.border),
               ),
+              clipBehavior: Clip.antiAlias,
               child: ListTile(
                 dense: true,
                 leading: CircleAvatar(
@@ -155,6 +157,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   style:
                   const TextStyle(fontSize: 11.5, color: Colors.black54),
                 ),
+              ),
               ),
             );
           },

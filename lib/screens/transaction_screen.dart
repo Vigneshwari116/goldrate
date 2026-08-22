@@ -13,6 +13,8 @@ import '../theme/responsive.dart';
 import '../utils/number_format.dart';
 import '../services/estimate_bill_pdf.dart';
 import '../widgets/app_shell.dart';
+import 'customer_master_screen.dart';
+import 'supplier_master_screen.dart';
 
 enum TransactionKind { purchase, sales }
 
@@ -218,6 +220,42 @@ class _TransactionScreenState extends State<TransactionScreen> {
     setState(() => _partySuggestions = []);
   }
 
+  bool _isKnownParty(String name) {
+    final lower = name.trim().toLowerCase();
+    if (lower.isEmpty) return false;
+    return _partyNames.any((n) => n.toLowerCase() == lower);
+  }
+
+  /// New walk-in names go to Customer/Supplier Master first (mobile,
+  /// city, opening CR/DR), then return here with the saved name.
+  Future<bool> _ensureKnownParty() async {
+    final name = _partyController.text.trim();
+    if (name.isEmpty) {
+      _showMessage("Enter a name");
+      return false;
+    }
+    if (_isKnownParty(name)) return true;
+
+    final saved = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _isPurchase
+            ? SupplierMasterScreen(initialName: name, popAfterSave: true)
+            : CustomerMasterScreen(initialName: name, popAfterSave: true),
+      ),
+    );
+    if (!mounted) return false;
+    await _load();
+    if (saved == null || saved.trim().isEmpty) return false;
+    _selectParty(saved.trim());
+    return true;
+  }
+
+  Future<void> _onPartySubmitted() async {
+    final ok = await _ensureKnownParty();
+    if (ok && mounted) _tokenFocus.requestFocus();
+  }
+
   /// Turns a party's outstanding {rupees, grams} totals into one line
   /// like "Ramesh owes you ₹20,000 · 5.20g" — sign flips the wording
   /// to "you owe" when the shop is the one holding the balance.
@@ -301,10 +339,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
   }
 
   Future<void> _saveTransaction() async {
-    if (_partyController.text.trim().isEmpty) {
-      _showMessage("Enter a name");
-      return;
-    }
+    if (!await _ensureKnownParty()) return;
     if (_items.isEmpty) {
       _showMessage("Add at least one weight line");
       return;
@@ -647,24 +682,23 @@ class _TransactionScreenState extends State<TransactionScreen> {
             controller: _partyController,
             focusNode: _partyFocus,
             textInputAction: TextInputAction.next,
-            onFieldSubmitted: (_) => _tokenFocus.requestFocus(),
+            onFieldSubmitted: (_) => _onPartySubmitted(),
             style: const TextStyle(fontSize: 14),
             decoration: InputDecoration(
               label: Text(
                   _isCustomerParty ? "Customer Name" : "Supplier Name"),
               helperText: _isCustomerParty
-                  ? "Existing customers show as you type"
-                  : "Existing suppliers show as you type",
+                  ? "Pick an existing customer, or Enter to add a new one"
+                  : "Pick an existing supplier, or Enter to add a new one",
               helperStyle: const TextStyle(fontSize: 11),
             ),
           ),
           if (_partySuggestions.isNotEmpty)
-            Container(
-              margin: const EdgeInsets.only(top: 4),
-              decoration: BoxDecoration(
-                color: AppColors.cardWhite,
-                border: Border.all(color: AppColors.border),
+            Material(
+              color: AppColors.cardWhite,
+              shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(6),
+                side: const BorderSide(color: AppColors.border),
               ),
               child: Column(
                 children: _partySuggestions
@@ -710,9 +744,9 @@ class _TransactionScreenState extends State<TransactionScreen> {
           Row(
             children: [
               Expanded(
-                flex: 2,
                 child: DropdownButtonFormField<String>(
                   value: _selectedItemType,
+                  isExpanded: true,
                   decoration: const InputDecoration(label: Text("Type")),
                   items: _itemTypes
                       .map((t) =>
@@ -724,7 +758,6 @@ class _TransactionScreenState extends State<TransactionScreen> {
               ),
               const SizedBox(width: 8),
               Expanded(
-                flex: 2,
                 child: TextFormField(
                   controller: _tokenController,
                   focusNode: _tokenFocus,
@@ -734,9 +767,12 @@ class _TransactionScreenState extends State<TransactionScreen> {
                   decoration: const InputDecoration(label: Text("Token")),
                 ),
               ),
-              const SizedBox(width: 8),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
               Expanded(
-                flex: 3,
                 child: TextFormField(
                   controller: _weightController,
                   focusNode: _weightFocus,
@@ -751,7 +787,6 @@ class _TransactionScreenState extends State<TransactionScreen> {
               ),
               const SizedBox(width: 8),
               Expanded(
-                flex: 3,
                 child: TextFormField(
                   controller: _touchController,
                   focusNode: _touchFocus,
@@ -837,6 +872,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
                 flex: 2,
                 child: DropdownButtonFormField<String>(
                   value: _selectedPaymentMode,
+                  isExpanded: true,
                   decoration: const InputDecoration(label: Text("Mode")),
                   items: _paymentModes
                       .map((m) =>
@@ -923,26 +959,21 @@ class _TransactionScreenState extends State<TransactionScreen> {
             ),
           )
         else
-          Container(
-            decoration: BoxDecoration(
-              color: AppColors.cardWhite,
+          Material(
+            color: AppColors.cardWhite,
+            shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: AppColors.border),
+              side: const BorderSide(color: AppColors.border),
             ),
+            clipBehavior: Clip.antiAlias,
             child: Column(
               children: List.generate(_history.length, (index) {
                 final row = _history[index];
                 final isLast = index == _history.length - 1;
 
-                return Container(
-                  decoration: BoxDecoration(
-                    border: isLast
-                        ? null
-                        : const Border(
-                      bottom: BorderSide(color: AppColors.border),
-                    ),
-                  ),
-                  child: ListTile(
+                return Column(
+                  children: [
+                    ListTile(
                     dense: true,
                     onTap: () => _showBillDetails(row),
                     leading: CircleAvatar(
@@ -981,7 +1012,9 @@ class _TransactionScreenState extends State<TransactionScreen> {
                         ),
                       ],
                     ),
-                  ),
+                    ),
+                    if (!isLast) const Divider(height: 1),
+                  ],
                 );
               }),
             ),

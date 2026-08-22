@@ -41,6 +41,24 @@ class ShellDrawerScope extends InheritedWidget {
       openDrawer != oldWidget.openDrawer;
 }
 
+class ShellNavigateScope extends InheritedWidget {
+  final void Function(int index) goTo;
+
+  const ShellNavigateScope({
+    super.key,
+    required this.goTo,
+    required super.child,
+  });
+
+  static ShellNavigateScope? maybeOf(BuildContext context) {
+    return context.dependOnInheritedWidgetOfExactType<ShellNavigateScope>();
+  }
+
+  @override
+  bool updateShouldNotify(ShellNavigateScope oldWidget) =>
+      goTo != oldWidget.goTo;
+}
+
 Widget? shellMenuButton(BuildContext context) {
   final shell = ShellDrawerScope.maybeOf(context);
   if (shell == null) return null;
@@ -122,7 +140,7 @@ class _AppShellState extends State<AppShell> {
       children: _items.map((item) => item.page).toList(),
     );
 
-    final sidebar = ColoredBox(
+    final sidebar = Material(
       color: Colors.white,
       child: Column(
         children: [
@@ -164,7 +182,12 @@ class _AppShellState extends State<AppShell> {
                       color: AppColors.navy,
                     ),
                   ),
-                  onTap: () => setState(() => _index = index),
+                  onTap: () {
+                    setState(() => _index = index);
+                    if (!wide) {
+                      Navigator.of(context).maybePop();
+                    }
+                  },
                 );
               },
             ),
@@ -179,25 +202,28 @@ class _AppShellState extends State<AppShell> {
       ),
     );
 
-    if (wide) {
-      return Scaffold(
-        body: Row(
-          children: [
-            SizedBox(width: 240, child: sidebar),
-            const VerticalDivider(width: 1, thickness: 1),
-            Expanded(child: pages),
-          ],
-        ),
-      );
-    }
+    Widget shell = wide
+        ? Scaffold(
+            body: Row(
+              children: [
+                SizedBox(width: 240, child: sidebar),
+                const VerticalDivider(width: 1, thickness: 1),
+                Expanded(child: pages),
+              ],
+            ),
+          )
+        : ShellDrawerScope(
+            openDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+            child: Scaffold(
+              key: _scaffoldKey,
+              drawer: Drawer(child: sidebar),
+              body: pages,
+            ),
+          );
 
-    return ShellDrawerScope(
-      openDrawer: () => _scaffoldKey.currentState?.openDrawer(),
-      child: Scaffold(
-        key: _scaffoldKey,
-        drawer: Drawer(child: sidebar),
-        body: pages,
-      ),
+    return ShellNavigateScope(
+      goTo: (index) => setState(() => _index = index),
+      child: shell,
     );
   }
 }
