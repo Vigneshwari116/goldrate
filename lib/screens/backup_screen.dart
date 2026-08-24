@@ -1,10 +1,10 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
+import 'package:intl/intl.dart';
 
 import '../database/database_helper.dart';
+import '../util/file_share.dart';
 
 class BackupScreen extends StatefulWidget {
   const BackupScreen({super.key, this.embedded = false});
@@ -30,13 +30,17 @@ class _BackupScreenState extends State<BackupScreen> {
         );
         return;
       }
-      final dir = await getTemporaryDirectory();
-      final copy = File('${dir.path}/jewellery_backup.db');
-      await file.copy(copy.path);
-      await Share.shareXFiles(
-        [XFile(copy.path)],
+      final stamp = DateFormat('yyyyMMdd_HHmm').format(DateTime.now());
+      final saved = await FileShare.shareOrSaveCopy(
+        source: file,
+        fileName: 'jewellery_backup_$stamp.db',
+        folderName: 'JewelleryBackup',
         subject: 'Jewellery backup',
         text: 'SQLite backup of sales, purchase, masters and reports',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Backup saved: ${saved.path}')),
       );
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -51,7 +55,7 @@ class _BackupScreenState extends State<BackupScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Text(
-            'Share a copy of the shop database. Keep this file safe — it holds bills, balances and masters.',
+            'On Windows the backup is saved under Downloads\\JewelleryBackup (or Documents). On the phone it opens the share sheet so you can send it to WhatsApp or Files.',
             style: TextStyle(color: Colors.black54),
           ),
           const SizedBox(height: 20),
@@ -65,7 +69,7 @@ class _BackupScreenState extends State<BackupScreen> {
                         strokeWidth: 2, color: Colors.white),
                   )
                 : const Icon(Icons.backup),
-            label: const Text('SHARE DATABASE BACKUP'),
+            label: const Text('SAVE / SHARE DATABASE BACKUP'),
           ),
         ],
       ),

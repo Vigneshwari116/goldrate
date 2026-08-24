@@ -42,6 +42,7 @@ dependencies:
   url_launcher: ^6.3.0
   pdf: ^3.10.0
   sqflite_common_ffi: ^2.3.3
+  printing: ^5.14.2
 
 
 dev_dependencies:

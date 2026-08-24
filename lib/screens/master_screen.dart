@@ -219,7 +219,7 @@ class _MasterScreenState extends State<MasterScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text("MASTER / RATES")),
+      appBar: AppBar(title: const Text("DAILY RATE")),
       body: content,
     );
   }

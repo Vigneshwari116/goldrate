@@ -190,7 +190,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
                 children: [
                   const Text(
-                    'Use the menu icons on the left, or the hamburger for names.',
+                    'Use the menu on the left. Opening Weight is under Inventory, just below Home.',
                     style: TextStyle(fontSize: 12, color: AppColors.mutedBlue),
                   ),
                   const SizedBox(height: 8),
@@ -252,7 +252,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         value: gp.toString(),
                         detail: _ratesSetToday
                             ? 'Used to convert cash into gold'
-                            : 'Set rates from Master / Rates',
+                            : 'Set rates from Daily Rate',
                       ),
                       _kpi(
                         label: 'PARTIES ON FILE',
