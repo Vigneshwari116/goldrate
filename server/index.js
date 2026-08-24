@@ -1,0 +1,261 @@
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const { Pool } = require('pg');
+
+const app = express();
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+app.use(cors());
+app.use(express.json({ limit: '2mb' }));
+
+// Convert DB snake_case rows to Flutter camelCase keys.
+function toCamel(row) {
+  if (!row) return row;
+  const out = {};
+  for (const [key, value] of Object.entries(row)) {
+    const camel = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    out[camel] = value;
+  }
+  return out;
+}
+
+function toCamelList(rows) {
+  return rows.map(toCamel);
+}
+
+// ---------- Health ----------
+app.get('/api/health', async (_req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ ok: true, db: 'connected' });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ---------- Auth ----------
+app.post('/api/auth/login', async (req, res) => {
+  const { username, password } = req.body;
+  const result = await pool.query(
+    'SELECT id FROM users WHERE username = $1 AND password = $2',
+    [username, password],
+  );
+  res.json({ success: result.rows.length > 0 });
+});
+
+// ---------- Rates ----------
+app.get('/api/rates', async (_req, res) => {
+  const result = await pool.query('SELECT * FROM rates ORDER BY id');
+  res.json(toCamelList(result.rows));
+});
+
+app.put('/api/rates/:id', async (req, res) => {
+  const { id } = req.params;
+  const { rateName, rateValue, date, time } = req.body;
+  const updated = await pool.query(
+    'UPDATE rates SET rate_value = $1 WHERE id = $2 RETURNING *',
+    [rateValue, id],
+  );
+  if (updated.rows.length > 0) {
+    await pool.query(
+      'INSERT INTO rate_history (rate_name, rate_value, date, time) VALUES ($1, $2, $3, $4)',
+      [rateName, rateValue, date, time],
+    );
+  }
+  res.json({ rowsAffected: updated.rowCount });
+});
+
+app.get('/api/rates/history', async (_req, res) => {
+  const result = await pool.query('SELECT * FROM rate_history ORDER BY id DESC');
+  res.json(toCamelList(result.rows));
+});
+
+app.get('/api/rates/stats', async (_req, res) => {
+  const countResult = await pool.query('SELECT COUNT(*)::int AS count FROM rate_history');
+  const latest = await pool.query('SELECT date, time FROM rate_history ORDER BY id DESC LIMIT 1');
+  res.json({
+    count: countResult.rows[0].count,
+    lastDate: latest.rows[0]?.date ?? '',
+    lastTime: latest.rows[0]?.time ?? '',
+  });
+});
+
+// ---------- Customers ----------
+app.get('/api/customers', async (_req, res) => {
+  const result = await pool.query('SELECT * FROM customers ORDER BY id DESC');
+  res.json(toCamelList(result.rows));
+});
+
+app.post('/api/customers', async (req, res) => {
+  const c = req.body;
+  const result = await pool.query(
+    `INSERT INTO customers
+      (name, mobile, city, cr, dr, dr_gross, dr_net, narration, balance_unit, bill_ref, date, time)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+     RETURNING id`,
+    [c.name, c.mobile, c.city, c.cr, c.dr, c.drGross, c.drNet, c.narration,
+     c.balanceUnit, c.billRef, c.date, c.time],
+  );
+  res.json({ id: result.rows[0].id });
+});
+
+app.delete('/api/customers/:id', async (req, res) => {
+  const result = await pool.query('DELETE FROM customers WHERE id = $1', [req.params.id]);
+  res.json({ rowsAffected: result.rowCount });
+});
+
+app.get('/api/customers/names', async (_req, res) => {
+  const result = await pool.query('SELECT DISTINCT name FROM customers ORDER BY name');
+  res.json(result.rows.map((r) => r.name));
+});
+
+app.get('/api/customers/:name/outstanding', async (req, res) => {
+  const result = await pool.query('SELECT * FROM customers WHERE name = $1', [req.params.name]);
+  let rupees = 0, grams = 0, crRupees = 0, drRupees = 0, crGrams = 0, drGrams = 0;
+  for (const row of result.rows) {
+    const cr = parseFloat(row.cr) || 0;
+    const dr = parseFloat(row.dr) || 0;
+    const unit = row.balance_unit || 'RUPEES';
+    const net = dr - cr;
+    if (unit === 'GRAMS') {
+      grams += net; crGrams += cr; drGrams += dr;
+    } else {
+      rupees += net; crRupees += cr; drRupees += dr;
+    }
+  }
+  res.json({ rupees, grams, crRupees, drRupees, crGrams, drGrams });
+});
+
+// ---------- Suppliers ----------
+app.get('/api/suppliers', async (_req, res) => {
+  const result = await pool.query('SELECT * FROM suppliers ORDER BY id DESC');
+  res.json(toCamelList(result.rows));
+});
+
+app.post('/api/suppliers', async (req, res) => {
+  const s = req.body;
+  const result = await pool.query(
+    `INSERT INTO suppliers
+      (name, mobile, city, cr, dr, gross, net, narration, balance_unit, bill_ref, date, time)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+     RETURNING id`,
+    [s.name, s.mobile, s.city, s.cr, s.dr, s.gross, s.net, s.narration,
+     s.balanceUnit, s.billRef, s.date, s.time],
+  );
+  res.json({ id: result.rows[0].id });
+});
+
+app.delete('/api/suppliers/:id', async (req, res) => {
+  const result = await pool.query('DELETE FROM suppliers WHERE id = $1', [req.params.id]);
+  res.json({ rowsAffected: result.rowCount });
+});
+
+// ---------- Opening weight ----------
+app.get('/api/opening-weight', async (_req, res) => {
+  const result = await pool.query('SELECT * FROM opening_weight LIMIT 1');
+  res.json(result.rows[0] ? toCamel(result.rows[0]) : null);
+});
+
+app.post('/api/opening-weight', async (req, res) => {
+  const existing = await pool.query('SELECT id FROM opening_weight LIMIT 1');
+  if (existing.rows.length > 0) {
+    return res.status(409).json({ error: 'Opening weight already saved and locked.' });
+  }
+  const w = req.body;
+  const result = await pool.query(
+    `INSERT INTO opening_weight (g_pure_wt, fine_wt, kacha_wt, silver_wt, cash, date, time)
+     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+    [w.gPureWt, w.fineWt, w.kachaWt, w.silverWt, w.cash, w.date, w.time],
+  );
+  res.json({ id: result.rows[0].id });
+});
+
+// ---------- Transactions ----------
+app.get('/api/transactions/next-bill-no', async (req, res) => {
+  const type = req.query.type;
+  const result = await pool.query(
+    'SELECT COALESCE(MAX(bill_no), 0)::int AS max_bill FROM transactions WHERE transaction_type = $1',
+    [type],
+  );
+  res.json({ billNo: result.rows[0].max_bill + 1 });
+});
+
+app.get('/api/transactions', async (req, res) => {
+  const { type, date } = req.query;
+  let result;
+  if (type) {
+    result = await pool.query(
+      'SELECT * FROM transactions WHERE transaction_type = $1 ORDER BY id DESC',
+      [type],
+    );
+  } else if (date) {
+    result = await pool.query(
+      'SELECT * FROM transactions WHERE date = $1 ORDER BY id DESC',
+      [date],
+    );
+  } else {
+    result = await pool.query('SELECT * FROM transactions ORDER BY id DESC');
+  }
+  res.json(toCamelList(result.rows));
+});
+
+app.post('/api/transactions', async (req, res) => {
+  const t = req.body;
+  const result = await pool.query(
+    `INSERT INTO transactions
+      (transaction_type, bill_no, party_name, items, total_wt, total_pure_wt, total_value,
+       payment_mode, payment_amount, balance, balance_unit, staff_name, date, time,
+       old_grams, old_rupees, new_grams, new_rupees, cash_to_gold, gold_rate_used)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+     RETURNING id`,
+    [t.transactionType, t.billNo, t.partyName, t.items, t.totalWt, t.totalPureWt,
+     t.totalValue, t.paymentMode, t.paymentAmount, t.balance, t.balanceUnit,
+     t.staffName, t.date, t.time, t.oldGrams, t.oldRupees, t.newGrams, t.newRupees,
+     t.cashToGold, t.goldRateUsed],
+  );
+  res.json({ id: result.rows[0].id });
+});
+
+app.delete('/api/transactions/:id', async (req, res) => {
+  const result = await pool.query('DELETE FROM transactions WHERE id = $1', [req.params.id]);
+  res.json({ rowsAffected: result.rowCount });
+});
+
+// ---------- Vouchers ----------
+app.get('/api/vouchers/next-no', async (req, res) => {
+  const type = req.query.type;
+  const result = await pool.query(
+    'SELECT COALESCE(MAX(voucher_no), 0)::int AS max_no FROM vouchers WHERE voucher_type = $1',
+    [type],
+  );
+  res.json({ voucherNo: result.rows[0].max_no + 1 });
+});
+
+app.get('/api/vouchers', async (req, res) => {
+  const { type } = req.query;
+  const result = type
+    ? await pool.query('SELECT * FROM vouchers WHERE voucher_type = $1 ORDER BY id DESC', [type])
+    : await pool.query('SELECT * FROM vouchers ORDER BY id DESC');
+  res.json(toCamelList(result.rows));
+});
+
+app.post('/api/vouchers', async (req, res) => {
+  const v = req.body;
+  const result = await pool.query(
+    `INSERT INTO vouchers
+      (voucher_type, voucher_no, party_name, is_customer, payment_mode, amount, amount_unit,
+       cash_to_gold, gold_rate_used, old_grams, old_rupees, new_grams, new_rupees, narration, date, time)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+     RETURNING id`,
+    [v.voucherType, v.voucherNo, v.partyName, v.isCustomer ? 1 : 0, v.paymentMode,
+     v.amount, v.amountUnit, v.cashToGold, v.goldRateUsed, v.oldGrams, v.oldRupees,
+     v.newGrams, v.newRupees, v.narration, v.date, v.time],
+  );
+  res.json({ id: result.rows[0].id });
+});
+
+const port = process.env.PORT || 3000;
+app.listen(port, '0.0.0.0', () => {
+  console.log(`Jewellery API listening on port ${port}`);
+});
