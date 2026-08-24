@@ -1,17 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:grate_app/theme/responsive.dart';
 import 'package:intl/intl.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
-import 'master_screen.dart';
-import 'customer_master_screen.dart';
-import 'supplier_master_screen.dart';
-import 'opening_weight_screen.dart';
-import 'history_screen.dart';
-import 'transaction_screen.dart';
+import 'app_shell.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, this.onOpen, this.embedded = false});
+
+  final void Function(AppPage page)? onOpen;
+  final bool embedded;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -21,9 +18,17 @@ class _HomeScreenState extends State<HomeScreen> {
   Map<String, String> _rates = {};
   Map<String, double> _stock = {};
   String _lastDate = '';
-  String _lastTime = '';
   bool _openingWeightSet = true;
   bool _loading = true;
+  double _todaySalesAmount = 0;
+  double _todaySalesGrams = 0;
+  int _todaySalesBills = 0;
+  double _todayPurchaseAmount = 0;
+  double _todayPurchaseGrams = 0;
+  int _todayPurchaseBills = 0;
+  double _todayCreditGrams = 0;
+  int _customerCount = 0;
+  int _supplierCount = 0;
 
   bool get _ratesSetToday {
     final today = DateFormat("dd-MM-yyyy").format(DateTime.now());
@@ -37,10 +42,38 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _load() async {
+    final today = DateFormat("dd-MM-yyyy").format(DateTime.now());
     final rows = await DatabaseHelper.instance.getRates();
     final stats = await DatabaseHelper.instance.getUpdateStats();
     final opening = await DatabaseHelper.instance.getOpeningWeight();
     final stock = await DatabaseHelper.instance.getCurrentStock();
+    final bills = await DatabaseHelper.instance.getTransactionsByDate(today);
+    final customers = await DatabaseHelper.instance.getCustomers();
+    final suppliers = await DatabaseHelper.instance.getSuppliers();
+
+    double salesAmt = 0, salesG = 0, purchaseAmt = 0, purchaseG = 0, creditG = 0;
+    var salesBills = 0;
+    var purchaseBills = 0;
+    for (final bill in bills) {
+      final amt = double.tryParse((bill['totalValue'] ?? '').toString()) ?? 0;
+      final g = double.tryParse((bill['totalPureWt'] ?? '').toString()) ?? 0;
+      final paid = double.tryParse((bill['paymentAmount'] ?? '').toString()) ?? 0;
+      if (bill['transactionType'] == 'SALES') {
+        salesBills++;
+        salesAmt += amt;
+        salesG += g;
+        if (amt - paid > 0.01) {
+          final oldG = double.tryParse((bill['oldGrams'] ?? '').toString()) ?? 0;
+          final newG = double.tryParse((bill['newGrams'] ?? '').toString()) ?? 0;
+          creditG += (newG - oldG).abs();
+        }
+      } else if (bill['transactionType'] == 'PURCHASE') {
+        purchaseBills++;
+        purchaseAmt += amt;
+        purchaseG += g;
+      }
+    }
+
     if (!mounted) return;
     setState(() {
       _rates = {
@@ -48,16 +81,23 @@ class _HomeScreenState extends State<HomeScreen> {
           (r['rateName'] ?? '').toString(): (r['rateValue'] ?? '').toString()
       };
       _lastDate = stats['lastDate'] as String;
-      _lastTime = stats['lastTime'] as String;
       _openingWeightSet = opening != null;
       _stock = stock;
+      _todaySalesAmount = salesAmt;
+      _todaySalesGrams = salesG;
+      _todaySalesBills = salesBills;
+      _todayPurchaseAmount = purchaseAmt;
+      _todayPurchaseGrams = purchaseG;
+      _todayPurchaseBills = purchaseBills;
+      _todayCreditGrams = creditG;
+      _customerCount = customers.map((c) => c['name']).toSet().length;
+      _supplierCount = suppliers.map((s) => s['name']).toSet().length;
       _loading = false;
     });
   }
 
-  void _open(Widget screen) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => screen))
-        .then((_) => _load());
+  void _open(AppPage page) {
+    widget.onOpen?.call(page);
   }
 
   Widget _banner({
@@ -96,200 +136,141 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildPrimaryColumn() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // Every single day until today's rates are saved — checked
-        // first, since nothing can be priced correctly until this
-        // is done.
-        if (!_ratesSetToday)
-          _banner(
-            icon: Icons.currency_exchange,
-            text: _lastDate.isEmpty
-                ? "Rates not set yet — tap to enter today's rates"
-                : "Today's rates not set yet (last set $_lastDate) — "
-                "tap to update",
-            background: const Color(0xFFDCE8F5),
-            foreground: AppColors.navy,
-            onTap: () => _open(const MasterScreen()),
-          ),
-        // Day-one only — vanishes forever once saved.
-        if (!_openingWeightSet)
-          _banner(
-            icon: Icons.scale,
-            text: "Opening weight not set yet — tap to enter your "
-                "starting stock and cash",
-            background: Colors.amber[100]!,
-            foreground: Colors.brown,
-            onTap: () => _open(const OpeningWeightScreen()),
-          ),
-        const SizedBox(height: 6),
-        // Primary actions — what staff actually taps all day long.
-        Row(
-          children: [
-            Expanded(
-              child: _PrimaryTile(
-                icon: Icons.add_box,
-                label: "PURCHASE",
-                subtitle: "Stock coming in",
-                color: AppColors.navy,
-                onTap: () => _open(
-                    const TransactionScreen(kind: TransactionKind.purchase)),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _PrimaryTile(
-                icon: Icons.indeterminate_check_box,
-                label: "SALES",
-                subtitle: "Stock going out",
-                color: AppColors.mutedBlue,
-                onTap: () => _open(
-                    const TransactionScreen(kind: TransactionKind.sales)),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildManageColumn() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Text(
-          "MANAGE",
-          style: TextStyle(
-              fontSize: 12,
+  Widget _kpi({
+    required String label,
+    required String value,
+    required String detail,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.cardWhite,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: AppColors.border),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 10,
+              letterSpacing: 0.3,
               fontWeight: FontWeight.w600,
-              letterSpacing: 0.4,
-              color: AppColors.mutedBlue),
-        ),
-        const SizedBox(height: 8),
-        _SecondaryTile(
-          icon: Icons.people,
-          label: "Customer Master",
-          onTap: () => _open(const CustomerMasterScreen()),
-        ),
-        _SecondaryTile(
-          icon: Icons.local_shipping,
-          label: "Supplier Master",
-          onTap: () => _open(const SupplierMasterScreen()),
-        ),
-        _SecondaryTile(
-          icon: Icons.scale,
-          label: "Opening Weight",
-          onTap: () => _open(const OpeningWeightScreen()),
-        ),
-        _SecondaryTile(
-          icon: Icons.history,
-          label: "Rate Update Records",
-          onTap: () => _open(const HistoryScreen()),
-        ),
-      ],
+              color: AppColors.mutedBlue,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: AppColors.navy,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(detail, style: const TextStyle(fontSize: 11, color: Colors.black54)),
+        ],
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final gp = _rates['G.P RATE'] ?? '—';
+    final content = _loading
+        ? const Center(child: CircularProgressIndicator())
+        : LayoutBuilder(
+            builder: (context, constraints) {
+              final wide = constraints.maxWidth >= 720;
+              final cross = wide ? 3 : 2;
+              return ListView(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                children: [
+                  const Text(
+                    'Use the menu on the left. Opening Weight is under Inventory, just below Home.',
+                    style: TextStyle(fontSize: 12, color: AppColors.mutedBlue),
+                  ),
+                  const SizedBox(height: 8),
+                  if (!_ratesSetToday)
+                    _banner(
+                      icon: Icons.currency_exchange,
+                      text: _lastDate.isEmpty
+                          ? "Rates not set yet — tap to enter today's rates"
+                          : "Today's rates not set yet (last set $_lastDate) — tap to update",
+                      background: const Color(0xFFDCE8F5),
+                      foreground: AppColors.navy,
+                      onTap: () => _open(AppPage.rates),
+                    ),
+                  if (!_openingWeightSet)
+                    _banner(
+                      icon: Icons.scale,
+                      text:
+                          "Opening weight not set yet — tap to enter starting stock and cash",
+                      background: const Color(0xFFDCE8F5),
+                      foreground: AppColors.navy,
+                      onTap: () => _open(AppPage.openingWeight),
+                    ),
+                  GridView.count(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    crossAxisCount: cross,
+                    mainAxisSpacing: 8,
+                    crossAxisSpacing: 8,
+                    childAspectRatio: wide ? 2.8 : 2.2,
+                    children: [
+                      _kpi(
+                        label: "TODAY'S SALES",
+                        value: "₹${_todaySalesAmount.toStringAsFixed(2)}",
+                        detail:
+                            "$_todaySalesBills bills  ·  ${_todaySalesGrams.toStringAsFixed(3)} g",
+                      ),
+                      _kpi(
+                        label: "TODAY'S PURCHASE",
+                        value: "₹${_todayPurchaseAmount.toStringAsFixed(2)}",
+                        detail:
+                            "$_todayPurchaseBills bills  ·  ${_todayPurchaseGrams.toStringAsFixed(3)} g",
+                      ),
+                      _kpi(
+                        label: 'CURRENT STOCK',
+                        value:
+                            "${(_stock['GWT'] ?? 0).toStringAsFixed(3)} g GWT",
+                        detail:
+                            "FWT ${(_stock['FWT'] ?? 0).toStringAsFixed(3)}  ·  "
+                            "KWT ${(_stock['KWT'] ?? 0).toStringAsFixed(3)}  ·  "
+                            "SWT ${(_stock['SWT'] ?? 0).toStringAsFixed(3)}",
+                      ),
+                      _kpi(
+                        label: "TODAY'S CREDIT (UNPAID SALES)",
+                        value: "${_todayCreditGrams.toStringAsFixed(3)} g",
+                        detail: 'Gold still due on sales saved today',
+                      ),
+                      _kpi(
+                        label: "TODAY'S G.P RATE",
+                        value: gp.toString(),
+                        detail: _ratesSetToday
+                            ? 'Used to convert cash into gold'
+                            : 'Set rates from Daily Rate',
+                      ),
+                      _kpi(
+                        label: 'PARTIES ON FILE',
+                        value: '$_customerCount / $_supplierCount',
+                        detail: 'Customers  ·  Suppliers',
+                      ),
+                    ],
+                  ),
+                ],
+              );
+            },
+          );
+
+    if (widget.embedded) return content;
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(title: const Text("HOME")),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-        padding: const EdgeInsets.all(12),
-        child: SplitLayout(
-          primaryWidth: 420,
-          primary: _buildPrimaryColumn(),
-          secondary: _buildManageColumn(),
-        ),
-      ),
-    );
-  }
-}
-
-class _PrimaryTile extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String subtitle;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _PrimaryTile({
-    required this.icon,
-    required this.label,
-    required this.subtitle,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 12),
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: Colors.white, size: 30),
-            const SizedBox(height: 10),
-            Text(
-              label,
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.4),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              subtitle,
-              style: TextStyle(color: Colors.white.withOpacity(0.85), fontSize: 11),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SecondaryTile extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  const _SecondaryTile({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: AppColors.cardWhite,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: ListTile(
-        dense: true,
-        leading: Icon(icon, color: AppColors.navy, size: 20),
-        title: Text(label,
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-        trailing:
-        const Icon(Icons.chevron_right, color: AppColors.mutedBlue, size: 20),
-        onTap: onTap,
-      ),
+      body: content,
     );
   }
 }

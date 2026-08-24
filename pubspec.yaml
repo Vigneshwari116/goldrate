@@ -42,6 +42,7 @@ dependencies:
   url_launcher: ^6.3.0
   pdf: ^3.10.0
   sqflite_common_ffi: ^2.3.3
+  printing: ^5.14.2
 
 
 dev_dependencies:
@@ -62,10 +63,12 @@ dev_dependencies:
 # The following section is specific to Flutter packages.
 flutter:
 
-  # The following line ensures that the Material Icons font is
-  # included with your application, so that you can use the icons in
-  # the material Icons class.
   uses-material-design: true
+  assets:
+    - assets/fonts/NotoSans-Regular.ttf
+    - assets/fonts/NotoSans-Bold.ttf
+    - assets/fonts/NotoSansTamil-Regular.ttf
+    - assets/fonts/NotoSansDevanagari-Regular.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:

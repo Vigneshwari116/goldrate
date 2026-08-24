@@ -9,7 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
-import 'supplier_master_screen.dart';
+import '../widgets/material_tile_card.dart';
 
 /// Every raw row in `customers` is one visit/entry — this groups all of
 /// a person's entries together and nets their cr/dr into one running
@@ -80,7 +80,9 @@ List<_PartySummary> _buildSummaries(List<Map<String, dynamic>> rows) {
 }
 
 class CustomerMasterScreen extends StatefulWidget {
-  const CustomerMasterScreen({super.key});
+  const CustomerMasterScreen({super.key, this.embedded = false});
+
+  final bool embedded;
 
   @override
   State<CustomerMasterScreen> createState() => _CustomerMasterScreenState();
@@ -92,10 +94,10 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen> {
   final _nameController = TextEditingController();
   final _mobileController = TextEditingController();
   final _cityController = TextEditingController();
-  final _crController = TextEditingController();
-  final _drController = TextEditingController();
-  final _grossController = TextEditingController();
-  final _netController = TextEditingController();
+  final _crController = TextEditingController(text: '0');
+  final _drController = TextEditingController(text: '0');
+  final _grossController = TextEditingController(text: '0');
+  final _netController = TextEditingController(text: '0');
   final _narrationController = TextEditingController();
   final _searchController = TextEditingController();
 
@@ -160,10 +162,10 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen> {
     _nameController.clear();
     _mobileController.clear();
     _cityController.clear();
-    _crController.clear();
-    _drController.clear();
-    _grossController.clear();
-    _netController.clear();
+    _crController.text = '0';
+    _drController.text = '0';
+    _grossController.text = '0';
+    _netController.text = '0';
     _narrationController.clear();
     _formKey.currentState?.reset();
   }
@@ -187,7 +189,7 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen> {
       'drGross': _grossController.text.trim(),
       'drNet': _netController.text.trim(),
       'narration': _narrationController.text.trim(),
-      'balanceUnit': 'RUPEES',
+      'balanceUnit': 'GRAMS',
       'billRef': '',
       'date': date,
       'time': time,
@@ -453,7 +455,7 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen> {
 
   String? _validateMobile(String? v) {
     final value = (v ?? '').trim();
-    if (value.isEmpty) return "Required";
+    if (value.isEmpty) return null;
     if (!_mobileRegex.hasMatch(value)) {
       return "Enter a valid 10-digit mobile number";
     }
@@ -503,41 +505,76 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen> {
         key: _formKey,
         child: Column(
           children: [
-            _field("Customer Name", _nameController, validator: _validateName),
-            _field(
-              "Mobile",
-              _mobileController,
-              keyboardType: TextInputType.phone,
-              inputFormatters: [
-                FilteringTextInputFormatter.digitsOnly,
-                LengthLimitingTextInputFormatter(10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: _field("Customer Name", _nameController,
+                      validator: _validateName),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _field(
+                    "Mobile",
+                    _mobileController,
+                    keyboardType: TextInputType.phone,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(10),
+                    ],
+                    validator: _validateMobile,
+                  ),
+                ),
               ],
-              validator: _validateMobile,
             ),
             _field("City", _cityController),
-            _field(
-              "CR (Credit)",
-              _crController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              validator: (v) => _validateNumber(v),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: _field(
+                    "CR (Credit)",
+                    _crController,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    validator: (v) => _validateNumber(v),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _field(
+                    "DR (Debit)",
+                    _drController,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    validator: (v) => _validateNumber(v),
+                  ),
+                ),
+              ],
             ),
-            _field(
-              "DR (Debit)",
-              _drController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              validator: (v) => _validateNumber(v),
-            ),
-            _field(
-              "GROSS",
-              _grossController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              validator: (v) => _validateNumber(v),
-            ),
-            _field(
-              "NET",
-              _netController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              validator: (v) => _validateNumber(v),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: _field(
+                    "GROSS",
+                    _grossController,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    validator: (v) => _validateNumber(v),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _field(
+                    "NET",
+                    _netController,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    validator: (v) => _validateNumber(v),
+                  ),
+                ),
+              ],
             ),
             _field("Narration", _narrationController),
             SizedBox(
@@ -574,135 +611,136 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen> {
   }
 
   Widget _buildListSection() {
+    final search = TextField(
+      controller: _searchController,
+      style: const TextStyle(fontSize: 13),
+      decoration: InputDecoration(
+        hintText: "Search customer by name or mobile.",
+        hintStyle: const TextStyle(fontSize: 13),
+        prefixIcon: const Icon(Icons.search, size: 20),
+        suffixIcon: _searchController.text.isNotEmpty
+            ? IconButton(
+                icon: const Icon(Icons.clear, size: 18),
+                onPressed: () => _searchController.clear(),
+              )
+            : null,
+      ),
+    );
+
+    final header = Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Text(
+        "CUSTOMERS (${_summaries.length})",
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          fontWeight: FontWeight.w600,
+          fontSize: 13,
+          letterSpacing: 0.4,
+          color: AppColors.mutedBlue,
+        ),
+      ),
+    );
+
+    Widget listBody;
+    if (_summaries.isEmpty) {
+      listBody = const Padding(
+        padding: EdgeInsets.symmetric(vertical: 24),
+        child: Center(
+          child: Text(
+            "No customers found",
+            style: TextStyle(fontSize: 13, color: Colors.black54),
+          ),
+        ),
+      );
+    } else {
+      listBody = MaterialTileCard(
+        child: Column(
+          children: List.generate(_summaries.length, (index) {
+            final summary = _summaries[index];
+            final isLast = index == _summaries.length - 1;
+            final hasBalance =
+                summary.rupees.abs() > 0.01 || summary.grams.abs() > 0.01;
+
+            return Container(
+              decoration: BoxDecoration(
+                border: isLast
+                    ? null
+                    : const Border(
+                        bottom: BorderSide(color: AppColors.border),
+                      ),
+              ),
+              child: ListTile(
+                dense: true,
+                onTap: () => _showPartyDetails(summary),
+                leading: CircleAvatar(
+                  radius: 16,
+                  backgroundColor: AppColors.headerBand,
+                  child: Text(
+                    "${summary.entries.length}",
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                ),
+                title: Text(
+                  summary.name,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w600, fontSize: 13),
+                ),
+                subtitle: Text(
+                  "${summary.mobile.isEmpty ? '-' : summary.mobile}"
+                  " · ${summary.city.isEmpty ? '-' : summary.city}\n"
+                  "${_outstandingLine(summary)}",
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: hasBalance ? AppColors.navy : Colors.black54,
+                    fontWeight:
+                        hasBalance ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                ),
+                isThreeLine: true,
+                trailing: summary.mobile.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.call,
+                            color: Colors.green, size: 18),
+                        onPressed: () => _callCustomer(summary.mobile),
+                      )
+                    : const Icon(Icons.chevron_right,
+                        color: AppColors.mutedBlue, size: 20),
+              ),
+            );
+          }),
+        ),
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        TextField(
-          controller: _searchController,
-          style: const TextStyle(fontSize: 13),
-          decoration: InputDecoration(
-            hintText: "Search by name or mobile",
-            hintStyle: const TextStyle(fontSize: 13),
-            prefixIcon: const Icon(Icons.search, size: 20),
-            suffixIcon: _searchController.text.isNotEmpty
-                ? IconButton(
-              icon: const Icon(Icons.clear, size: 18),
-              onPressed: () => _searchController.clear(),
-            )
-                : null,
-          ),
-        ),
+        search,
         const SizedBox(height: 12),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Text(
-            "CUSTOMERS (${_summaries.length})",
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontWeight: FontWeight.w600,
-              fontSize: 13,
-              letterSpacing: 0.4,
-              color: AppColors.mutedBlue,
-            ),
-          ),
-        ),
-        if (_summaries.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 24),
-            child: Center(
-              child: Text(
-                "No customers found",
-                style: TextStyle(fontSize: 13, color: Colors.black54),
-              ),
-            ),
-          )
-        else
-          Container(
-            decoration: BoxDecoration(
-              color: AppColors.cardWhite,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Column(
-              children: List.generate(_summaries.length, (index) {
-                final summary = _summaries[index];
-                final isLast = index == _summaries.length - 1;
-                final hasBalance = summary.rupees.abs() > 0.01 ||
-                    summary.grams.abs() > 0.01;
-
-                return Container(
-                  decoration: BoxDecoration(
-                    border: isLast
-                        ? null
-                        : const Border(
-                      bottom: BorderSide(color: AppColors.border),
-                    ),
-                  ),
-                  child: ListTile(
-                    dense: true,
-                    onTap: () => _showPartyDetails(summary),
-                    leading: CircleAvatar(
-                      radius: 16,
-                      backgroundColor: AppColors.headerBand,
-                      child: Text(
-                        "${summary.entries.length}",
-                        style: const TextStyle(fontSize: 11),
-                      ),
-                    ),
-                    title: Text(
-                      summary.name,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w600, fontSize: 13),
-                    ),
-                    subtitle: Text(
-                      "${summary.mobile.isEmpty ? '-' : summary.mobile}"
-                          " · ${summary.city.isEmpty ? '-' : summary.city}\n"
-                          "${_outstandingLine(summary)}",
-                      style: TextStyle(
-                        fontSize: 11.5,
-                        color: hasBalance ? AppColors.navy : Colors.black54,
-                        fontWeight:
-                        hasBalance ? FontWeight.w600 : FontWeight.normal,
-                      ),
-                    ),
-                    isThreeLine: true,
-                    trailing: summary.mobile.isNotEmpty
-                        ? IconButton(
-                      icon: const Icon(Icons.call,
-                          color: Colors.green, size: 18),
-                      onPressed: () => _callCustomer(summary.mobile),
-                    )
-                        : const Icon(Icons.chevron_right,
-                        color: AppColors.mutedBlue, size: 20),
-                  ),
-                );
-              }),
-            ),
-          ),
+        header,
+        listBody,
       ],
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final content = _loading
+        ? const Center(child: CircularProgressIndicator())
+        : WorkbenchLayout(
+            equalSplit: true,
+            primary: _buildFormCard(),
+            secondary: _buildListSection(),
+          );
+
+    if (widget.embedded) return content;
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
         title: const Text("CUSTOMER MASTER"),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.local_shipping, size: 20),
-            tooltip: 'Supplier Master',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const SupplierMasterScreen(),
-                ),
-              );
-            },
-          ),
           IconButton(
             icon: const Icon(Icons.share, size: 20),
             tooltip: 'Share customer list',
@@ -710,16 +748,7 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen> {
           ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-        padding: const EdgeInsets.all(12),
-        child: SplitLayout(
-          primaryWidth: 380,
-          primary: _buildFormCard(),
-          secondary: _buildListSection(),
-        ),
-      ),
+      body: content,
     );
   }
 }
