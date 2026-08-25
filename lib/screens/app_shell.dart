@@ -43,7 +43,7 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   late AppPage _page;
-  bool _navOpen = true;
+  bool _navOpen = false;
 
   @override
   void initState() {
@@ -181,7 +181,7 @@ class _AppShellState extends State<AppShell> {
       data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
       child: ExpansionTile(
         key: PageStorageKey<String>(label),
-        initiallyExpanded: true,
+        initiallyExpanded: false,
         maintainState: true,
         leading: Icon(icon, color: Colors.white70, size: 20),
         iconColor: Colors.white,
