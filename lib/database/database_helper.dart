@@ -5,6 +5,9 @@ import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../api/api_client.dart';
+import '../config/api_config.dart';
+
 class DatabaseHelper {
   DatabaseHelper._();
 
@@ -336,6 +339,9 @@ class DatabaseHelper {
   }
 
   Future<bool> checkLogin(String username, String password) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.checkLogin(username, password);
+    }
     final db = await database;
 
     final result = await db.query(
@@ -348,6 +354,7 @@ class DatabaseHelper {
   }
 
   Future<List<Map<String, dynamic>>> getRates() async {
+    if (ApiConfig.useRemoteApi) return ApiClient.getRates();
     final db = await database;
     return await db.query('rates');
   }
@@ -355,6 +362,7 @@ class DatabaseHelper {
   /// Rates keyed by rateName (e.g. 'G.P RATE' -> 15100), parsed to double.
   /// A rate that hasn't been set yet (blank) is simply left out of the map.
   Future<Map<String, double>> getRatesMap() async {
+    if (ApiConfig.useRemoteApi) return ApiClient.getRatesMap();
     final rows = await getRates();
     final map = <String, double>{};
     for (final row in rows) {
@@ -373,6 +381,9 @@ class DatabaseHelper {
       String date,
       String time,
       ) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.updateRate(id, rateName, value, date, time);
+    }
     final db = await database;
 
     final rowsAffected = await db.update(
@@ -395,6 +406,7 @@ class DatabaseHelper {
   }
 
   Future<Map<String, dynamic>> getUpdateStats() async {
+    if (ApiConfig.useRemoteApi) return ApiClient.getUpdateStats();
     final db = await database;
 
     final countResult =
@@ -415,6 +427,7 @@ class DatabaseHelper {
   }
 
   Future<List<Map<String, dynamic>>> getRateHistory() async {
+    if (ApiConfig.useRemoteApi) return ApiClient.getRateHistory();
     final db = await database;
     return await db.query('rate_history', orderBy: 'id DESC');
   }
@@ -445,21 +458,27 @@ class DatabaseHelper {
   }
 
   Future<String> getDatabasePath() async {
+    if (ApiConfig.useRemoteApi) {
+      return 'remote:${ApiConfig.baseUrl}';
+    }
     return _resolveDatabasePath();
   }
 
   Future<int> insertCustomer(Map<String, dynamic> customer) async {
+    if (ApiConfig.useRemoteApi) return ApiClient.insertCustomer(customer);
     final db = await database;
     return await db.insert('customers', customer);
   }
 
   Future<List<Map<String, dynamic>>> getCustomers() async {
+    if (ApiConfig.useRemoteApi) return ApiClient.getCustomers();
     final db = await database;
     return await db.query('customers', orderBy: 'id DESC');
   }
 
 
   Future<int> deleteCustomer(int id) async {
+    if (ApiConfig.useRemoteApi) return ApiClient.deleteCustomer(id);
     final db = await database;
     return await db.delete(
       'customers',
@@ -470,16 +489,19 @@ class DatabaseHelper {
 
 
   Future<int> insertSupplier(Map<String, dynamic> supplier) async {
+    if (ApiConfig.useRemoteApi) return ApiClient.insertSupplier(supplier);
     final db = await database;
     return await db.insert('suppliers', supplier);
   }
 
   Future<List<Map<String, dynamic>>> getSuppliers() async {
+    if (ApiConfig.useRemoteApi) return ApiClient.getSuppliers();
     final db = await database;
     return await db.query('suppliers', orderBy: 'id DESC');
   }
 
   Future<int> deleteSupplier(int id) async {
+    if (ApiConfig.useRemoteApi) return ApiClient.deleteSupplier(id);
     final db = await database;
     return await db.delete(
       'suppliers',
@@ -489,12 +511,14 @@ class DatabaseHelper {
   }
 
   Future<Map<String, dynamic>?> getOpeningWeight() async {
+    if (ApiConfig.useRemoteApi) return ApiClient.getOpeningWeight();
     final db = await database;
     final result = await db.query('opening_weight', limit: 1);
     return result.isNotEmpty ? result.first : null;
   }
 
   Future<int> insertOpeningWeight(Map<String, dynamic> weight) async {
+    if (ApiConfig.useRemoteApi) return ApiClient.insertOpeningWeight(weight);
     final existing = await getOpeningWeight();
     if (existing != null) {
       throw StateError('Opening weight has already been saved and is locked.');
@@ -509,6 +533,9 @@ class DatabaseHelper {
   /// Bill numbers restart from 1 and increment independently per type,
   /// matching the "BILL NO" column on the paper form.
   Future<int> getNextBillNo(String transactionType) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.getNextBillNo(transactionType);
+    }
     final db = await database;
     final result = await db.rawQuery(
       'SELECT MAX(billNo) as maxBill FROM transactions WHERE transactionType = ?',
@@ -519,17 +546,22 @@ class DatabaseHelper {
   }
 
   Future<List<Map<String, dynamic>>> getAllTransactions() async {
+    if (ApiConfig.useRemoteApi) return ApiClient.getAllTransactions();
     final db = await database;
     return await db.query('transactions', orderBy: 'id DESC');
   }
 
   Future<int> insertTransaction(Map<String, dynamic> transaction) async {
+    if (ApiConfig.useRemoteApi) return ApiClient.insertTransaction(transaction);
     final db = await database;
     return await db.insert('transactions', transaction);
   }
 
   Future<List<Map<String, dynamic>>> getTransactions(
       String transactionType) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.getTransactions(transactionType);
+    }
     final db = await database;
     return await db.query(
       'transactions',
@@ -540,6 +572,7 @@ class DatabaseHelper {
   }
 
   Future<int> deleteTransaction(int id) async {
+    if (ApiConfig.useRemoteApi) return ApiClient.deleteTransaction(id);
     final db = await database;
     return await db.delete(
       'transactions',
@@ -555,6 +588,9 @@ class DatabaseHelper {
   /// is buying stock in), Sales looks up Customers (the shop is selling
   /// stock out).
   Future<List<String>> getDistinctPartyNames({required bool isCustomer}) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.getDistinctPartyNames(isCustomer: isCustomer);
+    }
     final db = await database;
     final table = isCustomer ? 'customers' : 'suppliers';
     final rows = await db.query(table, columns: ['name'], distinct: true);
@@ -571,6 +607,9 @@ class DatabaseHelper {
     String name, {
     required bool isCustomer,
   }) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.getPartyPhone(name, isCustomer: isCustomer);
+    }
     final trimmed = name.trim();
     if (trimmed.isEmpty) return '';
     final db = await database;
@@ -598,6 +637,9 @@ class DatabaseHelper {
       String name, {
         required bool isCustomer,
       }) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.getPartyOutstanding(name, isCustomer: isCustomer);
+    }
     final db = await database;
     final table = isCustomer ? 'customers' : 'suppliers';
     final rows = await db.query(table, where: 'name = ?', whereArgs: [name]);
@@ -653,6 +695,7 @@ class DatabaseHelper {
   /// app) — used by the Today Summary screen.
   Future<List<Map<String, dynamic>>> getTransactionsByDate(
       String date) async {
+    if (ApiConfig.useRemoteApi) return ApiClient.getTransactionsByDate(date);
     final db = await database;
     return await db.query(
       'transactions',
@@ -673,6 +716,7 @@ class DatabaseHelper {
   /// transaction ever saved, not stored as its own row anywhere.
   /// Keys match the item type codes used on the bill: GWT, FWT, KWT, SWT.
   Future<Map<String, double>> getCurrentStock() async {
+    if (ApiConfig.useRemoteApi) return ApiClient.getCurrentStock();
     final opening = await getOpeningWeight();
 
     final stock = <String, double>{
@@ -712,6 +756,7 @@ class DatabaseHelper {
   // ---------- Receipt / payment vouchers ----------
 
   Future<int> getNextVoucherNo(String voucherType) async {
+    if (ApiConfig.useRemoteApi) return ApiClient.getNextVoucherNo(voucherType);
     final db = await database;
     final result = await db.rawQuery(
       'SELECT MAX(voucherNo) as maxNo FROM vouchers WHERE voucherType = ?',
@@ -722,11 +767,15 @@ class DatabaseHelper {
   }
 
   Future<int> insertVoucher(Map<String, dynamic> voucher) async {
+    if (ApiConfig.useRemoteApi) return ApiClient.insertVoucher(voucher);
     final db = await database;
     return await db.insert('vouchers', voucher);
   }
 
   Future<List<Map<String, dynamic>>> getVouchers({String? voucherType}) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.getVouchers(voucherType: voucherType);
+    }
     final db = await database;
     if (voucherType == null) {
       return await db.query('vouchers', orderBy: 'id DESC');
@@ -740,6 +789,7 @@ class DatabaseHelper {
   }
 
   Future<int> deleteVoucher(int id) async {
+    if (ApiConfig.useRemoteApi) return ApiClient.deleteVoucher(id);
     final db = await database;
     return await db.delete('vouchers', where: 'id = ?', whereArgs: [id]);
   }
@@ -750,6 +800,9 @@ class DatabaseHelper {
     String name, {
     required bool isCustomer,
   }) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.ensureParty(name, isCustomer: isCustomer);
+    }
     final trimmed = name.trim();
     if (trimmed.isEmpty) return;
     final db = await database;

@@ -127,6 +127,20 @@ app.get('/api/customers/:name/outstanding', async (req, res) => {
   res.json({ rupees, grams, crRupees, drRupees, crGrams, drGrams });
 });
 
+app.get('/api/party/phone', async (req, res) => {
+  const { name, isCustomer } = req.query;
+  const table = isCustomer === 'true' ? 'customers' : 'suppliers';
+  const result = await pool.query(
+    `SELECT mobile FROM ${table} WHERE name = $1 ORDER BY id DESC`,
+    [name],
+  );
+  for (const row of result.rows) {
+    const mobile = (row.mobile || '').trim();
+    if (mobile) return res.json({ phone: mobile });
+  }
+  res.json({ phone: '' });
+});
+
 // ---------- Suppliers ----------
 app.get('/api/suppliers', async (_req, res) => {
   const result = await pool.query('SELECT * FROM suppliers ORDER BY id DESC');
@@ -149,6 +163,28 @@ app.post('/api/suppliers', async (req, res) => {
 app.delete('/api/suppliers/:id', async (req, res) => {
   const result = await pool.query('DELETE FROM suppliers WHERE id = $1', [req.params.id]);
   res.json({ rowsAffected: result.rowCount });
+});
+
+app.get('/api/suppliers/names', async (_req, res) => {
+  const result = await pool.query('SELECT DISTINCT name FROM suppliers ORDER BY name');
+  res.json(result.rows.map((r) => r.name));
+});
+
+app.get('/api/suppliers/:name/outstanding', async (req, res) => {
+  const result = await pool.query('SELECT * FROM suppliers WHERE name = $1', [req.params.name]);
+  let rupees = 0, grams = 0, crRupees = 0, drRupees = 0, crGrams = 0, drGrams = 0;
+  for (const row of result.rows) {
+    const cr = parseFloat(row.cr) || 0;
+    const dr = parseFloat(row.dr) || 0;
+    const unit = row.balance_unit || 'RUPEES';
+    const net = dr - cr;
+    if (unit === 'GRAMS') {
+      grams += net; crGrams += cr; drGrams += dr;
+    } else {
+      rupees += net; crRupees += cr; drRupees += dr;
+    }
+  }
+  res.json({ rupees, grams, crRupees, drRupees, crGrams, drGrams });
 });
 
 // ---------- Opening weight ----------
@@ -253,6 +289,44 @@ app.post('/api/vouchers', async (req, res) => {
      v.newGrams, v.newRupees, v.narration, v.date, v.time],
   );
   res.json({ id: result.rows[0].id });
+});
+
+app.delete('/api/vouchers/:id', async (req, res) => {
+  const result = await pool.query('DELETE FROM vouchers WHERE id = $1', [req.params.id]);
+  res.json({ rowsAffected: result.rowCount });
+});
+
+// ---------- Current stock (computed) ----------
+app.get('/api/stock/current', async (_req, res) => {
+  const openingResult = await pool.query('SELECT * FROM opening_weight LIMIT 1');
+  const opening = openingResult.rows[0] || {};
+
+  const stock = {
+    GWT: parseFloat(opening.g_pure_wt) || 0,
+    FWT: parseFloat(opening.fine_wt) || 0,
+    KWT: parseFloat(opening.kacha_wt) || 0,
+    SWT: parseFloat(opening.silver_wt) || 0,
+  };
+
+  const txns = await pool.query('SELECT transaction_type, items FROM transactions');
+  for (const row of txns.rows) {
+    const sign = row.transaction_type === 'PURCHASE' ? 1 : -1;
+    let items;
+    try {
+      items = JSON.parse(row.items || '[]');
+    } catch {
+      continue;
+    }
+    for (const item of items) {
+      const type = item.type || '';
+      const pureWt = parseFloat(item.pureWt) || 0;
+      if (Object.prototype.hasOwnProperty.call(stock, type)) {
+        stock[type] += sign * pureWt;
+      }
+    }
+  }
+
+  res.json(stock);
 });
 
 const port = process.env.PORT || 3000;
