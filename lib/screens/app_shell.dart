@@ -218,7 +218,7 @@ class _AppShellState extends State<AppShell> {
         onTap: () => _go(page),
         child: Container(
           width: 56,
-          height: 48,
+          height: 44,
           color: selected ? AppColors.drawerActive : Colors.transparent,
           child: Icon(
             icon,
@@ -231,6 +231,15 @@ class _AppShellState extends State<AppShell> {
   }
 
   Widget _sidebarRail() {
+    const mainPages = <(IconData, String, AppPage)>[
+      (Icons.home, 'Home', AppPage.home),
+      (Icons.indeterminate_check_box, 'Sales', AppPage.sales),
+      (Icons.add_box, 'Purchase', AppPage.purchase),
+      (Icons.receipt_long, 'Receipt Voucher', AppPage.receipt),
+      (Icons.people, 'Customer Master', AppPage.customers),
+      (Icons.assessment, 'Reports', AppPage.reports),
+    ];
+
     return Material(
       color: AppColors.drawerNavy,
       child: SafeArea(
@@ -238,56 +247,37 @@ class _AppShellState extends State<AppShell> {
           width: 56,
           child: Column(
             children: [
-              const SizedBox(height: 8),
-              _railButton(icon: Icons.home, tooltip: 'Home', page: AppPage.home),
-              _railButton(
-                  icon: Icons.scale, tooltip: 'Opening Weight', page: AppPage.openingWeight),
-              _railButton(
-                  icon: Icons.inventory_2, tooltip: 'Stock', page: AppPage.stock),
-              _railButton(
-                  icon: Icons.indeterminate_check_box,
-                  tooltip: 'Sales',
-                  page: AppPage.sales),
-              _railButton(
-                  icon: Icons.add_box, tooltip: 'Purchase', page: AppPage.purchase),
-              _railButton(
-                  icon: Icons.receipt_long,
-                  tooltip: 'Receipt Voucher',
-                  page: AppPage.receipt),
-              _railButton(
-                  icon: Icons.people,
-                  tooltip: 'Customer Master',
-                  page: AppPage.customers),
-              _railButton(
-                  icon: Icons.local_shipping,
-                  tooltip: 'Supplier Master',
-                  page: AppPage.suppliers),
-              _railButton(
-                  icon: Icons.currency_exchange,
-                  tooltip: 'Daily Rate',
-                  page: AppPage.rates),
-              _railButton(
-                  icon: Icons.assessment,
-                  tooltip: 'Reports',
-                  page: AppPage.reports),
-              _railButton(
-                  icon: Icons.history,
-                  tooltip: 'Rate Records',
-                  page: AppPage.rateRecords),
-              _railButton(
-                  icon: Icons.backup, tooltip: 'Backup', page: AppPage.backup),
-              _railButton(
-                  icon: Icons.print,
-                  tooltip: 'Printer Settings',
-                  page: AppPage.printerSettings),
-              const Spacer(),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.only(top: 8),
+                  children: [
+                    for (final page in mainPages)
+                      _railButton(
+                        icon: page.$1,
+                        tooltip: page.$2,
+                        page: page.$3,
+                      ),
+                  ],
+                ),
+              ),
+              Tooltip(
+                message: 'Full menu',
+                child: InkWell(
+                  onTap: () => setState(() => _navOpen = true),
+                  child: const SizedBox(
+                    width: 56,
+                    height: 44,
+                    child: Icon(Icons.menu, color: Colors.white70, size: 22),
+                  ),
+                ),
+              ),
               Tooltip(
                 message: 'Logout',
                 child: InkWell(
                   onTap: _logout,
                   child: const SizedBox(
                     width: 56,
-                    height: 48,
+                    height: 44,
                     child: Icon(Icons.logout, color: Color(0xFFFF8A80), size: 22),
                   ),
                 ),

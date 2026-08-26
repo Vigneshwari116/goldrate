@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -132,6 +133,17 @@ class _CustomerMasterScreenState
   final _narrationController = TextEditingController();
   final _searchController = TextEditingController();
 
+  final _nameFocus = FocusNode();
+  final _mobileFocus = FocusNode();
+  final _cityFocus = FocusNode();
+  final _crFocus = FocusNode();
+  final _drFocus = FocusNode();
+  final _grossFocus = FocusNode();
+  final _netFocus = FocusNode();
+  final _narrationFocus = FocusNode();
+
+  Timer? _fieldAdvanceTimer;
+
   List<Map<String, dynamic>> customers = [];
   List<Map<String, dynamic>> _filteredCustomers = [];
   List<_PartySummary> _summaries = [];
@@ -156,6 +168,15 @@ class _CustomerMasterScreenState
 
   @override
   void dispose() {
+    _fieldAdvanceTimer?.cancel();
+    _nameFocus.dispose();
+    _mobileFocus.dispose();
+    _cityFocus.dispose();
+    _crFocus.dispose();
+    _drFocus.dispose();
+    _grossFocus.dispose();
+    _netFocus.dispose();
+    _narrationFocus.dispose();
     _nameController.dispose();
     _mobileController.dispose();
     _cityController.dispose();
@@ -242,14 +263,44 @@ class _CustomerMasterScreenState
     }).take(12);
   }
 
+  void _focusNext(FocusNode next) {
+    next.requestFocus();
+    final controller = switch (next) {
+      _ when next == _mobileFocus => _mobileController,
+      _ when next == _cityFocus => _cityController,
+      _ when next == _crFocus => _crController,
+      _ when next == _drFocus => _drController,
+      _ when next == _grossFocus => _grossController,
+      _ when next == _netFocus => _netController,
+      _ when next == _narrationFocus => _narrationController,
+      _ => null,
+    };
+    if (controller != null) {
+      controller.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: controller.text.length,
+      );
+    }
+  }
+
+  void _scheduleAdvance(FocusNode next, {Duration delay = const Duration(milliseconds: 350)}) {
+    _fieldAdvanceTimer?.cancel();
+    _fieldAdvanceTimer = Timer(delay, () {
+      if (!mounted) return;
+      _focusNext(next);
+    });
+  }
+
   void _prefillFromExistingName(String name) {
     for (final summary in _buildSummaries(customers)) {
       if (summary.name == name) {
         _mobileController.text = summary.mobile;
         _cityController.text = summary.city;
+        _focusNext(_mobileFocus);
         return;
       }
     }
+    _focusNext(_mobileFocus);
   }
 
   void _clearForm() {
@@ -822,21 +873,28 @@ class _CustomerMasterScreenState
   Widget _field(
       String label,
       TextEditingController controller, {
+        FocusNode? focusNode,
         TextInputType? keyboardType,
         String? Function(String?)? validator,
         List<TextInputFormatter>? inputFormatters,
+        ValueChanged<String>? onChanged,
+        VoidCallback? onFieldSubmitted,
       }) {
     return Padding(
       padding:
       const EdgeInsets.only(bottom: 10),
       child: TextFormField(
         controller: controller,
+        focusNode: focusNode,
         keyboardType: keyboardType,
         inputFormatters: inputFormatters,
         style: const TextStyle(
           fontSize: 14,
         ),
+        textInputAction: TextInputAction.next,
         validator: validator,
+        onFieldSubmitted: (_) => onFieldSubmitted?.call(),
+        onChanged: onChanged,
         decoration: InputDecoration(
           label: Text(label),
         ),
@@ -869,7 +927,14 @@ class _CustomerMasterScreenState
                     controller: _nameController,
                     options: _nameOptions,
                     validator: _validateName,
+                    focusNode: _nameFocus,
                     onSelected: _prefillFromExistingName,
+                    onFieldSubmitted: () => _focusNext(_mobileFocus),
+                    onChanged: (value) {
+                      if (value.trim().length >= 2) {
+                        _scheduleAdvance(_mobileFocus);
+                      }
+                    },
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -877,6 +942,7 @@ class _CustomerMasterScreenState
                   child: _field(
                     'Mobile',
                     _mobileController,
+                    focusNode: _mobileFocus,
                     keyboardType:
                     TextInputType.phone,
                     inputFormatters: [
@@ -888,6 +954,12 @@ class _CustomerMasterScreenState
                     ],
                     validator:
                     _validateMobile,
+                    onChanged: (value) {
+                      if (value.length == 10) {
+                        _focusNext(_cityFocus);
+                      }
+                    },
+                    onFieldSubmitted: () => _focusNext(_cityFocus),
                   ),
                 ),
               ],
@@ -896,6 +968,13 @@ class _CustomerMasterScreenState
             _field(
               'City',
               _cityController,
+              focusNode: _cityFocus,
+              onChanged: (value) {
+                if (value.trim().length >= 2) {
+                  _scheduleAdvance(_crFocus);
+                }
+              },
+              onFieldSubmitted: () => _focusNext(_crFocus),
             ),
 
             Row(
@@ -906,6 +985,7 @@ class _CustomerMasterScreenState
                   child: _field(
                     'CR (Credit)',
                     _crController,
+                    focusNode: _crFocus,
                     keyboardType:
                     const TextInputType
                         .numberWithOptions(
@@ -913,6 +993,12 @@ class _CustomerMasterScreenState
                     ),
                     validator:
                         (v) => _validateNumber(v),
+                    onChanged: (value) {
+                      if (_numberRegex.hasMatch(value.trim())) {
+                        _scheduleAdvance(_drFocus);
+                      }
+                    },
+                    onFieldSubmitted: () => _focusNext(_drFocus),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -920,6 +1006,7 @@ class _CustomerMasterScreenState
                   child: _field(
                     'DR (Debit)',
                     _drController,
+                    focusNode: _drFocus,
                     keyboardType:
                     const TextInputType
                         .numberWithOptions(
@@ -927,6 +1014,12 @@ class _CustomerMasterScreenState
                     ),
                     validator:
                         (v) => _validateNumber(v),
+                    onChanged: (value) {
+                      if (_numberRegex.hasMatch(value.trim())) {
+                        _scheduleAdvance(_grossFocus);
+                      }
+                    },
+                    onFieldSubmitted: () => _focusNext(_grossFocus),
                   ),
                 ),
               ],
@@ -940,6 +1033,7 @@ class _CustomerMasterScreenState
                   child: _field(
                     'GROSS',
                     _grossController,
+                    focusNode: _grossFocus,
                     keyboardType:
                     const TextInputType
                         .numberWithOptions(
@@ -947,6 +1041,12 @@ class _CustomerMasterScreenState
                     ),
                     validator:
                         (v) => _validateNumber(v),
+                    onChanged: (value) {
+                      if (_numberRegex.hasMatch(value.trim())) {
+                        _scheduleAdvance(_netFocus);
+                      }
+                    },
+                    onFieldSubmitted: () => _focusNext(_netFocus),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -954,6 +1054,7 @@ class _CustomerMasterScreenState
                   child: _field(
                     'NET',
                     _netController,
+                    focusNode: _netFocus,
                     keyboardType:
                     const TextInputType
                         .numberWithOptions(
@@ -961,6 +1062,12 @@ class _CustomerMasterScreenState
                     ),
                     validator:
                         (v) => _validateNumber(v),
+                    onChanged: (value) {
+                      if (_numberRegex.hasMatch(value.trim())) {
+                        _scheduleAdvance(_narrationFocus);
+                      }
+                    },
+                    onFieldSubmitted: () => _focusNext(_narrationFocus),
                   ),
                 ),
               ],
@@ -969,6 +1076,7 @@ class _CustomerMasterScreenState
             _field(
               'Narration',
               _narrationController,
+              focusNode: _narrationFocus,
             ),
 
             SizedBox(

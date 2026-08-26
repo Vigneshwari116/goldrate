@@ -11,6 +11,8 @@ class PartyAutocompleteField extends StatelessWidget {
     this.validator,
     this.onSelected,
     this.onChanged,
+    this.focusNode,
+    this.onFieldSubmitted,
   });
 
   final String label;
@@ -20,6 +22,8 @@ class PartyAutocompleteField extends StatelessWidget {
   final String? Function(String?)? validator;
   final ValueChanged<String>? onSelected;
   final ValueChanged<String>? onChanged;
+  final FocusNode? focusNode;
+  final VoidCallback? onFieldSubmitted;
 
   @override
   Widget build(BuildContext context) {
@@ -29,17 +33,23 @@ class PartyAutocompleteField extends StatelessWidget {
         controller.text = selection;
         onSelected?.call(selection);
         onChanged?.call(selection);
+        onFieldSubmitted?.call();
       },
-      fieldViewBuilder: (context, fieldController, focusNode, onFieldSubmitted) {
+      fieldViewBuilder: (context, fieldController, focusNode, onAutocompleteSubmit) {
         if (fieldController.text != controller.text) {
           fieldController.text = controller.text;
         }
+        final node = this.focusNode ?? focusNode;
         return TextFormField(
           controller: fieldController,
-          focusNode: focusNode,
+          focusNode: node,
           style: const TextStyle(fontSize: 14),
           textInputAction: TextInputAction.next,
           validator: validator,
+          onFieldSubmitted: (_) {
+            onAutocompleteSubmit();
+            this.onFieldSubmitted?.call();
+          },
           onChanged: (value) {
             controller.text = value;
             onChanged?.call(value);

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -92,6 +93,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
 
   bool _promptingAddLine = false;
   bool _sharingPdf = false;
+  bool _advancingFocus = false;
+  Timer? _touchPromptTimer;
 
   String _selectedItemType = _itemTypes.first;
   String _selectedPaymentMode = _paymentModes.first;
@@ -152,25 +155,25 @@ class _TransactionScreenState extends State<TransactionScreen> {
     super.initState();
     _load();
     _partyController.addListener(() => _onPartyTextChanged());
+    _touchFocus.addListener(_onTouchFocusChange);
   }
 
-  void _onWeightChanged(String value) {
-    final trimmed = value.trim();
-    final weight = double.tryParse(trimmed);
-    if (weight == null || weight <= 0) return;
-    if (!RegExp(r'^\d+\.\d{3}$').hasMatch(trimmed)) return;
-    _touchFocus.requestFocus();
-    _touchController.selection = TextSelection(
-      baseOffset: 0,
-      extentOffset: _touchController.text.length,
-    );
+  bool _isTouchComplete(String trimmed) {
+    if (trimmed.isEmpty) return false;
+    if (trimmed == '0' || trimmed == '0.0' || trimmed == '0.00') return false;
+    final touch = double.tryParse(trimmed);
+    if (touch == null) return false;
+    if (RegExp(r'^\d+\.\d{2}$').hasMatch(trimmed)) return true;
+    if (RegExp(r'^\d+\.\d$').hasMatch(trimmed)) return true;
+    if (RegExp(r'^\d+$').hasMatch(trimmed) && touch > 0) return true;
+    return false;
   }
 
-  void _onTouchChanged(String value) {
-    final trimmed = value.trim();
-    if (!RegExp(r'^\d+\.\d{2}$').hasMatch(trimmed)) return;
-    final captured = trimmed;
-    Future.delayed(const Duration(milliseconds: 350), () {
+  void _scheduleTouchPrompt() {
+    _touchPromptTimer?.cancel();
+    final captured = _touchController.text.trim();
+    if (!_isTouchComplete(captured)) return;
+    _touchPromptTimer = Timer(const Duration(milliseconds: 350), () {
       if (!mounted || _promptingAddLine) return;
       if (_touchController.text.trim() == captured) {
         _promptAddAnotherLine();
@@ -178,8 +181,39 @@ class _TransactionScreenState extends State<TransactionScreen> {
     });
   }
 
+  void _onTouchFocusChange() {
+    if (_touchFocus.hasFocus || _advancingFocus || _promptingAddLine) return;
+    Future.microtask(() {
+      if (!mounted || _touchFocus.hasFocus || _weightFocus.hasFocus) return;
+      final trimmed = _touchController.text.trim();
+      if (!_isTouchComplete(trimmed)) return;
+      _promptAddAnotherLine();
+    });
+  }
+
+  void _onWeightChanged(String value) {
+    final trimmed = value.trim();
+    final weight = double.tryParse(trimmed);
+    if (weight == null || weight <= 0) return;
+    if (!RegExp(r'^\d+\.\d{3}$').hasMatch(trimmed)) return;
+    _advancingFocus = true;
+    _touchFocus.requestFocus();
+    _touchController.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: _touchController.text.length,
+    );
+    _advancingFocus = false;
+  }
+
+  void _onTouchChanged(String value) {
+    final trimmed = value.trim();
+    if (!_isTouchComplete(trimmed)) return;
+    _scheduleTouchPrompt();
+  }
+
   @override
   void dispose() {
+    _touchPromptTimer?.cancel();
     _partyController.dispose();
     _weightController.dispose();
     _touchController.dispose();
@@ -1053,10 +1087,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
               ),
             ],
           ),
-          if (_items.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            _itemsTable(),
-          ],
+          const SizedBox(height: 6),
+          _itemsTable(),
           const Divider(height: 14, color: AppColors.border),
           Row(
             children: [
