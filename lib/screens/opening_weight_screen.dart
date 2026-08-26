@@ -17,11 +17,11 @@ class OpeningWeightScreen extends StatefulWidget {
 class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  final _gPureController = TextEditingController();
-  final _fineController = TextEditingController();
-  final _kachaController = TextEditingController();
-  final _silverController = TextEditingController();
-  final _cashController = TextEditingController();
+  final _gPureController = TextEditingController(text: '0.000');
+  final _fineController = TextEditingController(text: '0.000');
+  final _kachaController = TextEditingController(text: '0.000');
+  final _silverController = TextEditingController(text: '0.000');
+  final _cashController = TextEditingController(text: '0');
 
   static final RegExp _numberRegex = RegExp(r'^\d+(\.\d+)?$');
 
@@ -163,7 +163,7 @@ class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
   Widget build(BuildContext context) {
     final body = _loading
         ? const Center(child: CircularProgressIndicator())
-        : SingleChildScrollView(
+        : Padding(
         padding: const EdgeInsets.all(12),
         child: CenteredMaxWidth(
           child: Column(

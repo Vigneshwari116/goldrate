@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../navigation/app_page.dart';
 import '../theme/app_theme.dart';
+import '../util/session_prefs.dart';
 import 'backup_screen.dart';
 import 'customer_master_screen.dart';
 import 'history_screen.dart';
@@ -15,22 +17,6 @@ import 'stock_screen.dart';
 import 'supplier_master_screen.dart';
 import 'transaction_screen.dart';
 import 'voucher_screen.dart';
-
-enum AppPage {
-  home,
-  openingWeight,
-  stock,
-  sales,
-  purchase,
-  receipt,
-  customers,
-  suppliers,
-  rates,
-  reports,
-  rateRecords,
-  backup,
-  printerSettings,
-}
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key, this.initialPage = AppPage.home});
@@ -49,6 +35,7 @@ class _AppShellState extends State<AppShell> {
   void initState() {
     super.initState();
     _page = widget.initialPage;
+    SessionPrefs.setLastPage(widget.initialPage);
   }
 
   String get _title {
@@ -84,6 +71,7 @@ class _AppShellState extends State<AppShell> {
 
   void _go(AppPage page) {
     setState(() => _page = page);
+    SessionPrefs.setLastPage(page);
   }
 
   Future<void> _logout() async {
@@ -105,47 +93,64 @@ class _AppShellState extends State<AppShell> {
       ),
     );
     if (ok != true || !mounted) return;
+    await SessionPrefs.setLoggedIn(false);
+    if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const LoginScreen()),
       (_) => false,
     );
   }
 
+  static const _pageOrder = [
+    AppPage.home,
+    AppPage.openingWeight,
+    AppPage.stock,
+    AppPage.sales,
+    AppPage.purchase,
+    AppPage.receipt,
+    AppPage.customers,
+    AppPage.suppliers,
+    AppPage.rates,
+    AppPage.reports,
+    AppPage.rateRecords,
+    AppPage.backup,
+    AppPage.printerSettings,
+  ];
+
+  int get _pageIndex {
+    final i = _pageOrder.indexOf(_page);
+    return i < 0 ? 0 : i;
+  }
+
   Widget _body() {
-    switch (_page) {
-      case AppPage.home:
-        return HomeScreen(onOpen: _go);
-      case AppPage.openingWeight:
-        return const OpeningWeightScreen(embedded: true);
-      case AppPage.stock:
-        return const StockScreen(embedded: true);
-      case AppPage.sales:
-        return const TransactionScreen(
-          kind: TransactionKind.sales,
-          embedded: true,
-        );
-      case AppPage.purchase:
-        return const TransactionScreen(
-          kind: TransactionKind.purchase,
-          embedded: true,
-        );
-      case AppPage.receipt:
-        return const VoucherScreen(embedded: true);
-      case AppPage.customers:
-        return const CustomerMasterScreen(embedded: true);
-      case AppPage.suppliers:
-        return const SupplierMasterScreen(embedded: true);
-      case AppPage.rates:
-        return const MasterScreen(embedded: true);
-      case AppPage.reports:
-        return const ReportsScreen(embedded: true);
-      case AppPage.rateRecords:
-        return const HistoryScreen(embedded: true);
-      case AppPage.backup:
-        return const BackupScreen(embedded: true);
-      case AppPage.printerSettings:
-        return const PrinterSettingsScreen(embedded: true);
-    }
+    return IndexedStack(
+      index: _pageIndex,
+      children: const [
+        _KeepAlivePage(child: _HomePage()),
+        _KeepAlivePage(child: OpeningWeightScreen(embedded: true)),
+        _KeepAlivePage(child: StockScreen(embedded: true)),
+        _KeepAlivePage(
+          child: TransactionScreen(
+            kind: TransactionKind.sales,
+            embedded: true,
+          ),
+        ),
+        _KeepAlivePage(
+          child: TransactionScreen(
+            kind: TransactionKind.purchase,
+            embedded: true,
+          ),
+        ),
+        _KeepAlivePage(child: VoucherScreen(embedded: true)),
+        _KeepAlivePage(child: CustomerMasterScreen(embedded: true)),
+        _KeepAlivePage(child: SupplierMasterScreen(embedded: true)),
+        _KeepAlivePage(child: MasterScreen(embedded: true)),
+        _KeepAlivePage(child: ReportsScreen(embedded: true)),
+        _KeepAlivePage(child: HistoryScreen(embedded: true)),
+        _KeepAlivePage(child: BackupScreen(embedded: true)),
+        _KeepAlivePage(child: PrinterSettingsScreen(embedded: true)),
+      ],
+    );
   }
 
   Widget _leaf({
@@ -377,13 +382,43 @@ class _AppShellState extends State<AppShell> {
         children: [
           if (_navOpen) _sidebar(),
           Expanded(
-            child: KeyedSubtree(
-              key: ValueKey(_page),
-              child: _body(),
-            ),
+            child: _body(),
           ),
         ],
       ),
     );
+  }
+}
+
+/// Home needs navigation callback from AppShell — wired via InheritedWidget
+/// so the page can stay alive inside IndexedStack.
+class _HomePage extends StatelessWidget {
+  const _HomePage();
+
+  @override
+  Widget build(BuildContext context) {
+    final shell = context.findAncestorStateOfType<_AppShellState>();
+    return HomeScreen(onOpen: shell?._go ?? (_) {});
+  }
+}
+
+class _KeepAlivePage extends StatefulWidget {
+  const _KeepAlivePage({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_KeepAlivePage> createState() => _KeepAlivePageState();
+}
+
+class _KeepAlivePageState extends State<_KeepAlivePage>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
   }
 }

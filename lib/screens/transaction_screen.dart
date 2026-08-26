@@ -11,6 +11,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../database/database_helper.dart';
 import '../logic/gold_ledger.dart';
+import '../pdf/estimate_receipt_pdf.dart';
 import '../pdf/pdf_kit.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
@@ -99,7 +100,6 @@ class _TransactionScreenState extends State<TransactionScreen> {
   List<Map<String, dynamic>> _history = [];
   Map<String, double> _rates = {};
   List<String> _partyNames = [];
-  List<String> _partySuggestions = [];
   Map<String, double>? _partyOutstanding;
 
   /// Purchase looks up Suppliers (stock coming in from them); Sales
@@ -146,7 +146,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
   void initState() {
     super.initState();
     _load();
-    _partyController.addListener(_onPartyTextChanged);
+    _partyController.addListener(() => _onPartyTextChanged());
   }
 
   @override
@@ -178,19 +178,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
     });
   }
 
-  void _onPartyTextChanged() {
-    final query = _partyController.text.trim();
-    final lower = query.toLowerCase();
-
-    setState(() {
-      _partySuggestions = query.isEmpty
-          ? []
-          : _partyNames
-              .where((n) =>
-                  n.toLowerCase().contains(lower) && n.toLowerCase() != lower)
-              .take(4)
-              .toList();
-    });
+  void _onPartyTextChanged([String? value]) {
+    final query = (value ?? _partyController.text).trim();
 
     if (query.isEmpty) {
       setState(() => _partyOutstanding = {'rupees': 0, 'grams': 0});
@@ -207,7 +196,15 @@ class _TransactionScreenState extends State<TransactionScreen> {
 
   void _selectParty(String name) {
     _partyController.text = name;
-    setState(() => _partySuggestions = []);
+    _onPartyTextChanged(name);
+  }
+
+  Iterable<String> _partyOptions(String query) {
+    final lower = query.trim().toLowerCase();
+    if (lower.isEmpty) return _partyNames.take(12);
+    return _partyNames
+        .where((n) => n.toLowerCase().contains(lower))
+        .take(12);
   }
 
   Widget _ledgerChip(String label, String value) {
@@ -329,7 +326,6 @@ class _TransactionScreenState extends State<TransactionScreen> {
       _items.clear();
       _selectedItemType = _itemTypes.first;
       _selectedPaymentMode = _paymentModes.first;
-      _partySuggestions = [];
       _partyOutstanding = null;
     });
   }
@@ -550,114 +546,48 @@ class _TransactionScreenState extends State<TransactionScreen> {
         items.fold<double>(0, (sum, item) => sum + item.weight);
     final totalPure =
         items.fold<double>(0, (sum, item) => sum + item.pureWt);
-    final closing = double.tryParse((row['newGrams'] ?? row['balance'] ?? '0').toString()) ?? 0;
+    final avgTouch = totalWt > 0
+        ? items.fold<double>(0, (s, i) => s + i.weight * i.touch) / totalWt
+        : 0.0;
+    final ratePerGram = (totalPure > 0
+            ? items.fold<double>(0, (s, i) => s + i.value) / totalPure
+            : GoldLedger.goldRate(_rates))
+        .toDouble();
+    final closing = double.tryParse(
+            (row['newGrams'] ?? row['balance'] ?? '0').toString()) ??
+        0;
     final closingLabel =
         closing.abs() < 0.0005 ? 'NIL' : '${closing.toStringAsFixed(3)} g';
     final kind = row['transactionType'] == 'PURCHASE' ? 'PUR' : 'SAL';
+    final paymentMode = (row['paymentMode'] ?? '').toString();
+    final cashReceived = paymentMode == 'CASH'
+        ? (double.tryParse((row['paymentAmount'] ?? '0').toString()) ?? 0.0)
+        : 0.0;
 
     final doc = await PdfKit.document();
     doc.addPage(
-      pw.Page(
-        pageFormat: PdfPageFormat.a5,
-        margin: const pw.EdgeInsets.all(22),
-        build: (context) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-          children: [
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Text('ESTIMATE ONLY',
-                    style: pw.TextStyle(
-                        fontSize: 16, fontWeight: pw.FontWeight.bold)),
-                pw.Text(
-                  row['transactionType'] == 'PURCHASE'
-                      ? 'PURCHASE'
-                      : 'SALES',
-                  style: const pw.TextStyle(fontSize: 10),
-                ),
-              ],
+      EstimateReceiptPdf.buildPage(
+        transactionLabel:
+            row['transactionType'] == 'PURCHASE' ? 'PURCHASE' : 'SALES',
+        billKind: kind,
+        row: row,
+        phone: phone,
+        items: [
+          for (final item in items)
+            ReceiptLineItem(
+              token: item.type,
+              weight: item.weight,
+              touch: item.touch,
+              pureWt: item.pureWt,
             ),
-            pw.SizedBox(height: 10),
-            pw.Container(
-              padding: const pw.EdgeInsets.all(8),
-              decoration: pw.BoxDecoration(
-                border: pw.Border.all(color: PdfColors.blueGrey),
-              ),
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text('Time: ${row['time'] ?? ''}'),
-                  pw.Text('Date: ${row['date'] ?? ''}'),
-                  pw.Text('Name: ${row['partyName'] ?? '-'}'),
-                  if (phone.isNotEmpty) pw.Text('Phone: $phone'),
-                ],
-              ),
-            ),
-            pw.SizedBox(height: 12),
-            pw.TableHelper.fromTextArray(
-              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10),
-              headerDecoration:
-                  const pw.BoxDecoration(color: PdfColors.blueGrey100),
-              cellStyle: const pw.TextStyle(fontSize: 10),
-              cellAlignments: {
-                0: pw.Alignment.centerLeft,
-                1: pw.Alignment.centerRight,
-                2: pw.Alignment.centerRight,
-                3: pw.Alignment.centerRight,
-              },
-              headers: ['SNo', 'Weight', 'Touch', 'Pure'],
-              data: [
-                for (var i = 0; i < items.length; i++)
-                  [
-                    '${i + 1}',
-                    items[i].weight.toStringAsFixed(3),
-                    items[i].touch.toStringAsFixed(2),
-                    items[i].pureWt.toStringAsFixed(3),
-                  ],
-              ],
-            ),
-            pw.SizedBox(height: 8),
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.end,
-              children: [
-                pw.SizedBox(
-                  width: 220,
-                  child: pw.Row(
-                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                    children: [
-                      pw.Text('Total Weight',
-                          style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-                      pw.Text(totalWt.toStringAsFixed(3),
-                          style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            pw.SizedBox(height: 10),
-            _pdfRow('PURE GOLD', totalPure.toStringAsFixed(3), bold: true),
-            _pdfRow('CLOSING BALANCE', closingLabel, bold: true),
-            pw.Divider(),
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Text('Bill No. $kind-${row['billNo']}'),
-                pw.Text('${row['date'] ?? ''}'),
-              ],
-            ),
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Text('Name: ${row['partyName'] ?? '-'}'),
-                pw.Text('Weight: ${totalWt.toStringAsFixed(3)}'),
-              ],
-            ),
-            pw.Align(
-              alignment: pw.Alignment.centerRight,
-              child: pw.Text('${items.length}'),
-            ),
-          ],
-        ),
+        ],
+        totalWt: totalWt,
+        totalPure: totalPure,
+        avgTouch: avgTouch,
+        ratePerGram: ratePerGram,
+        closingLabel: closingLabel,
+        cashReceived: cashReceived,
+        paymentMode: paymentMode,
       ),
     );
     return doc.save();
@@ -732,6 +662,12 @@ class _TransactionScreenState extends State<TransactionScreen> {
             _pdfRow('Total Value (Rs.)', row['totalValue']),
             pw.SizedBox(height: 6),
             _pdfRow('Payment (${row['paymentMode'] ?? '-'})', row['paymentAmount']),
+            if ((row['paymentMode'] ?? '') == 'CASH')
+              _pdfRow(
+                'Cash Received',
+                '₹${row['paymentAmount'] ?? '0'}',
+                bold: true,
+              ),
             if (cashToGold.isNotEmpty && cashToGold != '0.000')
               _pdfRow('Cash to gold', '$cashToGold g'),
             _pdfRow('Old gold balance', '${row['oldGrams'] ?? '-'} g'),
@@ -895,38 +831,39 @@ class _TransactionScreenState extends State<TransactionScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: TextFormField(
-                  controller: _partyController,
-                  style: const TextStyle(fontSize: 14),
-                  textInputAction: TextInputAction.next,
-                  decoration: InputDecoration(
-                    label: Text(_isCustomerParty
-                        ? "Customer Name"
-                        : "Supplier Name"),
-                    helperText: "Type a saved name to load CR, DR and gold",
-                    helperStyle: const TextStyle(fontSize: 11),
-                  ),
+                child: Autocomplete<String>(
+                  optionsBuilder: (value) => _partyOptions(value.text),
+                  onSelected: _selectParty,
+                  fieldViewBuilder:
+                      (context, controller, focusNode, onFieldSubmitted) {
+                    if (controller.text != _partyController.text) {
+                      controller.text = _partyController.text;
+                    }
+                    return TextFormField(
+                      controller: controller,
+                      focusNode: focusNode,
+                      style: const TextStyle(fontSize: 14),
+                      textInputAction: TextInputAction.next,
+                      onChanged: (v) {
+                        _partyController.text = v;
+                        _onPartyTextChanged(v);
+                      },
+                      decoration: InputDecoration(
+                        label: Text(_isCustomerParty
+                            ? "Customer Name"
+                            : "Supplier Name"),
+                        helperText:
+                            "Search and pick a saved name, or type a new one",
+                        helperStyle: const TextStyle(fontSize: 11),
+                      ),
+                    );
+                  },
                 ),
               ),
             ],
           ),
-          if (_partySuggestions.isNotEmpty)
-            MaterialTileCard(
-              margin: const EdgeInsets.only(top: 4),
-              radius: 6,
-              child: Column(
-                children: _partySuggestions
-                    .map((name) => ListTile(
-                          dense: true,
-                          visualDensity: VisualDensity.compact,
-                          title: Text(name, style: const TextStyle(fontSize: 13)),
-                          onTap: () => _selectParty(name),
-                        ))
-                    .toList(),
-              ),
-            ),
           _partyLedgerRow(),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           const Text(
             "WEIGHT LINES  ·  type weight and touch, then press Enter",
             style: TextStyle(
@@ -994,13 +931,15 @@ class _TransactionScreenState extends State<TransactionScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          _itemsTable(),
-          const Divider(height: 24, color: AppColors.border),
+          if (_items.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            _itemsTable(),
+          ],
+          const Divider(height: 20, color: AppColors.border),
           _totalRow("TOTAL WT", _totalWt),
           _totalRow("TOTAL PURE WT", _totalPureWt, decimals: 3),
           _totalRow("TOTAL VALUE (₹)", _totalValue),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           const Text(
             "MODE OF PAYMENT",
             style: TextStyle(
@@ -1035,7 +974,11 @@ class _TransactionScreenState extends State<TransactionScreen> {
                   onChanged: (_) => setState(() {}),
                   decoration: InputDecoration(
                     label: Text(
-                        _isGoldSettlement ? "Amount (grams)" : "Amount (₹)"),
+                      _isGoldSettlement
+                          ? "Amount (grams)"
+                          : _selectedPaymentMode == 'CASH'
+                              ? "Cash Received (₹)"
+                              : "Amount (₹)"),
                   ),
                 ),
               ),
@@ -1305,6 +1248,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
         ? const Center(child: CircularProgressIndicator())
         : WorkbenchLayout(
             equalSplit: true,
+            disableScroll: true,
             primary: _buildFormCard(),
             secondary: _buildHistorySection(),
           );

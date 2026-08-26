@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
+import '../util/session_prefs.dart';
 import 'app_shell.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -40,6 +41,8 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     if (success) {
+      await SessionPrefs.setLoggedIn(true);
+      if (!mounted) return;
       // Home is the real landing screen — Purchase/Sales live here,
       // since that's what staff taps dozens of times a day. Rates
       // (Master) are a once-a-day job reached from Home, not the
