@@ -87,6 +87,10 @@ class _TransactionScreenState extends State<TransactionScreen> {
   final _paymentAmountController = TextEditingController(text: '0.00');
   final _weightFocus = FocusNode();
   final _touchFocus = FocusNode();
+  final _typeFocus = FocusNode();
+
+  bool _promptingAddLine = false;
+  bool _advancingFocus = false;
 
   String _selectedItemType = _itemTypes.first;
   String _selectedPaymentMode = _paymentModes.first;
@@ -147,6 +151,41 @@ class _TransactionScreenState extends State<TransactionScreen> {
     super.initState();
     _load();
     _partyController.addListener(() => _onPartyTextChanged());
+    _touchFocus.addListener(_onTouchFocusChange);
+  }
+
+  void _onTouchFocusChange() {
+    if (_touchFocus.hasFocus || _advancingFocus || _promptingAddLine) return;
+    Future.microtask(() {
+      if (!mounted || _touchFocus.hasFocus || _weightFocus.hasFocus) return;
+      _promptAddAnotherLine();
+    });
+  }
+
+  void _onWeightChanged(String value) {
+    final trimmed = value.trim();
+    final weight = double.tryParse(trimmed);
+    if (weight == null || weight <= 0) return;
+    if (!RegExp(r'^\d+\.\d{3}$').hasMatch(trimmed)) return;
+    _advancingFocus = true;
+    _touchFocus.requestFocus();
+    _touchController.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: _touchController.text.length,
+    );
+    _advancingFocus = false;
+  }
+
+  void _onTouchChanged(String value) {
+    final trimmed = value.trim();
+    if (!RegExp(r'^\d+\.\d{2}$').hasMatch(trimmed)) return;
+    final captured = trimmed;
+    Future.delayed(const Duration(milliseconds: 350), () {
+      if (!mounted || _promptingAddLine) return;
+      if (_touchController.text.trim() == captured) {
+        _promptAddAnotherLine();
+      }
+    });
   }
 
   @override
@@ -157,6 +196,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
     _paymentAmountController.dispose();
     _weightFocus.dispose();
     _touchFocus.dispose();
+    _typeFocus.dispose();
     super.dispose();
   }
 
@@ -270,44 +310,95 @@ class _TransactionScreenState extends State<TransactionScreen> {
     );
   }
 
-  void _resetWeightFields() {
+  void _resetWeightFields({bool focusWeight = true}) {
     _weightController.text = '0.000';
     _touchController.text = '0.00';
-    _weightFocus.requestFocus();
+    if (focusWeight) {
+      _weightFocus.requestFocus();
+    }
   }
 
-  void _addItem() {
+  _TransactionItem? _validatedLine() {
     final weight = double.tryParse(_weightController.text.trim());
     final touch = double.tryParse(_touchController.text.trim());
 
     if (weight == null ||
         !_numberRegex.hasMatch(_weightController.text.trim()) ||
         weight <= 0) {
-      _showMessage("Enter a weight greater than 0.000");
-      return;
+      return null;
     }
     if (touch == null || !_numberRegex.hasMatch(_touchController.text.trim())) {
-      _showMessage("Enter a valid touch %");
-      return;
+      return null;
     }
 
     final rateName = kItemTypeToRateName[_selectedItemType];
     final rate = _rates[rateName];
-    if (rate == null) {
-      _showMessage(
-          "$rateName isn't set yet — update it on the Master screen first");
-      return;
+    if (rate == null) return null;
+
+    return _TransactionItem(
+      type: _selectedItemType,
+      weight: weight,
+      touch: touch,
+      rate: rate,
+    );
+  }
+
+  bool _commitCurrentLine() {
+    final line = _validatedLine();
+    if (line == null) {
+      final rateName = kItemTypeToRateName[_selectedItemType];
+      if (_rates[rateName] == null) {
+        _showMessage(
+            "$rateName isn't set yet — update it on the Master screen first");
+      } else {
+        _showMessage('Enter weight and touch before continuing');
+      }
+      return false;
     }
 
-    setState(() {
-      _items.add(_TransactionItem(
-        type: _selectedItemType,
-        weight: weight,
-        touch: touch,
-        rate: rate,
-      ));
-    });
-    _resetWeightFields();
+    setState(() => _items.add(line));
+    return true;
+  }
+
+  Future<void> _promptAddAnotherLine() async {
+    if (_promptingAddLine) return;
+    final line = _validatedLine();
+    if (line == null) return;
+
+    _promptingAddLine = true;
+    final addAnother = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add this weight line?'),
+        content: Text(
+          '${line.type}  ${line.weight.toStringAsFixed(3)} g  ·  '
+          'touch ${line.touch.toStringAsFixed(2)}%\n\n'
+          'Add another weight line after this?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('NO — FINISH'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('YES — ADD MORE'),
+          ),
+        ],
+      ),
+    );
+    _promptingAddLine = false;
+    if (!mounted || addAnother == null) return;
+
+    if (!_commitCurrentLine()) return;
+
+    if (addAnother) {
+      _resetWeightFields(focusWeight: false);
+      _typeFocus.requestFocus();
+    } else {
+      _resetWeightFields(focusWeight: false);
+      FocusScope.of(context).unfocus();
+    }
   }
 
   void _removeItem(int index) {
@@ -392,14 +483,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
 
     await _load();
     if (!mounted) return;
-    await _shareEstimateThenAccounts(savedRow);
-  }
-
-  /// Share estimate PDF, then accounts PDF. Print from the share sheet.
-  Future<void> _shareEstimateThenAccounts(Map<String, dynamic> row) async {
-    await _shareEstimate(row);
-    if (!mounted) return;
-    await _shareAccountsBill(row);
+    await _shareEstimate(savedRow);
   }
 
   /// Posts this bill's balance to the matching party's ledger table —
@@ -852,8 +936,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
                         label: Text(_isCustomerParty
                             ? "Customer Name"
                             : "Supplier Name"),
-                        helperText:
-                            "Search and pick a saved name, or type a new one",
+                        helperText: 'Search saved name or type new',
                         helperStyle: const TextStyle(fontSize: 11),
                       ),
                     );
@@ -863,26 +946,35 @@ class _TransactionScreenState extends State<TransactionScreen> {
             ],
           ),
           _partyLedgerRow(),
-          const SizedBox(height: 10),
+          const SizedBox(height: 6),
           const Text(
-            "WEIGHT LINES  ·  type weight and touch, then press Enter",
+            "WEIGHT LINE",
             style: TextStyle(
-                fontSize: 12,
+                fontSize: 11,
                 fontWeight: FontWeight.w600,
                 color: AppColors.mutedBlue),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Row(
             children: [
               Expanded(
                 flex: 2,
-                child: DropdownButtonFormField<String>(
-                  value: _selectedItemType,
-                  decoration: const InputDecoration(label: Text("Type")),
-                  items: _itemTypes
-                      .map((t) => DropdownMenuItem(value: t, child: Text(t)))
-                      .toList(),
-                  onChanged: (v) => setState(() => _selectedItemType = v!),
+                child: Focus(
+                  focusNode: _typeFocus,
+                  child: DropdownButtonFormField<String>(
+                    value: _selectedItemType,
+                    decoration: const InputDecoration(
+                      label: Text("Type"),
+                      isDense: true,
+                    ),
+                    items: _itemTypes
+                        .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                        .toList(),
+                    onChanged: (v) {
+                      setState(() => _selectedItemType = v!);
+                      _weightFocus.requestFocus();
+                    },
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -896,15 +988,17 @@ class _TransactionScreenState extends State<TransactionScreen> {
                   inputFormatters: [
                     FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
                   ],
-                  textInputAction: TextInputAction.next,
                   textAlign: TextAlign.right,
                   style: const TextStyle(fontSize: 14),
-                  decoration: const InputDecoration(label: Text("Weight (g)")),
+                  decoration: const InputDecoration(
+                    label: Text("Weight (g)"),
+                    isDense: true,
+                  ),
                   onTap: () => _weightController.selection = TextSelection(
                     baseOffset: 0,
                     extentOffset: _weightController.text.length,
                   ),
-                  onFieldSubmitted: (_) => _touchFocus.requestFocus(),
+                  onChanged: _onWeightChanged,
                 ),
               ),
               const SizedBox(width: 8),
@@ -918,36 +1012,45 @@ class _TransactionScreenState extends State<TransactionScreen> {
                   inputFormatters: [
                     FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
                   ],
-                  textInputAction: TextInputAction.done,
                   textAlign: TextAlign.right,
                   style: const TextStyle(fontSize: 14),
-                  decoration: const InputDecoration(label: Text("Touch %")),
+                  decoration: const InputDecoration(
+                    label: Text("Touch %"),
+                    isDense: true,
+                  ),
                   onTap: () => _touchController.selection = TextSelection(
                     baseOffset: 0,
                     extentOffset: _touchController.text.length,
                   ),
-                  onFieldSubmitted: (_) => _addItem(),
+                  onChanged: _onTouchChanged,
                 ),
               ),
             ],
           ),
           if (_items.isNotEmpty) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             _itemsTable(),
           ],
-          const Divider(height: 20, color: AppColors.border),
-          _totalRow("TOTAL WT", _totalWt),
-          _totalRow("TOTAL PURE WT", _totalPureWt, decimals: 3),
-          _totalRow("TOTAL VALUE (₹)", _totalValue),
-          const SizedBox(height: 10),
+          const Divider(height: 14, color: AppColors.border),
+          Row(
+            children: [
+              Expanded(child: _totalRow("TOTAL WT", _totalWt, compact: true)),
+              Expanded(
+                  child: _totalRow("PURE WT", _totalPureWt,
+                      decimals: 3, compact: true)),
+              Expanded(
+                  child: _totalRow("VALUE ₹", _totalValue, compact: true)),
+            ],
+          ),
+          const SizedBox(height: 6),
           const Text(
-            "MODE OF PAYMENT",
+            "PAYMENT",
             style: TextStyle(
-                fontSize: 12,
+                fontSize: 11,
                 fontWeight: FontWeight.w600,
                 color: AppColors.mutedBlue),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Row(
             children: [
               Expanded(
@@ -984,13 +1087,20 @@ class _TransactionScreenState extends State<TransactionScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 6),
           _conversionCard(),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                  child: _totalRow("OLD BAL (g)", _settlement.oldGrams,
+                      decimals: 3, compact: true)),
+              Expanded(
+                  child: _totalRow("NEW BAL (g)", _settlement.newGrams,
+                      highlight: true, decimals: 3, compact: true)),
+            ],
+          ),
           const SizedBox(height: 10),
-          _totalRow("OLD BALANCE (g)", _settlement.oldGrams, decimals: 3),
-          _totalRow("NEW BALANCE (g)", _settlement.newGrams,
-              highlight: true, decimals: 3),
-          const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
             height: 42,
@@ -1115,7 +1225,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
     final rate = s.ratePerGram;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
         color: AppColors.headerBand,
         borderRadius: BorderRadius.circular(6),
@@ -1224,7 +1334,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
                         IconButton(
                           icon: const Icon(Icons.share,
                               color: AppColors.mutedBlue, size: 18),
-                          onPressed: () => _shareEstimateThenAccounts(row),
+                          onPressed: () => _shareEstimate(row),
                         ),
                         IconButton(
                           icon: const Icon(Icons.delete,
@@ -1249,7 +1359,18 @@ class _TransactionScreenState extends State<TransactionScreen> {
         : WorkbenchLayout(
             equalSplit: true,
             disableScroll: true,
-            primary: _buildFormCard(),
+            primary: LayoutBuilder(
+              builder: (context, constraints) {
+                return FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.topCenter,
+                  child: SizedBox(
+                    width: constraints.maxWidth,
+                    child: _buildFormCard(),
+                  ),
+                );
+              },
+            ),
             secondary: _buildHistorySection(),
           );
 
@@ -1272,16 +1393,16 @@ class _TransactionScreenState extends State<TransactionScreen> {
   }
 
   Widget _totalRow(String label, double value,
-      {bool highlight = false, int decimals = 2}) {
+      {bool highlight = false, int decimals = 2, bool compact = false}) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: EdgeInsets.symmetric(vertical: compact ? 2 : 4),
       child: Row(
         children: [
           Expanded(
             child: Text(
               label,
               style: TextStyle(
-                fontSize: 13,
+                fontSize: compact ? 11 : 13,
                 fontWeight: FontWeight.w600,
                 color: highlight ? AppColors.navy : AppColors.mutedBlue,
               ),
@@ -1290,7 +1411,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
           Text(
             value.toStringAsFixed(decimals),
             style: TextStyle(
-              fontSize: highlight ? 17 : 15,
+              fontSize: compact ? (highlight ? 14 : 12) : (highlight ? 17 : 15),
               fontWeight: FontWeight.bold,
               color: highlight ? AppColors.navy : Colors.black87,
             ),

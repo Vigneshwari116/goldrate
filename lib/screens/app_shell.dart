@@ -207,7 +207,7 @@ class _AppShellState extends State<AppShell> {
   }
 
   Widget _sidebar() {
-    return ColoredBox(
+    return Material(
       color: AppColors.drawerNavy,
       child: SafeArea(
         child: SizedBox(
