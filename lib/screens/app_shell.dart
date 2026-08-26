@@ -261,17 +261,6 @@ class _AppShellState extends State<AppShell> {
                 ),
               ),
               Tooltip(
-                message: 'Full menu',
-                child: InkWell(
-                  onTap: () => setState(() => _navOpen = true),
-                  child: const SizedBox(
-                    width: 56,
-                    height: 44,
-                    child: Icon(Icons.menu, color: Colors.white70, size: 22),
-                  ),
-                ),
-              ),
-              Tooltip(
                 message: 'Logout',
                 child: InkWell(
                   onTap: _logout,

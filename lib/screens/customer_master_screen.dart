@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../database/database_helper.dart';
+import '../util/focus_chain.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
 import '../widgets/material_tile_card.dart';
@@ -264,7 +265,6 @@ class _CustomerMasterScreenState
   }
 
   void _focusNext(FocusNode next) {
-    next.requestFocus();
     final controller = switch (next) {
       _ when next == _mobileFocus => _mobileController,
       _ when next == _cityFocus => _cityController,
@@ -275,12 +275,7 @@ class _CustomerMasterScreenState
       _ when next == _narrationFocus => _narrationController,
       _ => null,
     };
-    if (controller != null) {
-      controller.selection = TextSelection(
-        baseOffset: 0,
-        extentOffset: controller.text.length,
-      );
-    }
+    FocusChain.focus(next, controller: controller);
   }
 
   void _scheduleAdvance(FocusNode next, {Duration delay = const Duration(milliseconds: 350)}) {
@@ -296,11 +291,11 @@ class _CustomerMasterScreenState
       if (summary.name == name) {
         _mobileController.text = summary.mobile;
         _cityController.text = summary.city;
-        _focusNext(_mobileFocus);
+        FocusChain.focusNextFrame(_mobileFocus, controller: _mobileController);
         return;
       }
     }
-    _focusNext(_mobileFocus);
+    FocusChain.focusNextFrame(_mobileFocus, controller: _mobileController);
   }
 
   void _clearForm() {

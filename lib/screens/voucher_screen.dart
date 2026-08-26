@@ -8,6 +8,7 @@ import 'package:pdf/widgets.dart' as pw;
 import '../database/database_helper.dart';
 import '../logic/gold_ledger.dart';
 import '../pdf/pdf_kit.dart';
+import '../util/focus_chain.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
 import '../widgets/material_tile_card.dart';
@@ -30,6 +31,9 @@ class _VoucherScreenState extends State<VoucherScreen> {
   final _partyController = TextEditingController();
   final _amountController = TextEditingController(text: '0.00');
   final _narrationController = TextEditingController();
+  final _partyFocus = FocusNode();
+  final _amountFocus = FocusNode();
+  final _narrationFocus = FocusNode();
 
   bool _isCustomer = true;
   String _mode = 'CASH';
@@ -50,6 +54,9 @@ class _VoucherScreenState extends State<VoucherScreen> {
 
   @override
   void dispose() {
+    _partyFocus.dispose();
+    _amountFocus.dispose();
+    _narrationFocus.dispose();
     _partyController.dispose();
     _amountController.dispose();
     _narrationController.dispose();
@@ -307,7 +314,10 @@ class _VoucherScreenState extends State<VoucherScreen> {
             controller: _partyController,
             options: _partyOptions,
             helperText: 'Search and pick a saved name, or type a new one',
+            focusNode: _partyFocus,
             onChanged: (_) => _onParty(),
+            onFieldSubmitted: () =>
+                FocusChain.focus(_amountFocus, controller: _amountController),
           ),
           const SizedBox(height: 6),
           Text(
@@ -333,9 +343,13 @@ class _VoucherScreenState extends State<VoucherScreen> {
               Expanded(
                 child: TextField(
                   controller: _amountController,
+                  focusNode: _amountFocus,
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
+                  textInputAction: TextInputAction.next,
                   onChanged: (_) => setState(() {}),
+                  onSubmitted: (_) => FocusChain.focus(
+                      _narrationFocus, controller: _narrationController),
                   decoration: InputDecoration(
                     labelText: _mode == 'GOLD'
                         ? 'Gold (g)'
@@ -372,6 +386,8 @@ class _VoucherScreenState extends State<VoucherScreen> {
           const SizedBox(height: 10),
           TextField(
             controller: _narrationController,
+            focusNode: _narrationFocus,
+            textInputAction: TextInputAction.done,
             decoration: const InputDecoration(labelText: 'Narration'),
           ),
           const SizedBox(height: 14),

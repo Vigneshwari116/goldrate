@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../util/focus_chain.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
@@ -23,6 +24,12 @@ class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
   final _silverController = TextEditingController(text: '0.000');
   final _cashController = TextEditingController(text: '0');
 
+  final _gPureFocus = FocusNode();
+  final _fineFocus = FocusNode();
+  final _kachaFocus = FocusNode();
+  final _silverFocus = FocusNode();
+  final _cashFocus = FocusNode();
+
   static final RegExp _numberRegex = RegExp(r'^\d+(\.\d+)?$');
 
   bool _loading = true;
@@ -37,6 +44,11 @@ class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
 
   @override
   void dispose() {
+    _gPureFocus.dispose();
+    _fineFocus.dispose();
+    _kachaFocus.dispose();
+    _silverFocus.dispose();
+    _cashFocus.dispose();
     _gPureController.dispose();
     _fineController.dispose();
     _kachaController.dispose();
@@ -121,15 +133,20 @@ class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
   Widget _field(
       String label,
       TextEditingController controller, {
+        FocusNode? focusNode,
+        VoidCallback? onFieldSubmitted,
         String? Function(String?)? validator,
       }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextFormField(
         controller: controller,
+        focusNode: focusNode,
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
         style: const TextStyle(fontSize: 14),
+        textInputAction: TextInputAction.next,
         validator: validator ?? _validateWeight,
+        onFieldSubmitted: (_) => onFieldSubmitted?.call(),
         decoration: InputDecoration(label: Text(label)),
       ),
     );
@@ -234,11 +251,24 @@ class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
                           ),
                         ),
                         const SizedBox(height: 12),
-                        _field("G.Pure Wt", _gPureController),
-                        _field("Fine Wt", _fineController),
-                        _field("Kacha Wt", _kachaController),
-                        _field("Silver Wt", _silverController),
-                        _field("Cash", _cashController),
+                        _field("G.Pure Wt", _gPureController,
+                            focusNode: _gPureFocus,
+                            onFieldSubmitted: () => FocusChain.focus(
+                                _fineFocus, controller: _fineController)),
+                        _field("Fine Wt", _fineController,
+                            focusNode: _fineFocus,
+                            onFieldSubmitted: () => FocusChain.focus(
+                                _kachaFocus, controller: _kachaController)),
+                        _field("Kacha Wt", _kachaController,
+                            focusNode: _kachaFocus,
+                            onFieldSubmitted: () => FocusChain.focus(
+                                _silverFocus, controller: _silverController)),
+                        _field("Silver Wt", _silverController,
+                            focusNode: _silverFocus,
+                            onFieldSubmitted: () => FocusChain.focus(
+                                _cashFocus, controller: _cashController)),
+                        _field("Cash", _cashController,
+                            focusNode: _cashFocus),
                         SizedBox(
                           width: double.infinity,
                           height: 42,

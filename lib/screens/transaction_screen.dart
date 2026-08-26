@@ -14,6 +14,7 @@ import '../database/database_helper.dart';
 import '../logic/gold_ledger.dart';
 import '../pdf/estimate_receipt_pdf.dart';
 import '../pdf/pdf_kit.dart';
+import '../util/focus_chain.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
 import '../widgets/material_tile_card.dart';
@@ -83,6 +84,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
   static final RegExp _numberRegex = RegExp(r'^\d+(\.\d+)?$');
 
   final _partyController = TextEditingController();
+  final _partyFocus = FocusNode();
   final _weightController = TextEditingController(text: '0.000');
   final _touchController = TextEditingController(text: '0.00');
   final _paymentAmountController = TextEditingController(text: '0.00');
@@ -196,13 +198,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
     final weight = double.tryParse(trimmed);
     if (weight == null || weight <= 0) return;
     if (!RegExp(r'^\d+\.\d{3}$').hasMatch(trimmed)) return;
-    _advancingFocus = true;
-    _touchFocus.requestFocus();
-    _touchController.selection = TextSelection(
-      baseOffset: 0,
-      extentOffset: _touchController.text.length,
-    );
-    _advancingFocus = false;
+    _focusTouchField();
   }
 
   void _onTouchChanged(String value) {
@@ -214,6 +210,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
   @override
   void dispose() {
     _touchPromptTimer?.cancel();
+    _partyFocus.dispose();
     _partyController.dispose();
     _weightController.dispose();
     _touchController.dispose();
@@ -262,19 +259,20 @@ class _TransactionScreenState extends State<TransactionScreen> {
   void _selectParty(String name) {
     _partyController.text = name;
     _onPartyTextChanged(name);
-    _weightFocus.requestFocus();
-    _weightController.selection = TextSelection(
-      baseOffset: 0,
-      extentOffset: _weightController.text.length,
-    );
+    FocusChain.focusNextFrame(_weightFocus, controller: _weightController);
   }
 
-  void _focusPaymentField() {
-    _paymentFocus.requestFocus();
-    _paymentAmountController.selection = TextSelection(
-      baseOffset: 0,
-      extentOffset: _paymentAmountController.text.length,
-    );
+  void _focusTouchField() {
+    _advancingFocus = true;
+    FocusChain.focus(_touchFocus, controller: _touchController);
+    _advancingFocus = false;
+  }
+
+  void _tryPromptFromTouch() {
+    _touchPromptTimer?.cancel();
+    if (_promptingAddLine) return;
+    if (!_isTouchComplete(_touchController.text.trim())) return;
+    _promptAddAnotherLine();
   }
 
   Iterable<String> _partyOptions(String query) {
@@ -352,7 +350,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
     _weightController.text = '0.000';
     _touchController.text = '0.00';
     if (focusWeight) {
-      _weightFocus.requestFocus();
+      FocusChain.focus(_weightFocus, controller: _weightController);
     }
   }
 
@@ -442,9 +440,9 @@ class _TransactionScreenState extends State<TransactionScreen> {
     if (!mounted) return;
 
     if (addAnother == true) {
-      _typeFocus.requestFocus();
+      FocusChain.focusNextFrame(_weightFocus, controller: _weightController);
     } else {
-      _focusPaymentField();
+      FocusChain.focusNextFrame(_paymentFocus, controller: _paymentAmountController);
     }
   }
 
@@ -987,15 +985,11 @@ class _TransactionScreenState extends State<TransactionScreen> {
                     }
                     return TextFormField(
                       controller: controller,
-                      focusNode: focusNode,
+                      focusNode: _partyFocus,
                       style: const TextStyle(fontSize: 14),
                       textInputAction: TextInputAction.next,
                       onFieldSubmitted: (_) {
-                        _weightFocus.requestFocus();
-                        _weightController.selection = TextSelection(
-                          baseOffset: 0,
-                          extentOffset: _weightController.text.length,
-                        );
+                        FocusChain.focus(_weightFocus, controller: _weightController);
                       },
                       onChanged: (v) {
                         _partyController.text = v;
@@ -1041,7 +1035,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
                         .toList(),
                     onChanged: (v) {
                       setState(() => _selectedItemType = v!);
-                      _weightFocus.requestFocus();
+                      FocusChain.focusNextFrame(
+                          _weightFocus, controller: _weightController);
                     },
                   ),
                 ),
@@ -1059,6 +1054,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
                   ],
                   textAlign: TextAlign.right,
                   style: const TextStyle(fontSize: 14),
+                  textInputAction: TextInputAction.next,
                   decoration: const InputDecoration(
                     label: Text("Weight (g)"),
                     isDense: true,
@@ -1067,6 +1063,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
                     baseOffset: 0,
                     extentOffset: _weightController.text.length,
                   ),
+                  onFieldSubmitted: (_) => _focusTouchField(),
                   onChanged: _onWeightChanged,
                 ),
               ),
@@ -1083,6 +1080,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
                   ],
                   textAlign: TextAlign.right,
                   style: const TextStyle(fontSize: 14),
+                  textInputAction: TextInputAction.done,
                   decoration: const InputDecoration(
                     label: Text("Touch %"),
                     isDense: true,
@@ -1091,6 +1089,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
                     baseOffset: 0,
                     extentOffset: _touchController.text.length,
                   ),
+                  onFieldSubmitted: (_) => _tryPromptFromTouch(),
                   onChanged: _onTouchChanged,
                 ),
               ),
