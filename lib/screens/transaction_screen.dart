@@ -404,14 +404,27 @@ class _TransactionScreenState extends State<TransactionScreen> {
     if (line == null) return;
 
     _promptingAddLine = true;
+    _touchPromptTimer?.cancel();
+
+    if (!_commitCurrentLine()) {
+      _promptingAddLine = false;
+      return;
+    }
+
+    _resetWeightFields(focusWeight: false);
+
     final addAnother = await showDialog<bool>(
       context: context,
+      barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: const Text('Add this weight line?'),
         content: Text(
           '${line.type}  ${line.weight.toStringAsFixed(3)} g  ·  '
-          'touch ${line.touch.toStringAsFixed(2)}%\n\n'
-          'Add another weight line after this?',
+          'touch ${line.touch.toStringAsFixed(2)}%\n'
+          'Pure ${line.pureWt.toStringAsFixed(3)} g  ·  '
+          'Rate ₹${line.rate.toStringAsFixed(0)}  ·  '
+          'Value ₹${line.value.toStringAsFixed(2)}\n\n'
+          'Add another weight line?',
         ),
         actions: [
           TextButton(
@@ -426,15 +439,11 @@ class _TransactionScreenState extends State<TransactionScreen> {
       ),
     );
     _promptingAddLine = false;
-    if (!mounted || addAnother == null) return;
+    if (!mounted) return;
 
-    if (!_commitCurrentLine()) return;
-
-    if (addAnother) {
-      _resetWeightFields(focusWeight: false);
+    if (addAnother == true) {
       _typeFocus.requestFocus();
     } else {
-      _resetWeightFields(focusWeight: false);
       _focusPaymentField();
     }
   }
@@ -1201,6 +1210,44 @@ class _TransactionScreenState extends State<TransactionScreen> {
       );
     }
 
+    Widget dataRow(int index) {
+      final item = _items[index];
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: index.isEven ? Colors.white : AppColors.headerBand,
+          border: const Border(
+            top: BorderSide(color: AppColors.border),
+          ),
+        ),
+        child: Row(
+          children: [
+            cell(item.type, flex: 2),
+            cell(item.weight.toStringAsFixed(3),
+                flex: 2, align: TextAlign.right),
+            cell(item.touch.toStringAsFixed(2),
+                flex: 2, align: TextAlign.right),
+            cell(item.pureWt.toStringAsFixed(3),
+                flex: 2, align: TextAlign.right),
+            cell(item.rate.toStringAsFixed(0),
+                flex: 2, align: TextAlign.right),
+            cell(item.value.toStringAsFixed(2),
+                flex: 3, align: TextAlign.right),
+            SizedBox(
+              width: 28,
+              child: IconButton(
+                icon: const Icon(Icons.close,
+                    size: 16, color: Colors.redAccent),
+                onPressed: () => _removeItem(index),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
       decoration: BoxDecoration(
         border: Border.all(color: AppColors.border),
@@ -1225,49 +1272,23 @@ class _TransactionScreenState extends State<TransactionScreen> {
           ),
           if (_items.isEmpty)
             const Padding(
-              padding: EdgeInsets.symmetric(vertical: 18),
+              padding: EdgeInsets.symmetric(vertical: 14),
               child: Text(
-                'No lines yet — enter weight and touch, then press Enter',
+                'Lines appear here after you enter weight and touch %',
                 style: TextStyle(fontSize: 12, color: Colors.black54),
               ),
             )
           else
-            for (var i = 0; i < _items.length; i++)
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                decoration: BoxDecoration(
-                  color: i.isEven ? Colors.white : AppColors.headerBand,
-                  border: const Border(
-                    top: BorderSide(color: AppColors.border),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    cell(_items[i].type, flex: 2),
-                    cell(_items[i].weight.toStringAsFixed(3),
-                        flex: 2, align: TextAlign.right),
-                    cell(_items[i].touch.toStringAsFixed(2),
-                        flex: 2, align: TextAlign.right),
-                    cell(_items[i].pureWt.toStringAsFixed(3),
-                        flex: 2, align: TextAlign.right),
-                    cell(_items[i].rate.toStringAsFixed(0),
-                        flex: 2, align: TextAlign.right),
-                    cell(_items[i].value.toStringAsFixed(2),
-                        flex: 3, align: TextAlign.right),
-                    SizedBox(
-                      width: 28,
-                      child: IconButton(
-                        icon: const Icon(Icons.close,
-                            size: 16, color: Colors.redAccent),
-                        onPressed: () => _removeItem(i),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                      ),
-                    ),
-                  ],
-                ),
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: _items.length > 3 ? 168 : 56.0 * _items.length,
               ),
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: _items.length,
+                itemBuilder: (context, index) => dataRow(index),
+              ),
+            ),
         ],
       ),
     );
@@ -1411,18 +1432,9 @@ class _TransactionScreenState extends State<TransactionScreen> {
         ? const Center(child: CircularProgressIndicator())
         : WorkbenchLayout(
             equalSplit: true,
-            disableScroll: true,
-            primary: LayoutBuilder(
-              builder: (context, constraints) {
-                return FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.topCenter,
-                  child: SizedBox(
-                    width: constraints.maxWidth,
-                    child: _buildFormCard(),
-                  ),
-                );
-              },
+            disableScroll: false,
+            primary: SingleChildScrollView(
+              child: _buildFormCard(),
             ),
             secondary: _buildHistorySection(),
           );
