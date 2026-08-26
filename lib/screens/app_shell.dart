@@ -13,6 +13,7 @@ import 'master_screen.dart';
 import 'opening_weight_screen.dart';
 import 'printer_settings_screen.dart';
 import 'reports_screen.dart';
+import 'reset_screen.dart';
 import 'stock_screen.dart';
 import 'supplier_master_screen.dart';
 import 'transaction_screen.dart';
@@ -30,6 +31,7 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   late AppPage _page;
   bool _navOpen = false;
+  int _sessionGeneration = 0;
 
   @override
   void initState() {
@@ -66,7 +68,18 @@ class _AppShellState extends State<AppShell> {
         return 'BACKUP';
       case AppPage.printerSettings:
         return 'PRINTER SETTINGS';
+      case AppPage.reset:
+        return 'RESET';
     }
+  }
+
+  void resetSession() {
+    setState(() {
+      _sessionGeneration++;
+      _page = AppPage.home;
+      _navOpen = false;
+    });
+    SessionPrefs.setLastPage(AppPage.home);
   }
 
   void _go(AppPage page) {
@@ -115,6 +128,7 @@ class _AppShellState extends State<AppShell> {
     AppPage.rateRecords,
     AppPage.backup,
     AppPage.printerSettings,
+    AppPage.reset,
   ];
 
   int get _pageIndex {
@@ -124,6 +138,7 @@ class _AppShellState extends State<AppShell> {
 
   Widget _body() {
     return IndexedStack(
+      key: ValueKey(_sessionGeneration),
       index: _pageIndex,
       children: const [
         _KeepAlivePage(child: _HomePage()),
@@ -149,6 +164,7 @@ class _AppShellState extends State<AppShell> {
         _KeepAlivePage(child: HistoryScreen(embedded: true)),
         _KeepAlivePage(child: BackupScreen(embedded: true)),
         _KeepAlivePage(child: PrinterSettingsScreen(embedded: true)),
+        _KeepAlivePage(child: _ResetPage()),
       ],
     );
   }
@@ -391,7 +407,11 @@ class _AppShellState extends State<AppShell> {
                     _group(
                       icon: Icons.settings,
                       label: 'SETTINGS',
-                      pages: const [AppPage.backup, AppPage.printerSettings],
+                      pages: const [
+                        AppPage.backup,
+                        AppPage.printerSettings,
+                        AppPage.reset,
+                      ],
                       children: [
                         _leaf(
                             icon: Icons.backup,
@@ -401,6 +421,10 @@ class _AppShellState extends State<AppShell> {
                             icon: Icons.print,
                             label: 'Printer Settings',
                             page: AppPage.printerSettings),
+                        _leaf(
+                            icon: Icons.restart_alt,
+                            label: 'Reset',
+                            page: AppPage.reset),
                       ],
                     ),
                   ],
@@ -472,6 +496,19 @@ class _HomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final shell = context.findAncestorStateOfType<_AppShellState>();
     return HomeScreen(onOpen: shell?._go ?? (_) {});
+  }
+}
+
+class _ResetPage extends StatelessWidget {
+  const _ResetPage();
+
+  @override
+  Widget build(BuildContext context) {
+    final shell = context.findAncestorStateOfType<_AppShellState>();
+    return ResetScreen(
+      embedded: true,
+      onSessionReset: shell?.resetSession,
+    );
   }
 }
 

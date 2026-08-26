@@ -4,9 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../database/database_helper.dart';
-import '../navigation/app_page.dart';
 import '../util/file_share.dart';
-import '../util/session_prefs.dart';
 
 class BackupScreen extends StatefulWidget {
   const BackupScreen({super.key, this.embedded = false});
@@ -19,7 +17,6 @@ class BackupScreen extends StatefulWidget {
 
 class _BackupScreenState extends State<BackupScreen> {
   bool _busy = false;
-  bool _resetting = false;
 
   Future<void> _shareDb() async {
     setState(() => _busy = true);
@@ -50,55 +47,6 @@ class _BackupScreenState extends State<BackupScreen> {
     }
   }
 
-  Future<void> _resetAllData() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Reset all data?'),
-        content: const Text(
-          'This deletes every customer, supplier, bill, voucher, rate, '
-          'and opening weight entry. Your login is kept.\n\n'
-          'This cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('CANCEL'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text(
-              'RESET',
-              style: TextStyle(color: Colors.red),
-            ),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-
-    setState(() => _resetting = true);
-    try {
-      await DatabaseHelper.instance.resetAllBusinessData();
-      await SessionPrefs.setLastPage(AppPage.home);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'All data cleared. Open Home, then revisit Sales/Purchase to start fresh.',
-          ),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Reset failed: $e')),
-      );
-    } finally {
-      if (mounted) setState(() => _resetting = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final content = Padding(
@@ -122,33 +70,6 @@ class _BackupScreenState extends State<BackupScreen> {
                   )
                 : const Icon(Icons.backup),
             label: const Text('SAVE / SHARE DATABASE BACKUP'),
-          ),
-          const SizedBox(height: 24),
-          const Divider(),
-          const SizedBox(height: 12),
-          const Text(
-            'Reset removes all business data entered in the app and returns '
-            'masters, bills, and rates to a blank default state.',
-            style: TextStyle(color: Colors.black54),
-          ),
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.red,
-              side: const BorderSide(color: Colors.red),
-            ),
-            onPressed: _resetting ? null : _resetAllData,
-            icon: _resetting
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.red,
-                    ),
-                  )
-                : const Icon(Icons.delete_forever),
-            label: const Text('RESET ALL DATA'),
           ),
         ],
       ),

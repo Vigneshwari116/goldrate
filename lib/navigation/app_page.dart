@@ -12,4 +12,5 @@ enum AppPage {
   rateRecords,
   backup,
   printerSettings,
+  reset,
 }
