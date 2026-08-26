@@ -11,6 +11,7 @@ import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
 import '../widgets/material_tile_card.dart';
+import '../widgets/party_autocomplete_field.dart';
 
 /// Every raw row in `suppliers` is one visit/entry.
 /// This groups all entries of a person together and calculates
@@ -251,6 +252,38 @@ class _SupplierMasterScreenState
       _filteredSuppliers = filtered;
       _summaries = summaries;
     });
+  }
+
+  List<String> get _allNames =>
+      _buildSummaries(suppliers).map((s) => s.name).toList();
+
+  Iterable<String> _nameOptions(String query) {
+    final lower = query.trim().toLowerCase();
+    if (lower.isEmpty) return _allNames.take(12);
+    return _allNames.where((n) => n.toLowerCase().contains(lower)).take(12);
+  }
+
+  Iterable<String> _searchOptions(String query) {
+    final lower = query.trim().toLowerCase();
+    if (lower.isEmpty) return _allNames.take(12);
+    return _allNames.where((name) {
+      if (name.toLowerCase().contains(lower)) return true;
+      final match = _buildSummaries(suppliers)
+          .where((s) => s.name == name)
+          .toList();
+      if (match.isEmpty) return false;
+      return match.first.mobile.toLowerCase().contains(lower);
+    }).take(12);
+  }
+
+  void _prefillFromExistingName(String name) {
+    for (final summary in _buildSummaries(suppliers)) {
+      if (summary.name == name) {
+        _mobileController.text = summary.mobile;
+        _cityController.text = summary.city;
+        return;
+      }
+    }
   }
 
   // ============================================================
@@ -1028,11 +1061,12 @@ class _SupplierMasterScreenState
               CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: _field(
-                    'Supplier Name',
-                    _nameController,
-                    validator:
-                    _validateName,
+                  child: PartyAutocompleteField(
+                    label: 'Supplier Name',
+                    controller: _nameController,
+                    options: _nameOptions,
+                    validator: _validateName,
+                    onSelected: _prefillFromExistingName,
                   ),
                 ),
                 const SizedBox(
@@ -1184,43 +1218,12 @@ class _SupplierMasterScreenState
   // ============================================================
 
   Widget _buildListSection() {
-    final search =
-    TextField(
-      controller:
-      _searchController,
-      style: const TextStyle(
-        fontSize: 13,
-      ),
-      decoration:
-      InputDecoration(
-        hintText:
-        'Search supplier by name or mobile.',
-        hintStyle:
-        const TextStyle(
-          fontSize: 13,
-        ),
-        prefixIcon:
-        const Icon(
-          Icons.search,
-          size: 20,
-        ),
-        suffixIcon:
-        _searchController
-            .text
-            .isNotEmpty
-            ? IconButton(
-          icon:
-          const Icon(
-            Icons.clear,
-            size: 18,
-          ),
-          onPressed: () {
-            _searchController
-                .clear();
-          },
-        )
-            : null,
-      ),
+    final search = PartyAutocompleteField(
+      label: 'Search supplier',
+      controller: _searchController,
+      options: _searchOptions,
+      helperText: 'Filter by name or mobile',
+      onChanged: (_) => _applySearch(),
     );
 
     final header =
@@ -1427,6 +1430,7 @@ class _SupplierMasterScreenState
     )
         : WorkbenchLayout(
       equalSplit: true,
+      disableScroll: true,
       primary:
       _buildFormCard(),
       secondary:
