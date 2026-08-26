@@ -96,7 +96,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
   bool _promptingAddLine = false;
   bool _sharingPdf = false;
   bool _advancingFocus = false;
-  Timer? _touchPromptTimer;
+  Timer? _partyAdvanceTimer;
 
   String _selectedItemType = _itemTypes.first;
   String _selectedPaymentMode = _paymentModes.first;
@@ -157,7 +157,6 @@ class _TransactionScreenState extends State<TransactionScreen> {
     super.initState();
     _load();
     _partyController.addListener(() => _onPartyTextChanged());
-    _touchFocus.addListener(_onTouchFocusChange);
   }
 
   bool _isTouchComplete(String trimmed) {
@@ -171,25 +170,16 @@ class _TransactionScreenState extends State<TransactionScreen> {
     return false;
   }
 
-  void _scheduleTouchPrompt() {
-    _touchPromptTimer?.cancel();
-    final captured = _touchController.text.trim();
-    if (!_isTouchComplete(captured)) return;
-    _touchPromptTimer = Timer(const Duration(milliseconds: 350), () {
+  void _schedulePartyAdvance() {
+    _partyAdvanceTimer?.cancel();
+    final captured = _partyController.text.trim();
+    if (captured.length < 2) return;
+    _partyAdvanceTimer = Timer(const Duration(milliseconds: 450), () {
       if (!mounted || _promptingAddLine) return;
-      if (_touchController.text.trim() == captured) {
-        _promptAddAnotherLine();
+      if (_partyController.text.trim() != captured) return;
+      if (_partyFocus.hasFocus) {
+        FocusChain.focusNextFrame(_weightFocus, controller: _weightController);
       }
-    });
-  }
-
-  void _onTouchFocusChange() {
-    if (_touchFocus.hasFocus || _advancingFocus || _promptingAddLine) return;
-    Future.microtask(() {
-      if (!mounted || _touchFocus.hasFocus || _weightFocus.hasFocus) return;
-      final trimmed = _touchController.text.trim();
-      if (!_isTouchComplete(trimmed)) return;
-      _promptAddAnotherLine();
     });
   }
 
@@ -198,18 +188,12 @@ class _TransactionScreenState extends State<TransactionScreen> {
     final weight = double.tryParse(trimmed);
     if (weight == null || weight <= 0) return;
     if (!RegExp(r'^\d+\.\d{3}$').hasMatch(trimmed)) return;
-    _focusTouchField();
-  }
-
-  void _onTouchChanged(String value) {
-    final trimmed = value.trim();
-    if (!_isTouchComplete(trimmed)) return;
-    _scheduleTouchPrompt();
+    FocusChain.focusNextFrame(_touchFocus, controller: _touchController);
   }
 
   @override
   void dispose() {
-    _touchPromptTimer?.cancel();
+    _partyAdvanceTimer?.cancel();
     _partyFocus.dispose();
     _partyController.dispose();
     _weightController.dispose();
@@ -263,15 +247,15 @@ class _TransactionScreenState extends State<TransactionScreen> {
   }
 
   void _focusTouchField() {
-    _advancingFocus = true;
-    FocusChain.focus(_touchFocus, controller: _touchController);
-    _advancingFocus = false;
+    FocusChain.focusNextFrame(_touchFocus, controller: _touchController);
   }
 
   void _tryPromptFromTouch() {
-    _touchPromptTimer?.cancel();
     if (_promptingAddLine) return;
-    if (!_isTouchComplete(_touchController.text.trim())) return;
+    if (!_isTouchComplete(_touchController.text.trim())) {
+      _showMessage('Enter a valid touch %, then press Enter');
+      return;
+    }
     _promptAddAnotherLine();
   }
 
@@ -402,7 +386,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
     if (line == null) return;
 
     _promptingAddLine = true;
-    _touchPromptTimer?.cancel();
+    _partyAdvanceTimer?.cancel();
 
     if (!_commitCurrentLine()) {
       _promptingAddLine = false;
@@ -989,11 +973,13 @@ class _TransactionScreenState extends State<TransactionScreen> {
                       style: const TextStyle(fontSize: 14),
                       textInputAction: TextInputAction.next,
                       onFieldSubmitted: (_) {
-                        FocusChain.focus(_weightFocus, controller: _weightController);
+                        FocusChain.focusNextFrame(
+                            _weightFocus, controller: _weightController);
                       },
                       onChanged: (v) {
                         _partyController.text = v;
                         _onPartyTextChanged(v);
+                        _schedulePartyAdvance();
                       },
                       decoration: InputDecoration(
                         label: Text(_isCustomerParty
@@ -1084,13 +1070,14 @@ class _TransactionScreenState extends State<TransactionScreen> {
                   decoration: const InputDecoration(
                     label: Text("Touch %"),
                     isDense: true,
+                    helperText: 'Press Enter to add line',
+                    helperStyle: TextStyle(fontSize: 10),
                   ),
                   onTap: () => _touchController.selection = TextSelection(
                     baseOffset: 0,
                     extentOffset: _touchController.text.length,
                   ),
                   onFieldSubmitted: (_) => _tryPromptFromTouch(),
-                  onChanged: _onTouchChanged,
                 ),
               ),
             ],
@@ -1125,8 +1112,11 @@ class _TransactionScreenState extends State<TransactionScreen> {
                       .map((m) =>
                       DropdownMenuItem(value: m, child: Text(m)))
                       .toList(),
-                  onChanged: (v) =>
-                      setState(() => _selectedPaymentMode = v!),
+                  onChanged: (v) {
+                    setState(() => _selectedPaymentMode = v!);
+                    FocusChain.focusNextFrame(
+                        _paymentFocus, controller: _paymentAmountController);
+                  },
                 ),
               ),
               const SizedBox(width: 8),
