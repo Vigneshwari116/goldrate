@@ -350,4 +350,9 @@ class ApiClient {
     final data = await _decodeObject(res);
     return data['rowsAffected'] as int? ?? 0;
   }
+
+  static Future<void> resetAllBusinessData() async {
+    final res = await http.post(_uri('/admin/reset'), headers: _jsonHeaders);
+    await _decodeObject(res);
+  }
 }

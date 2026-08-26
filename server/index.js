@@ -329,6 +329,28 @@ app.get('/api/stock/current', async (_req, res) => {
   res.json(stock);
 });
 
+app.post('/api/admin/reset', async (_req, res) => {
+  try {
+    await pool.query('DELETE FROM transactions');
+    await pool.query('DELETE FROM vouchers');
+    await pool.query('DELETE FROM opening_weight');
+    await pool.query('DELETE FROM rate_history');
+    await pool.query('DELETE FROM rates');
+    await pool.query('DELETE FROM suppliers');
+    await pool.query('DELETE FROM customers');
+    await pool.query(
+      `INSERT INTO rates (rate_name, rate_value) VALUES
+        ('G.P RATE', ''),
+        ('F.T RATE', ''),
+        ('KACHA RATE', ''),
+        ('S RATE', '')`,
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 const port = process.env.PORT || 3000;
 app.listen(port, '0.0.0.0', () => {
   console.log(`Jewellery API listening on port ${port}`);

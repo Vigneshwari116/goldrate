@@ -848,4 +848,38 @@ class DatabaseHelper {
       });
     }
   }
+
+  /// Wipes all business data (masters, bills, rates, opening weight) but
+  /// keeps the login user so the app is not locked out.
+  Future<void> resetAllBusinessData() async {
+    if (ApiConfig.useRemoteApi) {
+      await ApiClient.resetAllBusinessData();
+      return;
+    }
+    final db = await database;
+    await db.delete('transactions');
+    await db.delete('vouchers');
+    await db.delete('opening_weight');
+    await db.delete('rate_history');
+    await db.delete('rates');
+    await db.delete('suppliers');
+    await db.delete('customers');
+    await db.insert('rates', {'rateName': 'G.P RATE', 'rateValue': ''});
+    await db.insert('rates', {'rateName': 'F.T RATE', 'rateValue': ''});
+    await db.insert('rates', {'rateName': 'KACHA RATE', 'rateValue': ''});
+    await db.insert('rates', {'rateName': 'S RATE', 'rateValue': ''});
+    await db.delete(
+      'sqlite_sequence',
+      where: 'name IN (?, ?, ?, ?, ?, ?, ?)',
+      whereArgs: [
+        'transactions',
+        'vouchers',
+        'opening_weight',
+        'rate_history',
+        'rates',
+        'suppliers',
+        'customers',
+      ],
+    );
+  }
 }

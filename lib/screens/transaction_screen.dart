@@ -14,6 +14,8 @@ import '../database/database_helper.dart';
 import '../logic/gold_ledger.dart';
 import '../pdf/estimate_receipt_pdf.dart';
 import '../pdf/pdf_kit.dart';
+import '../models/party_suggestion.dart';
+import '../widgets/party_search_field.dart';
 import '../util/focus_chain.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
@@ -84,7 +86,6 @@ class _TransactionScreenState extends State<TransactionScreen> {
   static final RegExp _numberRegex = RegExp(r'^\d+(\.\d+)?$');
 
   final _partyController = TextEditingController();
-  final _partyFocus = FocusNode();
   final _weightController = TextEditingController(text: '0.000');
   final _touchController = TextEditingController(text: '0.00');
   final _paymentAmountController = TextEditingController(text: '0.00');
@@ -95,7 +96,6 @@ class _TransactionScreenState extends State<TransactionScreen> {
 
   bool _promptingAddLine = false;
   bool _sharingPdf = false;
-  bool _advancingFocus = false;
   Timer? _partyAdvanceTimer;
 
   String _selectedItemType = _itemTypes.first;
@@ -109,7 +109,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
 
   List<Map<String, dynamic>> _history = [];
   Map<String, double> _rates = {};
-  List<String> _partyNames = [];
+  List<PartySuggestion> _partySuggestions = [];
   Map<String, double>? _partyOutstanding;
 
   /// Purchase looks up Suppliers (stock coming in from them); Sales
@@ -121,6 +121,9 @@ class _TransactionScreenState extends State<TransactionScreen> {
   String get _transactionType => _isPurchase ? 'PURCHASE' : 'SALES';
 
   String get _title => _isPurchase ? 'PURCHASE' : 'SALES';
+
+  bool get _showItemsTable =>
+      _partyController.text.trim().isNotEmpty || _items.isNotEmpty;
 
   double get _totalWt =>
       _items.fold(0, (sum, item) => sum + item.weight);
@@ -177,9 +180,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
     _partyAdvanceTimer = Timer(const Duration(milliseconds: 450), () {
       if (!mounted || _promptingAddLine) return;
       if (_partyController.text.trim() != captured) return;
-      if (_partyFocus.hasFocus) {
-        FocusChain.focusNextFrame(_weightFocus, controller: _weightController);
-      }
+      FocusChain.focusNextFrame(_weightFocus, controller: _weightController);
     });
   }
 
@@ -194,7 +195,6 @@ class _TransactionScreenState extends State<TransactionScreen> {
   @override
   void dispose() {
     _partyAdvanceTimer?.cancel();
-    _partyFocus.dispose();
     _partyController.dispose();
     _weightController.dispose();
     _touchController.dispose();
@@ -212,15 +212,26 @@ class _TransactionScreenState extends State<TransactionScreen> {
     final history =
     await DatabaseHelper.instance.getTransactions(_transactionType);
     final rates = await DatabaseHelper.instance.getRatesMap();
-    final partyNames = await DatabaseHelper.instance
-        .getDistinctPartyNames(isCustomer: _isCustomerParty);
+    final partyRows = _isCustomerParty
+        ? await DatabaseHelper.instance.getCustomers()
+        : await DatabaseHelper.instance.getSuppliers();
     if (!mounted) return;
     setState(() {
       _nextBillNo = billNo;
       _history = history;
       _rates = rates;
-      _partyNames = partyNames;
+      _partySuggestions = PartySuggestion.fromLedgerRows(partyRows);
       _loading = false;
+    });
+  }
+
+  Future<void> _refreshParties() async {
+    final partyRows = _isCustomerParty
+        ? await DatabaseHelper.instance.getCustomers()
+        : await DatabaseHelper.instance.getSuppliers();
+    if (!mounted) return;
+    setState(() {
+      _partySuggestions = PartySuggestion.fromLedgerRows(partyRows);
     });
   }
 
@@ -240,9 +251,9 @@ class _TransactionScreenState extends State<TransactionScreen> {
     });
   }
 
-  void _selectParty(String name) {
-    _partyController.text = name;
-    _onPartyTextChanged(name);
+  void _selectParty(PartySuggestion party) {
+    _partyController.text = party.name;
+    _onPartyTextChanged(party.name);
     FocusChain.focusNextFrame(_weightFocus, controller: _weightController);
   }
 
@@ -257,14 +268,6 @@ class _TransactionScreenState extends State<TransactionScreen> {
       return;
     }
     _promptAddAnotherLine();
-  }
-
-  Iterable<String> _partyOptions(String query) {
-    final lower = query.trim().toLowerCase();
-    if (lower.isEmpty) return _partyNames.take(12);
-    return _partyNames
-        .where((n) => n.toLowerCase().contains(lower))
-        .take(12);
   }
 
   Widget _ledgerChip(String label, String value) {
@@ -959,36 +962,21 @@ class _TransactionScreenState extends State<TransactionScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Autocomplete<String>(
-                  optionsBuilder: (value) => _partyOptions(value.text),
+                child: PartySearchField(
+                  label: _isCustomerParty
+                      ? 'Customer Name'
+                      : 'Supplier Name',
+                  controller: _partyController,
+                  parties: _partySuggestions,
+                  helperText: 'Search saved name, mobile, or city',
+                  onFocus: _refreshParties,
                   onSelected: _selectParty,
-                  fieldViewBuilder:
-                      (context, controller, focusNode, onFieldSubmitted) {
-                    if (controller.text != _partyController.text) {
-                      controller.text = _partyController.text;
-                    }
-                    return TextFormField(
-                      controller: controller,
-                      focusNode: _partyFocus,
-                      style: const TextStyle(fontSize: 14),
-                      textInputAction: TextInputAction.next,
-                      onFieldSubmitted: (_) {
-                        FocusChain.focusNextFrame(
-                            _weightFocus, controller: _weightController);
-                      },
-                      onChanged: (v) {
-                        _partyController.text = v;
-                        _onPartyTextChanged(v);
-                        _schedulePartyAdvance();
-                      },
-                      decoration: InputDecoration(
-                        label: Text(_isCustomerParty
-                            ? "Customer Name"
-                            : "Supplier Name"),
-                        helperText: 'Search saved name or type new',
-                        helperStyle: const TextStyle(fontSize: 11),
-                      ),
-                    );
+                  onFieldSubmitted: () => FocusChain.focusNextFrame(
+                      _weightFocus, controller: _weightController),
+                  onChanged: (v) {
+                    _onPartyTextChanged(v);
+                    _schedulePartyAdvance();
+                    setState(() {});
                   },
                 ),
               ),
@@ -1082,8 +1070,10 @@ class _TransactionScreenState extends State<TransactionScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 6),
-          _itemsTable(),
+          if (_showItemsTable) ...[
+            const SizedBox(height: 6),
+            _itemsTable(),
+          ],
           const Divider(height: 14, color: AppColors.border),
           Row(
             children: [
@@ -1260,24 +1250,9 @@ class _TransactionScreenState extends State<TransactionScreen> {
             ),
           ),
           if (_items.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 14),
-              child: Text(
-                'Lines appear here after you enter weight and touch %',
-                style: TextStyle(fontSize: 12, color: Colors.black54),
-              ),
-            )
+            const SizedBox.shrink()
           else
-            ConstrainedBox(
-              constraints: BoxConstraints(
-                maxHeight: _items.length > 3 ? 168 : 56.0 * _items.length,
-              ),
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: _items.length,
-                itemBuilder: (context, index) => dataRow(index),
-              ),
-            ),
+            for (var i = 0; i < _items.length; i++) dataRow(i),
         ],
       ),
     );
