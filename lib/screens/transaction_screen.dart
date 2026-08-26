@@ -88,9 +88,10 @@ class _TransactionScreenState extends State<TransactionScreen> {
   final _weightFocus = FocusNode();
   final _touchFocus = FocusNode();
   final _typeFocus = FocusNode();
+  final _paymentFocus = FocusNode();
 
   bool _promptingAddLine = false;
-  bool _advancingFocus = false;
+  bool _sharingPdf = false;
 
   String _selectedItemType = _itemTypes.first;
   String _selectedPaymentMode = _paymentModes.first;
@@ -151,15 +152,6 @@ class _TransactionScreenState extends State<TransactionScreen> {
     super.initState();
     _load();
     _partyController.addListener(() => _onPartyTextChanged());
-    _touchFocus.addListener(_onTouchFocusChange);
-  }
-
-  void _onTouchFocusChange() {
-    if (_touchFocus.hasFocus || _advancingFocus || _promptingAddLine) return;
-    Future.microtask(() {
-      if (!mounted || _touchFocus.hasFocus || _weightFocus.hasFocus) return;
-      _promptAddAnotherLine();
-    });
   }
 
   void _onWeightChanged(String value) {
@@ -167,13 +159,11 @@ class _TransactionScreenState extends State<TransactionScreen> {
     final weight = double.tryParse(trimmed);
     if (weight == null || weight <= 0) return;
     if (!RegExp(r'^\d+\.\d{3}$').hasMatch(trimmed)) return;
-    _advancingFocus = true;
     _touchFocus.requestFocus();
     _touchController.selection = TextSelection(
       baseOffset: 0,
       extentOffset: _touchController.text.length,
     );
-    _advancingFocus = false;
   }
 
   void _onTouchChanged(String value) {
@@ -197,6 +187,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
     _weightFocus.dispose();
     _touchFocus.dispose();
     _typeFocus.dispose();
+    _paymentFocus.dispose();
     super.dispose();
   }
 
@@ -237,6 +228,19 @@ class _TransactionScreenState extends State<TransactionScreen> {
   void _selectParty(String name) {
     _partyController.text = name;
     _onPartyTextChanged(name);
+    _weightFocus.requestFocus();
+    _weightController.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: _weightController.text.length,
+    );
+  }
+
+  void _focusPaymentField() {
+    _paymentFocus.requestFocus();
+    _paymentAmountController.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: _paymentAmountController.text.length,
+    );
   }
 
   Iterable<String> _partyOptions(String query) {
@@ -378,11 +382,11 @@ class _TransactionScreenState extends State<TransactionScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('NO — FINISH'),
+            child: const Text('NO'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('YES — ADD MORE'),
+            child: const Text('YES'),
           ),
         ],
       ),
@@ -397,7 +401,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
       _typeFocus.requestFocus();
     } else {
       _resetWeightFields(focusWeight: false);
-      FocusScope.of(context).unfocus();
+      _focusPaymentField();
     }
   }
 
@@ -562,7 +566,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: Text(
           "Bill #${row['billNo']}   ${row['partyName'] ?? ''}",
           style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
@@ -599,15 +603,25 @@ class _TransactionScreenState extends State<TransactionScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => _shareEstimate(row),
+            onPressed: _sharingPdf
+                ? null
+                : () async {
+                    Navigator.pop(dialogContext);
+                    await _sharePdf(row, estimate: true, openAfterSave: false);
+                  },
             child: const Text("ESTIMATE"),
           ),
           TextButton(
-            onPressed: () => _shareAccountsBill(row),
+            onPressed: _sharingPdf
+                ? null
+                : () async {
+                    Navigator.pop(dialogContext);
+                    await _sharePdf(row, estimate: false, openAfterSave: false);
+                  },
             child: const Text("ACCOUNTS BILL"),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text("CLOSE"),
           ),
         ],
@@ -784,31 +798,36 @@ class _TransactionScreenState extends State<TransactionScreen> {
   Future<void> _sharePdf(
     Map<String, dynamic> row, {
     required bool estimate,
+    bool openAfterSave = true,
   }) async {
-    final bytes =
-        estimate ? await _buildEstimatePdf(row) : await _buildAccountsPdf(row);
-    final kind = _isPurchase ? 'purchase' : 'sales';
-    final type = estimate ? 'estimate' : 'accounts';
-    final file = await PdfKit.sharePdf(
-      bytes: bytes,
-      fileName: '${kind}_${type}_${row['billNo']}.pdf',
-      subject:
-          '${estimate ? 'Estimate' : 'Accounts bill'} #${row['billNo']} - ${row['partyName'] ?? ''}',
-      text:
-          '${_isPurchase ? 'Purchase' : 'Sales'} ${estimate ? 'estimate' : 'accounts bill'}. '
-          'Share this PDF, then print from the share app or the opened PDF window.',
-    );
-    if (!mounted) return;
-    if (!(Platform.isAndroid || Platform.isIOS)) {
-      _showMessage('PDF saved: ${file.path}');
+    if (_sharingPdf) return;
+    _sharingPdf = true;
+    try {
+      final bytes =
+          estimate ? await _buildEstimatePdf(row) : await _buildAccountsPdf(row);
+      final kind = _isPurchase ? 'purchase' : 'sales';
+      final type = estimate ? 'estimate' : 'accounts';
+      final file = await PdfKit.sharePdf(
+        bytes: bytes,
+        fileName: '${kind}_${type}_${row['billNo']}.pdf',
+        subject:
+            '${estimate ? 'Estimate' : 'Accounts bill'} #${row['billNo']} - ${row['partyName'] ?? ''}',
+        text:
+            '${_isPurchase ? 'Purchase' : 'Sales'} ${estimate ? 'estimate' : 'accounts bill'}. '
+            'Share this PDF, then print from the share app or the opened PDF window.',
+        openAfterSave: openAfterSave,
+      );
+      if (!mounted) return;
+      if (!(Platform.isAndroid || Platform.isIOS)) {
+        _showMessage('PDF saved: ${file.path}');
+      }
+    } finally {
+      _sharingPdf = false;
     }
   }
 
   Future<void> _shareEstimate(Map<String, dynamic> row) =>
-      _sharePdf(row, estimate: true);
-
-  Future<void> _shareAccountsBill(Map<String, dynamic> row) =>
-      _sharePdf(row, estimate: false);
+      _sharePdf(row, estimate: true, openAfterSave: false);
 
   String _historyCsvEscape(String value) {
     if (value.contains(',') || value.contains('"') || value.contains('\n')) {
@@ -928,6 +947,13 @@ class _TransactionScreenState extends State<TransactionScreen> {
                       focusNode: focusNode,
                       style: const TextStyle(fontSize: 14),
                       textInputAction: TextInputAction.next,
+                      onFieldSubmitted: (_) {
+                        _weightFocus.requestFocus();
+                        _weightController.selection = TextSelection(
+                          baseOffset: 0,
+                          extentOffset: _weightController.text.length,
+                        );
+                      },
                       onChanged: (v) {
                         _partyController.text = v;
                         _onPartyTextChanged(v);
@@ -1034,12 +1060,9 @@ class _TransactionScreenState extends State<TransactionScreen> {
           const Divider(height: 14, color: AppColors.border),
           Row(
             children: [
-              Expanded(child: _totalRow("TOTAL WT", _totalWt, compact: true)),
-              Expanded(
-                  child: _totalRow("PURE WT", _totalPureWt,
-                      decimals: 3, compact: true)),
-              Expanded(
-                  child: _totalRow("VALUE ₹", _totalValue, compact: true)),
+              _totalCell("TOTAL WT", _totalWt),
+              _totalCell("PURE WT", _totalPureWt, decimals: 3),
+              _totalCell("VALUE ₹", _totalValue),
             ],
           ),
           const SizedBox(height: 6),
@@ -1071,6 +1094,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
                 flex: 3,
                 child: TextFormField(
                   controller: _paymentAmountController,
+                  focusNode: _paymentFocus,
                   keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
                   style: const TextStyle(fontSize: 14),
@@ -1092,12 +1116,9 @@ class _TransactionScreenState extends State<TransactionScreen> {
           const SizedBox(height: 6),
           Row(
             children: [
-              Expanded(
-                  child: _totalRow("OLD BAL (g)", _settlement.oldGrams,
-                      decimals: 3, compact: true)),
-              Expanded(
-                  child: _totalRow("NEW BAL (g)", _settlement.newGrams,
-                      highlight: true, decimals: 3, compact: true)),
+              _totalCell("OLD BAL (g)", _settlement.oldGrams, decimals: 3),
+              _totalCell("NEW BAL (g)", _settlement.newGrams,
+                  highlight: true, decimals: 3),
             ],
           ),
           const SizedBox(height: 10),
@@ -1392,31 +1413,35 @@ class _TransactionScreenState extends State<TransactionScreen> {
     );
   }
 
-  Widget _totalRow(String label, double value,
-      {bool highlight = false, int decimals = 2, bool compact = false}) {
-    return Padding(
-      padding: EdgeInsets.symmetric(vertical: compact ? 2 : 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
+  Widget _totalCell(String label, double value,
+      {bool highlight = false, int decimals = 2}) {
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Text(
               label,
+              textAlign: TextAlign.center,
               style: TextStyle(
-                fontSize: compact ? 11 : 13,
+                fontSize: 11,
                 fontWeight: FontWeight.w600,
                 color: highlight ? AppColors.navy : AppColors.mutedBlue,
               ),
             ),
-          ),
-          Text(
-            value.toStringAsFixed(decimals),
-            style: TextStyle(
-              fontSize: compact ? (highlight ? 14 : 12) : (highlight ? 17 : 15),
-              fontWeight: FontWeight.bold,
-              color: highlight ? AppColors.navy : Colors.black87,
+            const SizedBox(height: 2),
+            Text(
+              value.toStringAsFixed(decimals),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: highlight ? 14 : 12,
+                fontWeight: FontWeight.bold,
+                color: highlight ? AppColors.navy : Colors.black87,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

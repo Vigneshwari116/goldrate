@@ -57,6 +57,7 @@ class PdfKit {
     required String fileName,
     String? subject,
     String? text,
+    bool openAfterSave = true,
   }) {
     return FileShare.shareOrSaveBytes(
       bytes: bytes,
@@ -64,6 +65,7 @@ class PdfKit {
       folderName: 'JewelleryPDFs',
       subject: subject,
       text: text,
+      openAfterSave: openAfterSave,
     );
   }
 }

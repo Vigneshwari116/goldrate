@@ -206,6 +206,100 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
+  Widget _railButton({
+    required IconData icon,
+    required String tooltip,
+    required AppPage page,
+  }) {
+    final selected = _page == page;
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: () => _go(page),
+        child: Container(
+          width: 56,
+          height: 48,
+          color: selected ? AppColors.drawerActive : Colors.transparent,
+          child: Icon(
+            icon,
+            color: selected ? Colors.white : Colors.white70,
+            size: 22,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _sidebarRail() {
+    return Material(
+      color: AppColors.drawerNavy,
+      child: SafeArea(
+        child: SizedBox(
+          width: 56,
+          child: Column(
+            children: [
+              const SizedBox(height: 8),
+              _railButton(icon: Icons.home, tooltip: 'Home', page: AppPage.home),
+              _railButton(
+                  icon: Icons.scale, tooltip: 'Opening Weight', page: AppPage.openingWeight),
+              _railButton(
+                  icon: Icons.inventory_2, tooltip: 'Stock', page: AppPage.stock),
+              _railButton(
+                  icon: Icons.indeterminate_check_box,
+                  tooltip: 'Sales',
+                  page: AppPage.sales),
+              _railButton(
+                  icon: Icons.add_box, tooltip: 'Purchase', page: AppPage.purchase),
+              _railButton(
+                  icon: Icons.receipt_long,
+                  tooltip: 'Receipt Voucher',
+                  page: AppPage.receipt),
+              _railButton(
+                  icon: Icons.people,
+                  tooltip: 'Customer Master',
+                  page: AppPage.customers),
+              _railButton(
+                  icon: Icons.local_shipping,
+                  tooltip: 'Supplier Master',
+                  page: AppPage.suppliers),
+              _railButton(
+                  icon: Icons.currency_exchange,
+                  tooltip: 'Daily Rate',
+                  page: AppPage.rates),
+              _railButton(
+                  icon: Icons.assessment,
+                  tooltip: 'Reports',
+                  page: AppPage.reports),
+              _railButton(
+                  icon: Icons.history,
+                  tooltip: 'Rate Records',
+                  page: AppPage.rateRecords),
+              _railButton(
+                  icon: Icons.backup, tooltip: 'Backup', page: AppPage.backup),
+              _railButton(
+                  icon: Icons.print,
+                  tooltip: 'Printer Settings',
+                  page: AppPage.printerSettings),
+              const Spacer(),
+              Tooltip(
+                message: 'Logout',
+                child: InkWell(
+                  onTap: _logout,
+                  child: const SizedBox(
+                    width: 56,
+                    height: 48,
+                    child: Icon(Icons.logout, color: Color(0xFFFF8A80), size: 22),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _sidebar() {
     return Material(
       color: AppColors.drawerNavy,
@@ -380,7 +474,7 @@ class _AppShellState extends State<AppShell> {
       ),
       body: Row(
         children: [
-          if (_navOpen) _sidebar(),
+          if (_navOpen) _sidebar() else _sidebarRail(),
           Expanded(
             child: _body(),
           ),
