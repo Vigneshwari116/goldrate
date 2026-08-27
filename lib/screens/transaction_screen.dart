@@ -98,27 +98,27 @@ class _TransactionScreenState extends State<TransactionScreen> {
   static final RegExp _numberRegex = RegExp(r'^\d+(\.\d+)?$');
 
   final _partyController = TextEditingController();
-  final _receiptCashController = TextEditingController(text: '0.00');
+  final _paymentCashController = TextEditingController(text: '0.00');
 
-  final List<_TransactionItem> _issueLines = [];
-  final List<_PanelLine> _receiptLines = [];
+  final List<_TransactionItem> _billLines = [];
+  final List<_PanelLine> _paymentMetalLines = [];
 
-  String _issueEntryType = _itemTypes.first;
-  String _receiptEntryType = _itemTypes.first;
-  final _issueEntryWeight = TextEditingController(text: '0.000');
-  final _issueEntryTouch = TextEditingController(text: '100.00');
-  final _receiptEntryWeight = TextEditingController(text: '0.000');
-  final _receiptEntryTouch = TextEditingController(text: '100.00');
+  String _billEntryType = _itemTypes.first;
+  String _paymentEntryType = _itemTypes.first;
+  final _billEntryWeight = TextEditingController(text: '0.000');
+  final _billEntryTouch = TextEditingController(text: '100.00');
+  final _paymentEntryWeight = TextEditingController(text: '0.000');
+  final _paymentEntryTouch = TextEditingController(text: '100.00');
 
-  final _issueEntryWeightFocus = FocusNode();
-  final _issueEntryTouchFocus = FocusNode();
-  final _receiptEntryWeightFocus = FocusNode();
-  final _receiptEntryTouchFocus = FocusNode();
-  final _receiptCashFocus = FocusNode();
+  final _billEntryWeightFocus = FocusNode();
+  final _billEntryTouchFocus = FocusNode();
+  final _paymentEntryWeightFocus = FocusNode();
+  final _paymentEntryTouchFocus = FocusNode();
+  final _paymentCashFocus = FocusNode();
   final _saveFocus = FocusNode();
 
-  bool _issueAddPrompt = false;
-  bool _receiptAddPrompt = false;
+  bool _billAddPrompt = false;
+  bool _paymentAddPrompt = false;
 
   int _nextBillNo = 1;
   bool _loading = true;
@@ -141,48 +141,48 @@ class _TransactionScreenState extends State<TransactionScreen> {
   String get _title => _isPurchase ? 'PURCHASE' : 'SALES';
 
   bool get _showPanels =>
-      _partyController.text.trim().isNotEmpty || _hasIssueOrReceiptData;
+      _partyController.text.trim().isNotEmpty || _hasBillOrPaymentData;
 
-  bool get _hasIssueOrReceiptData =>
-      _issueLines.isNotEmpty ||
-      _receiptLines.isNotEmpty ||
-      (double.tryParse(_receiptCashController.text.trim()) ?? 0) > 0;
+  bool get _hasBillOrPaymentData =>
+      _billLines.isNotEmpty ||
+      _paymentMetalLines.isNotEmpty ||
+      (double.tryParse(_paymentCashController.text.trim()) ?? 0) > 0;
 
-  List<_TransactionItem> get _issueItems => _issueLines;
+  List<_TransactionItem> get _billItems => _billLines;
 
   double get _totalWt =>
-      _issueItems.fold(0, (sum, item) => sum + item.weight);
+      _billItems.fold(0, (sum, item) => sum + item.weight);
 
   double get _totalPureWt =>
-      _issueItems.fold(0, (sum, item) => sum + item.pureWt);
+      _billItems.fold(0, (sum, item) => sum + item.pureWt);
 
   double get _totalValue =>
-      _issueItems.fold(0, (sum, item) => sum + item.value);
+      _billItems.fold(0, (sum, item) => sum + item.value);
 
-  double get _issueTotalPure =>
-      _issueLines.fold(0, (sum, item) => sum + item.pureWt);
+  double get _billTotalPure =>
+      _billLines.fold(0, (sum, item) => sum + item.pureWt);
 
-  double get _receiptMetalPure =>
-      _receiptLines.fold(0, (sum, line) => sum + line.pureWt);
+  double get _paymentMetalPure =>
+      _paymentMetalLines.fold(0, (sum, line) => sum + line.pureWt);
 
-  double get _receiptCashAmount =>
-      double.tryParse(_receiptCashController.text.trim()) ?? 0;
+  double get _paymentCashAmount =>
+      double.tryParse(_paymentCashController.text.trim()) ?? 0;
 
   double get _goldRate => GoldLedger.goldRate(_rates);
 
-  double get _receiptCashGold =>
-      GoldLedger.cashToGold(_receiptCashAmount, _goldRate);
+  double get _paymentCashGold =>
+      GoldLedger.cashToGold(_paymentCashAmount, _goldRate);
 
-  double get _receiptTotalPure => _receiptMetalPure + _receiptCashGold;
+  double get _paymentTotalPure => _paymentMetalPure + _paymentCashGold;
 
-  double get _balancePure => _issueTotalPure - _receiptTotalPure;
+  double get _balancePure => _billTotalPure - _paymentTotalPure;
 
-  bool get _receiptIsCashOnly =>
-      _receiptCashAmount > 0 && _receiptMetalPure <= 0;
+  bool get _paymentIsCashOnly =>
+      _paymentCashAmount > 0 && _paymentMetalPure <= 0;
 
-  double get _paymentAmount => _receiptIsCashOnly
-      ? _receiptCashAmount
-      : _receiptTotalPure;
+  double get _paymentAmount => _paymentIsCashOnly
+      ? _paymentCashAmount
+      : _paymentTotalPure;
 
   SettlementResult get _settlement {
     return settleLedger(
@@ -190,7 +190,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
       oldRupees: _partyOutstanding?['rupees'] ?? 0,
       billGrams: _totalPureWt,
       billRupees: _totalValue,
-      paymentMode: _receiptIsCashOnly ? 'CASH' : 'GOLD',
+      paymentMode: _paymentIsCashOnly ? 'CASH' : 'GOLD',
       paymentAmount: _paymentAmount,
       ratePerGram: _goldRate,
       billSign: _isPurchase ? -1 : 1,
@@ -202,7 +202,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
     super.initState();
     _load();
     _partyController.addListener(() => _onPartyTextChanged());
-    _receiptCashController.addListener(_onPanelChanged);
+    _paymentCashController.addListener(_onPanelChanged);
   }
 
   void _onPanelChanged() {
@@ -215,16 +215,16 @@ class _TransactionScreenState extends State<TransactionScreen> {
     return w * t / 100;
   }
 
-  void _resetIssueEntry({bool resetType = true}) {
-    if (resetType) _issueEntryType = _itemTypes.first;
-    _issueEntryWeight.text = '0.000';
-    _issueEntryTouch.text = '100.00';
+  void _resetBillEntry({bool resetType = true}) {
+    if (resetType) _billEntryType = _itemTypes.first;
+    _billEntryWeight.text = '0.000';
+    _billEntryTouch.text = '100.00';
   }
 
-  void _resetReceiptEntry({bool resetType = true}) {
-    if (resetType) _receiptEntryType = _itemTypes.first;
-    _receiptEntryWeight.text = '0.000';
-    _receiptEntryTouch.text = '100.00';
+  void _resetPaymentEntry({bool resetType = true}) {
+    if (resetType) _paymentEntryType = _itemTypes.first;
+    _paymentEntryWeight.text = '0.000';
+    _paymentEntryTouch.text = '100.00';
   }
 
   void _onEntryWeightChanged(
@@ -240,49 +240,49 @@ class _TransactionScreenState extends State<TransactionScreen> {
     FocusChain.focusNextFrame(touchFocus, controller: touch);
   }
 
-  _TransactionItem? _validatedIssueEntry() {
-    final weight = double.tryParse(_issueEntryWeight.text.trim());
-    final touch = double.tryParse(_issueEntryTouch.text.trim());
+  _TransactionItem? _validatedBillEntry() {
+    final weight = double.tryParse(_billEntryWeight.text.trim());
+    final touch = double.tryParse(_billEntryTouch.text.trim());
     if (weight == null ||
-        !_numberRegex.hasMatch(_issueEntryWeight.text.trim()) ||
+        !_numberRegex.hasMatch(_billEntryWeight.text.trim()) ||
         weight <= 0) {
       return null;
     }
-    if (touch == null || !_numberRegex.hasMatch(_issueEntryTouch.text.trim())) {
+    if (touch == null || !_numberRegex.hasMatch(_billEntryTouch.text.trim())) {
       return null;
     }
-    final rateName = kItemTypeToRateName[_issueEntryType];
+    final rateName = kItemTypeToRateName[_billEntryType];
     final rate = _rates[rateName] ?? 0;
     return _TransactionItem(
-      type: _issueEntryType,
+      type: _billEntryType,
       weight: weight,
       touch: touch,
       rate: rate,
     );
   }
 
-  _PanelLine? _validatedReceiptEntry() {
-    final weight = double.tryParse(_receiptEntryWeight.text.trim());
-    final touch = double.tryParse(_receiptEntryTouch.text.trim());
+  _PanelLine? _validatedPaymentEntry() {
+    final weight = double.tryParse(_paymentEntryWeight.text.trim());
+    final touch = double.tryParse(_paymentEntryTouch.text.trim());
     if (weight == null ||
-        !_numberRegex.hasMatch(_receiptEntryWeight.text.trim()) ||
+        !_numberRegex.hasMatch(_paymentEntryWeight.text.trim()) ||
         weight <= 0) {
       return null;
     }
     if (touch == null ||
-        !_numberRegex.hasMatch(_receiptEntryTouch.text.trim())) {
+        !_numberRegex.hasMatch(_paymentEntryTouch.text.trim())) {
       return null;
     }
     return _PanelLine(
-      type: _receiptEntryType,
+      type: _paymentEntryType,
       weight: weight,
       touch: touch,
     );
   }
 
-  void _commitIssueEntry() {
-    if (_issueAddPrompt) return;
-    final item = _validatedIssueEntry();
+  void _commitBillEntry() {
+    if (_billAddPrompt) return;
+    final item = _validatedBillEntry();
     if (item == null) {
       _showMessage('Enter weight and touch before continuing');
       return;
@@ -294,50 +294,50 @@ class _TransactionScreenState extends State<TransactionScreen> {
       return;
     }
     setState(() {
-      _issueLines.add(item);
-      _issueAddPrompt = true;
+      _billLines.add(item);
+      _billAddPrompt = true;
     });
   }
 
-  void _commitReceiptEntry() {
-    if (_receiptAddPrompt) return;
-    final line = _validatedReceiptEntry();
+  void _commitPaymentEntry() {
+    if (_paymentAddPrompt) return;
+    final line = _validatedPaymentEntry();
     if (line == null) {
       _showMessage('Enter weight and touch before continuing');
       return;
     }
     setState(() {
-      _receiptLines.add(line);
-      _receiptAddPrompt = true;
+      _paymentMetalLines.add(line);
+      _paymentAddPrompt = true;
     });
   }
 
-  void _issueAddAnother(bool add) {
+  void _billAddAnother(bool add) {
     setState(() {
-      _issueAddPrompt = false;
+      _billAddPrompt = false;
       if (add) {
-        _resetIssueEntry();
+        _resetBillEntry();
         FocusChain.focusNextFrame(
-          _issueEntryWeightFocus,
-          controller: _issueEntryWeight,
+          _billEntryWeightFocus,
+          controller: _billEntryWeight,
         );
       } else {
         FocusChain.focusNextFrame(
-          _receiptEntryWeightFocus,
-          controller: _receiptEntryWeight,
+          _paymentEntryWeightFocus,
+          controller: _paymentEntryWeight,
         );
       }
     });
   }
 
-  void _receiptAddAnother(bool add) {
+  void _paymentAddAnother(bool add) {
     setState(() {
-      _receiptAddPrompt = false;
+      _paymentAddPrompt = false;
       if (add) {
-        _resetReceiptEntry();
+        _resetPaymentEntry();
         FocusChain.focusNextFrame(
-          _receiptEntryWeightFocus,
-          controller: _receiptEntryWeight,
+          _paymentEntryWeightFocus,
+          controller: _paymentEntryWeight,
         );
       } else {
         FocusChain.focus(_saveFocus);
@@ -348,16 +348,16 @@ class _TransactionScreenState extends State<TransactionScreen> {
   @override
   void dispose() {
     _partyController.dispose();
-    _receiptCashController.dispose();
-    _issueEntryWeight.dispose();
-    _issueEntryTouch.dispose();
-    _receiptEntryWeight.dispose();
-    _receiptEntryTouch.dispose();
-    _issueEntryWeightFocus.dispose();
-    _issueEntryTouchFocus.dispose();
-    _receiptEntryWeightFocus.dispose();
-    _receiptEntryTouchFocus.dispose();
-    _receiptCashFocus.dispose();
+    _paymentCashController.dispose();
+    _billEntryWeight.dispose();
+    _billEntryTouch.dispose();
+    _paymentEntryWeight.dispose();
+    _paymentEntryTouch.dispose();
+    _billEntryWeightFocus.dispose();
+    _billEntryTouchFocus.dispose();
+    _paymentEntryWeightFocus.dispose();
+    _paymentEntryTouchFocus.dispose();
+    _paymentCashFocus.dispose();
     _saveFocus.dispose();
     super.dispose();
   }
@@ -411,8 +411,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
     _partyController.text = party.name;
     _onPartyTextChanged(party.name);
     FocusChain.focusNextFrame(
-      _issueEntryWeightFocus,
-      controller: _issueEntryWeight,
+      _billEntryWeightFocus,
+      controller: _billEntryWeight,
     );
   }
 
@@ -480,13 +480,13 @@ class _TransactionScreenState extends State<TransactionScreen> {
   }
 
   void _clearPanels() {
-    _issueLines.clear();
-    _receiptLines.clear();
-    _receiptCashController.text = '0.00';
-    _issueAddPrompt = false;
-    _receiptAddPrompt = false;
-    _resetIssueEntry();
-    _resetReceiptEntry();
+    _billLines.clear();
+    _paymentMetalLines.clear();
+    _paymentCashController.text = '0.00';
+    _billAddPrompt = false;
+    _paymentAddPrompt = false;
+    _resetBillEntry();
+    _resetPaymentEntry();
   }
 
   void _clearForm() {
@@ -499,8 +499,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  bool _validateIssueRates() {
-    for (final item in _issueItems) {
+  bool _validateBillRates() {
+    for (final item in _billItems) {
       final rateName = kItemTypeToRateName[item.type];
       if ((_rates[rateName] ?? 0) <= 0) {
         _showMessage(
@@ -516,20 +516,22 @@ class _TransactionScreenState extends State<TransactionScreen> {
       _showMessage("Enter a name");
       return;
     }
-    if (_issueItems.isEmpty) {
-      _showMessage("Enter at least one issue weight");
+    if (_billItems.isEmpty) {
+      _showMessage(_isPurchase
+          ? "Enter at least one receipt weight (gold received)"
+          : "Enter at least one issue weight");
       return;
     }
-    if (!_validateIssueRates()) return;
+    if (!_validateBillRates()) return;
 
     setState(() => _saving = true);
 
     final date = DateFormat("dd-MM-yyyy").format(DateTime.now());
     final time = DateFormat("hh:mm a").format(DateTime.now());
 
-    final items = _issueItems;
+    final items = _billItems;
     final s = _settlement;
-    final paymentMode = _receiptIsCashOnly ? 'CASH' : 'GOLD';
+    final paymentMode = _paymentIsCashOnly ? 'CASH' : 'GOLD';
     final record = {
       'transactionType': _transactionType,
       'billNo': _nextBillNo,
@@ -540,7 +542,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
       'totalValue': _totalValue.toStringAsFixed(2),
       'paymentMode': paymentMode,
       'paymentAmount': _paymentAmount.toStringAsFixed(
-          _receiptIsCashOnly ? 2 : 3),
+          _paymentIsCashOnly ? 2 : 3),
       'balance': s.newGrams.toStringAsFixed(3),
       'balanceUnit': 'GRAMS',
       'date': date,
@@ -549,8 +551,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
       'oldRupees': s.oldRupees.toStringAsFixed(2),
       'newGrams': s.newGrams.toStringAsFixed(3),
       'newRupees': s.newRupees.toStringAsFixed(2),
-      'cashToGold': (_receiptCashGold > 0
-              ? _receiptCashGold
+      'cashToGold': (_paymentCashGold > 0
+              ? _paymentCashGold
               : s.cashToGoldGrams)
           .toStringAsFixed(3),
       'goldRateUsed': s.ratePerGram.toStringAsFixed(2),
@@ -1035,8 +1037,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
               onFocus: _refreshParties,
               onSelected: _selectParty,
               onFieldSubmitted: () => FocusChain.focusNextFrame(
-                _issueEntryWeightFocus,
-                controller: _issueEntryWeight,
+                _billEntryWeightFocus,
+                controller: _billEntryWeight,
               ),
               onChanged: (v) {
                 _onPartyTextChanged(v);
@@ -1053,18 +1055,18 @@ class _TransactionScreenState extends State<TransactionScreen> {
                 if (stacked) {
                   return Column(
                     children: [
-                      _issuePanel(),
+                      _leftPanel(),
                       const SizedBox(height: 10),
-                      _receiptPanel(),
+                      _rightPanel(),
                     ],
                   );
                 }
                 return Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(child: _issuePanel()),
+                    Expanded(child: _leftPanel()),
                     const SizedBox(width: 10),
-                    Expanded(child: _receiptPanel()),
+                    Expanded(child: _rightPanel()),
                   ],
                 );
               },
@@ -1399,38 +1401,44 @@ class _TransactionScreenState extends State<TransactionScreen> {
     );
   }
 
-  Widget _issuePanel() {
+  Widget _leftPanel() =>
+      _isPurchase ? _paymentPanel(title: 'ISSUE', prefix: 'I') : _billPanel(title: 'ISSUE', prefix: 'I');
+
+  Widget _rightPanel() =>
+      _isPurchase ? _billPanel(title: 'RECEIPT', prefix: 'R') : _paymentPanel(title: 'RECEIPT', prefix: 'R');
+
+  Widget _billPanel({required String title, required String prefix}) {
     return _panelShell(
-      title: 'ISSUE',
-      totalLabel: 'Issue total pure wt',
-      totalPure: _issueTotalPure,
+      title: title,
+      totalLabel: '$title total pure wt',
+      totalPure: _billTotalPure,
       rows: [
         _metalEntryRow(
-          prefix: 'I',
-          selectedType: _issueEntryType,
-          onTypeChanged: (v) => setState(() => _issueEntryType = v),
-          weight: _issueEntryWeight,
-          touch: _issueEntryTouch,
-          weightFocus: _issueEntryWeightFocus,
-          touchFocus: _issueEntryTouchFocus,
-          onTouchSubmitted: _commitIssueEntry,
-          enabled: !_issueAddPrompt,
+          prefix: prefix,
+          selectedType: _billEntryType,
+          onTypeChanged: (v) => setState(() => _billEntryType = v),
+          weight: _billEntryWeight,
+          touch: _billEntryTouch,
+          weightFocus: _billEntryWeightFocus,
+          touchFocus: _billEntryTouchFocus,
+          onTouchSubmitted: _commitBillEntry,
+          enabled: !_billAddPrompt,
         ),
         _inlineAddPrompt(
-          visible: _issueAddPrompt,
-          onAnswer: _issueAddAnother,
+          visible: _billAddPrompt,
+          onAnswer: _billAddAnother,
         ),
         _linesTable(
           showRate: false,
           rows: [
-            for (var i = 0; i < _issueLines.length; i++)
+            for (var i = 0; i < _billLines.length; i++)
               _lineDataRow(
                 index: i,
-                type: _issueLines[i].type,
-                weight: _issueLines[i].weight,
-                touch: _issueLines[i].touch,
-                pureWt: _issueLines[i].pureWt,
-                onRemove: () => setState(() => _issueLines.removeAt(i)),
+                type: _billLines[i].type,
+                weight: _billLines[i].weight,
+                touch: _billLines[i].touch,
+                pureWt: _billLines[i].pureWt,
+                onRemove: () => setState(() => _billLines.removeAt(i)),
               ),
           ],
         ),
@@ -1438,38 +1446,39 @@ class _TransactionScreenState extends State<TransactionScreen> {
     );
   }
 
-  Widget _receiptPanel() {
-    final cashGold = _receiptCashGold;
+  Widget _paymentPanel({required String title, required String prefix}) {
+    final cashGold = _paymentCashGold;
+  final cashPrefix = _isPurchase ? 'I' : 'R';
     return _panelShell(
-      title: 'RECEIPT',
-      totalLabel: 'Receipt total pure wt',
-      totalPure: _receiptTotalPure,
+      title: title,
+      totalLabel: '$title total pure wt',
+      totalPure: _paymentTotalPure,
       rows: [
         _metalEntryRow(
-          prefix: 'R',
-          selectedType: _receiptEntryType,
-          onTypeChanged: (v) => setState(() => _receiptEntryType = v),
-          weight: _receiptEntryWeight,
-          touch: _receiptEntryTouch,
-          weightFocus: _receiptEntryWeightFocus,
-          touchFocus: _receiptEntryTouchFocus,
-          onTouchSubmitted: _commitReceiptEntry,
-          enabled: !_receiptAddPrompt,
+          prefix: prefix,
+          selectedType: _paymentEntryType,
+          onTypeChanged: (v) => setState(() => _paymentEntryType = v),
+          weight: _paymentEntryWeight,
+          touch: _paymentEntryTouch,
+          weightFocus: _paymentEntryWeightFocus,
+          touchFocus: _paymentEntryTouchFocus,
+          onTouchSubmitted: _commitPaymentEntry,
+          enabled: !_paymentAddPrompt,
         ),
         _inlineAddPrompt(
-          visible: _receiptAddPrompt,
-          onAnswer: _receiptAddAnother,
+          visible: _paymentAddPrompt,
+          onAnswer: _paymentAddAnother,
         ),
         _linesTable(
           rows: [
-            for (var i = 0; i < _receiptLines.length; i++)
+            for (var i = 0; i < _paymentMetalLines.length; i++)
               _lineDataRow(
                 index: i,
-                type: _receiptLines[i].type,
-                weight: _receiptLines[i].weight,
-                touch: _receiptLines[i].touch,
-                pureWt: _receiptLines[i].pureWt,
-                onRemove: () => setState(() => _receiptLines.removeAt(i)),
+                type: _paymentMetalLines[i].type,
+                weight: _paymentMetalLines[i].weight,
+                touch: _paymentMetalLines[i].touch,
+                pureWt: _paymentMetalLines[i].pureWt,
+                onRemove: () => setState(() => _paymentMetalLines.removeAt(i)),
               ),
           ],
         ),
@@ -1499,8 +1508,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
               _compactField(
                 width: FieldSizes.cash,
                 child: TextFormField(
-                  controller: _receiptCashController,
-                  focusNode: _receiptCashFocus,
+                  controller: _paymentCashController,
+                  focusNode: _paymentCashFocus,
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
                   inputFormatters: [
@@ -1512,10 +1521,10 @@ class _TransactionScreenState extends State<TransactionScreen> {
                     labelText: '₹ Amount',
                     isDense: true,
                   ),
-                  onTap: () => _receiptCashController.selection =
+                  onTap: () => _paymentCashController.selection =
                       TextSelection(
                     baseOffset: 0,
-                    extentOffset: _receiptCashController.text.length,
+                    extentOffset: _paymentCashController.text.length,
                   ),
                   onChanged: (_) => setState(() {}),
                 ),
@@ -1524,8 +1533,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
               _compactField(
                 width: FieldSizes.weight,
                 child: InputDecorator(
-                  decoration: const InputDecoration(
-                    labelText: 'R.Weight',
+                  decoration: InputDecoration(
+                    labelText: '$cashPrefix.Weight',
                     isDense: true,
                   ),
                   child: Text(
@@ -1542,8 +1551,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
               _compactField(
                 width: FieldSizes.touch,
                 child: InputDecorator(
-                  decoration: const InputDecoration(
-                    labelText: 'R.Touch %',
+                  decoration: InputDecoration(
+                    labelText: '$cashPrefix.Touch %',
                     isDense: true,
                   ),
                   child: const Text(
@@ -1560,8 +1569,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
               _compactField(
                 width: FieldSizes.pure,
                 child: InputDecorator(
-                  decoration: const InputDecoration(
-                    labelText: 'R.Pure Wt',
+                  decoration: InputDecoration(
+                    labelText: '$cashPrefix.Pure Wt',
                     isDense: true,
                   ),
                   child: Text(
@@ -1577,14 +1586,14 @@ class _TransactionScreenState extends State<TransactionScreen> {
             ],
           ),
         ),
-        if (_goldRate <= 0 && _receiptCashAmount > 0)
+        if (_goldRate <= 0 && _paymentCashAmount > 0)
           const Text(
             'Set G.P RATE on Master to convert cash to gold.',
             style: TextStyle(fontSize: 10.5, color: Colors.black54),
           )
-        else if (_receiptCashAmount > 0)
+        else if (_paymentCashAmount > 0)
           Text(
-            'Cash ₹${_receiptCashAmount.toStringAsFixed(2)} → '
+            'Cash ₹${_paymentCashAmount.toStringAsFixed(2)} → '
             '${cashGold.toStringAsFixed(3)} g @ ₹${_goldRate.toStringAsFixed(0)}/g',
             style: const TextStyle(fontSize: 10.5, color: Colors.black54),
           ),
@@ -1593,6 +1602,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
   }
 
   Widget _balanceBar() {
+    final billLabel = _isPurchase ? 'Receipt' : 'Issue';
+    final payLabel = _isPurchase ? 'Issue' : 'Receipt';
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
@@ -1615,8 +1626,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
             ),
             const SizedBox(width: 8),
             Text(
-              'Issue ${_issueTotalPure.toStringAsFixed(3)} g  −  '
-              'Receipt ${_receiptTotalPure.toStringAsFixed(3)} g  =  '
+              '$billLabel ${_billTotalPure.toStringAsFixed(3)} g  −  '
+              '$payLabel ${_paymentTotalPure.toStringAsFixed(3)} g  =  '
               '${_balancePure.toStringAsFixed(3)} g',
               style: const TextStyle(color: Colors.white70, fontSize: 11),
             ),

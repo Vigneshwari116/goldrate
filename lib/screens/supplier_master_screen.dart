@@ -125,14 +125,8 @@ class _SupplierMasterScreenState
   final _nameController = TextEditingController();
   final _mobileController = TextEditingController();
   final _cityController = TextEditingController();
-  final _crController =
-  TextEditingController(text: '0');
-  final _drController =
-  TextEditingController(text: '0');
-  final _grossController =
-  TextEditingController(text: '0');
-  final _netController =
-  TextEditingController(text: '0');
+  final _pureWeightController = TextEditingController();
+  final _goldWeightController = TextEditingController();
   final _narrationController =
   TextEditingController();
   final _searchController =
@@ -141,10 +135,8 @@ class _SupplierMasterScreenState
   final _nameFocus = FocusNode();
   final _mobileFocus = FocusNode();
   final _cityFocus = FocusNode();
-  final _crFocus = FocusNode();
-  final _drFocus = FocusNode();
-  final _grossFocus = FocusNode();
-  final _netFocus = FocusNode();
+  final _pureWeightFocus = FocusNode();
+  final _goldWeightFocus = FocusNode();
   final _narrationFocus = FocusNode();
 
   Timer? _fieldAdvanceTimer;
@@ -179,18 +171,14 @@ class _SupplierMasterScreenState
     _nameFocus.dispose();
     _mobileFocus.dispose();
     _cityFocus.dispose();
-    _crFocus.dispose();
-    _drFocus.dispose();
-    _grossFocus.dispose();
-    _netFocus.dispose();
+    _pureWeightFocus.dispose();
+    _goldWeightFocus.dispose();
     _narrationFocus.dispose();
     _nameController.dispose();
     _mobileController.dispose();
     _cityController.dispose();
-    _crController.dispose();
-    _drController.dispose();
-    _grossController.dispose();
-    _netController.dispose();
+    _pureWeightController.dispose();
+    _goldWeightController.dispose();
     _narrationController.dispose();
     _searchController.dispose();
 
@@ -302,10 +290,8 @@ class _SupplierMasterScreenState
     final controller = switch (next) {
       _ when next == _mobileFocus => _mobileController,
       _ when next == _cityFocus => _cityController,
-      _ when next == _crFocus => _crController,
-      _ when next == _drFocus => _drController,
-      _ when next == _grossFocus => _grossController,
-      _ when next == _netFocus => _netController,
+      _ when next == _pureWeightFocus => _pureWeightController,
+      _ when next == _goldWeightFocus => _goldWeightController,
       _ when next == _narrationFocus => _narrationController,
       _ => null,
     };
@@ -320,34 +306,48 @@ class _SupplierMasterScreenState
     });
   }
 
+  void _prefillOpeningBalance(_PartySummary summary) {
+    if (summary.grams.abs() > 0.0005) {
+      _pureWeightController.text = summary.grams.toStringAsFixed(3);
+    } else {
+      _pureWeightController.clear();
+    }
+
+    double goldGross = 0;
+    for (final e in summary.entries) {
+      final gross =
+          double.tryParse((e['gross'] ?? '0').toString()) ?? 0;
+      if (gross.abs() > goldGross.abs()) goldGross = gross;
+    }
+    if (goldGross.abs() > 0.0005) {
+      _goldWeightController.text = goldGross.toStringAsFixed(3);
+    } else {
+      _goldWeightController.clear();
+    }
+  }
+
   void _prefillFromExistingName(String name) {
     for (final summary in _buildSummaries(suppliers)) {
       if (summary.name == name) {
         _mobileController.text = summary.mobile;
         _cityController.text = summary.city;
+        _prefillOpeningBalance(summary);
         FocusChain.focusNextFrame(_mobileFocus, controller: _mobileController);
         return;
       }
     }
+    _pureWeightController.clear();
+    _goldWeightController.clear();
     FocusChain.focusNextFrame(_mobileFocus, controller: _mobileController);
   }
-
-  // ============================================================
-  // CLEAR FORM
-  // ============================================================
 
   void _clearForm() {
     _nameController.clear();
     _mobileController.clear();
     _cityController.clear();
-
-    _crController.text = '0';
-    _drController.text = '0';
-    _grossController.text = '0';
-    _netController.text = '0';
-
+    _pureWeightController.clear();
+    _goldWeightController.clear();
     _narrationController.clear();
-
     _formKey.currentState?.reset();
   }
 
@@ -419,14 +419,26 @@ class _SupplierMasterScreenState
       // CREATE DATABASE RECORD
       // --------------------------------------------------------
 
+      final pureText = _pureWeightController.text.trim();
+      final goldText = _goldWeightController.text.trim();
+      final pureVal =
+          pureText.isEmpty ? 0.0 : double.tryParse(pureText) ?? 0.0;
+      final goldVal =
+          goldText.isEmpty ? 0.0 : double.tryParse(goldText) ?? 0.0;
+
+      final cr = pureVal < 0 ? pureVal.abs().toStringAsFixed(3) : '0';
+      final dr = pureVal > 0 ? pureVal.toStringAsFixed(3) : '0';
+      final gross = goldVal > 0 ? goldVal.toStringAsFixed(3) : '0';
+      final net = '0';
+
       final record = <String, dynamic>{
         'name': _nameController.text.trim(),
         'mobile': _mobileController.text.trim(),
         'city': _cityController.text.trim(),
-        'cr': _crController.text.trim(),
-        'dr': _drController.text.trim(),
-        'gross': _grossController.text.trim(),
-        'net': _netController.text.trim(),
+        'cr': cr,
+        'dr': dr,
+        'gross': gross,
+        'net': net,
         'narration':
         _narrationController.text.trim(),
         'balanceUnit': 'GRAMS',
@@ -1165,10 +1177,10 @@ class _SupplierMasterScreenState
               focusNode: _cityFocus,
               onChanged: (value) {
                 if (value.trim().length >= 2) {
-                  _scheduleAdvance(_crFocus);
+                  _scheduleAdvance(_pureWeightFocus);
                 }
               },
-              onFieldSubmitted: () => _focusNext(_crFocus),
+              onFieldSubmitted: () => _focusNext(_pureWeightFocus),
             ),
 
             Row(
@@ -1177,9 +1189,9 @@ class _SupplierMasterScreenState
               children: [
                 Expanded(
                   child: _field(
-                    'CR (Credit)',
-                    _crController,
-                    focusNode: _crFocus,
+                    'Pure Weight (g)',
+                    _pureWeightController,
+                    focusNode: _pureWeightFocus,
                     keyboardType:
                     const TextInputType
                         .numberWithOptions(
@@ -1190,10 +1202,10 @@ class _SupplierMasterScreenState
                         _validateNumber(v),
                     onChanged: (value) {
                       if (_numberRegex.hasMatch(value.trim())) {
-                        _scheduleAdvance(_drFocus);
+                        _scheduleAdvance(_goldWeightFocus);
                       }
                     },
-                    onFieldSubmitted: () => _focusNext(_drFocus),
+                    onFieldSubmitted: () => _focusNext(_goldWeightFocus),
                   ),
                 ),
                 const SizedBox(
@@ -1201,61 +1213,9 @@ class _SupplierMasterScreenState
                 ),
                 Expanded(
                   child: _field(
-                    'DR (Debit)',
-                    _drController,
-                    focusNode: _drFocus,
-                    keyboardType:
-                    const TextInputType
-                        .numberWithOptions(
-                      decimal: true,
-                    ),
-                    validator:
-                        (v) =>
-                        _validateNumber(v),
-                    onChanged: (value) {
-                      if (_numberRegex.hasMatch(value.trim())) {
-                        _scheduleAdvance(_grossFocus);
-                      }
-                    },
-                    onFieldSubmitted: () => _focusNext(_grossFocus),
-                  ),
-                ),
-              ],
-            ),
-
-            Row(
-              crossAxisAlignment:
-              CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: _field(
-                    'GROSS',
-                    _grossController,
-                    focusNode: _grossFocus,
-                    keyboardType:
-                    const TextInputType
-                        .numberWithOptions(
-                      decimal: true,
-                    ),
-                    validator:
-                        (v) =>
-                        _validateNumber(v),
-                    onChanged: (value) {
-                      if (_numberRegex.hasMatch(value.trim())) {
-                        _scheduleAdvance(_netFocus);
-                      }
-                    },
-                    onFieldSubmitted: () => _focusNext(_netFocus),
-                  ),
-                ),
-                const SizedBox(
-                  width: 10,
-                ),
-                Expanded(
-                  child: _field(
-                    'NET',
-                    _netController,
-                    focusNode: _netFocus,
+                    'Gold Weight (g)',
+                    _goldWeightController,
+                    focusNode: _goldWeightFocus,
                     keyboardType:
                     const TextInputType
                         .numberWithOptions(
