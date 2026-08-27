@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
@@ -9,6 +7,7 @@ import '../database/database_helper.dart';
 import '../logic/gold_ledger.dart';
 import '../pdf/pdf_kit.dart';
 import '../theme/app_theme.dart';
+import '../util/platform_detect.dart';
 
 enum _ReportTab {
   dailySales,
@@ -698,7 +697,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   totalText: totalText,
                 ),
                 child: Text(
-                  Platform.isAndroid || Platform.isIOS
+                  isMobileNative
                       ? 'SHARE PDF — THEN PRINT FROM WHATSAPP / FILES'
                       : 'SAVE PDF AND OPEN — THEN PRINT FROM THE PDF WINDOW',
                 ),
@@ -754,7 +753,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           'Share this PDF first. Print it from WhatsApp, Files, or any printer app.',
     );
     if (!mounted) return;
-    if (!(Platform.isAndroid || Platform.isIOS)) {
+    if (!isMobileNative) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('PDF saved: ${file.path}')),
       );
