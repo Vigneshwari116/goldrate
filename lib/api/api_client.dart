@@ -355,4 +355,10 @@ class ApiClient {
     final res = await http.post(_uri('/admin/reset'), headers: _jsonHeaders);
     await _decodeObject(res);
   }
+
+  static Future<void> clearSalesPurchaseAndRecords() async {
+    final res =
+        await http.post(_uri('/admin/clear-transactions'), headers: _jsonHeaders);
+    await _decodeObject(res);
+  }
 }

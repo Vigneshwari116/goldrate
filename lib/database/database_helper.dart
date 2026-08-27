@@ -849,6 +849,18 @@ class DatabaseHelper {
     }
   }
 
+  /// Deletes all sales bills, purchase bills, and receipt/payment records.
+  /// Keeps customers, suppliers, rates, and opening weight.
+  Future<void> clearSalesPurchaseAndRecords() async {
+    if (ApiConfig.useRemoteApi) {
+      await ApiClient.clearSalesPurchaseAndRecords();
+      return;
+    }
+    final db = await database;
+    await db.delete('transactions');
+    await db.delete('vouchers');
+  }
+
   /// Wipes all business data (masters, bills, rates, opening weight) but
   /// keeps the login user so the app is not locked out.
   Future<void> resetAllBusinessData() async {

@@ -82,6 +82,10 @@ class _AppShellState extends State<AppShell> {
     SessionPrefs.setLastPage(AppPage.home);
   }
 
+  Future<void> _resetSessionAndForms() async {
+    resetSession();
+  }
+
   void _go(AppPage page) {
     setState(() => _page = page);
     SessionPrefs.setLastPage(page);
@@ -507,7 +511,7 @@ class _ResetPage extends StatelessWidget {
     final shell = context.findAncestorStateOfType<_AppShellState>();
     return ResetScreen(
       embedded: true,
-      onSessionReset: shell?.resetSession,
+      onSessionReset: shell?._resetSessionAndForms,
     );
   }
 }

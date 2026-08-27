@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
 
-/// Clears in-progress form/session state without deleting saved database records.
+/// Clears sales, purchase, and voucher records plus in-memory form state.
 class ResetScreen extends StatefulWidget {
   const ResetScreen({
     super.key,
@@ -11,7 +12,7 @@ class ResetScreen extends StatefulWidget {
   });
 
   final bool embedded;
-  final VoidCallback? onSessionReset;
+  final Future<void> Function()? onSessionReset;
 
   @override
   State<ResetScreen> createState() => _ResetScreenState();
@@ -37,10 +38,11 @@ class _ResetScreenState extends State<ResetScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Reset session?'),
+        title: const Text('Reset sales, purchase & records?'),
         content: const Text(
-          'Clear all open forms and in-progress entries?\n\n'
-          'Saved customers, suppliers, bills, and history are kept.',
+          'This deletes all saved Sales bills, Purchase bills, and '
+          'Receipt/Payment records.\n\n'
+          'Customers, suppliers, rates, and opening weight are kept.',
         ),
         actions: [
           TextButton(
@@ -60,17 +62,26 @@ class _ResetScreenState extends State<ResetScreen> {
     if (confirmed != true || !mounted) return;
 
     setState(() => _resetting = true);
-    widget.onSessionReset?.call();
-    _codeController.clear();
-    if (!mounted) return;
-    setState(() => _resetting = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Session cleared. All forms reset — saved records were not deleted.',
+    try {
+      await DatabaseHelper.instance.clearSalesPurchaseAndRecords();
+      await widget.onSessionReset?.call();
+      _codeController.clear();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Sales, purchase, and records cleared. Forms reset to empty.',
+          ),
         ),
-      ),
-    );
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Reset failed: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _resetting = false);
+    }
   }
 
   @override
@@ -81,9 +92,9 @@ class _ResetScreenState extends State<ResetScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Text(
-            'Clears unsaved form entries and returns every screen to a '
-            'fresh empty state. Customer, supplier, and bill history in '
-            'the database are not deleted.',
+            'Deletes all Sales bills, Purchase bills, and Receipt/Payment '
+            'records, then clears every open form. Customer and supplier '
+            'masters, rates, and opening weight are not deleted.',
             style: TextStyle(color: Colors.black54),
           ),
           const SizedBox(height: 20),

@@ -51,9 +51,40 @@ sudo -u postgres psql -d jewellery_db -f schema.sql
 
 Or paste the SQL from `schema.sql` manually in psql.
 
-## Step 5 — Upload API code
+## Step 5 — Deploy API (choose one)
 
-From your PC (in the project folder):
+### Option A — Docker (recommended, no Node.js install needed)
+
+Install Docker on VPS (one time):
+
+```bash
+curl -fsSL https://get.docker.com | sh
+```
+
+Upload code from your PC:
+
+```bash
+scp -r server root@187.127.180.135:/root/jewellery-api
+```
+
+On VPS, edit `docker-compose.yml` and set your real password in `DATABASE_URL`, then:
+
+```bash
+cd /root/jewellery-api
+docker compose up -d --build
+docker compose logs -f
+```
+
+To restart after changes:
+
+```bash
+docker compose down
+docker compose up -d --build
+```
+
+### Option B — Node.js directly (without Docker)
+
+Upload `server` folder from your PC:
 
 ```bash
 scp -r server root@187.127.180.135:/root/jewellery-api

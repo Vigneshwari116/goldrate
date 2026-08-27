@@ -329,6 +329,16 @@ app.get('/api/stock/current', async (_req, res) => {
   res.json(stock);
 });
 
+app.post('/api/admin/clear-transactions', async (_req, res) => {
+  try {
+    await pool.query('DELETE FROM transactions');
+    await pool.query('DELETE FROM vouchers');
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 app.post('/api/admin/reset', async (_req, res) => {
   try {
     await pool.query('DELETE FROM transactions');
