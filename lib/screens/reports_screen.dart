@@ -13,8 +13,8 @@ import '../theme/app_theme.dart';
 enum _ReportTab {
   dailySales,
   billWise,
-  goldAudit,
-  purchaseAudit,
+  salesReport,
+  purchaseReport,
   customerLedger,
   supplierLedger,
 }
@@ -29,7 +29,7 @@ class ReportsScreen extends StatefulWidget {
 }
 
 class _ReportsScreenState extends State<ReportsScreen> {
-  _ReportTab _tab = _ReportTab.goldAudit;
+  _ReportTab _tab = _ReportTab.salesReport;
   DateTime _from = DateTime(
       DateTime.now().year, DateTime.now().month, DateTime.now().day);
   DateTime _to = DateTime(
@@ -248,8 +248,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
           children: [
             tab(_ReportTab.dailySales, 'DAILY SALES REPORT'),
             tab(_ReportTab.billWise, 'BILL WISE ABSTRACT'),
-            tab(_ReportTab.goldAudit, 'GOLD SALES AUDIT'),
-            tab(_ReportTab.purchaseAudit, 'PURCHASE AUDIT'),
+            tab(_ReportTab.salesReport, 'SALES'),
+            tab(_ReportTab.purchaseReport, 'PURCHASE'),
             tab(_ReportTab.customerLedger, 'CUSTOMER LEDGER'),
             tab(_ReportTab.supplierLedger, 'SUPPLIER LEDGER'),
           ],
@@ -327,10 +327,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
         return _dailyCard();
       case _ReportTab.billWise:
         return _billAbstract(salesOnly: false);
-      case _ReportTab.goldAudit:
-        return _billAbstract(salesOnly: true, title: 'GOLD SALES AUDIT LEDGER MATRIX');
-      case _ReportTab.purchaseAudit:
-        return _billAbstract(salesOnly: false, purchasesOnly: true, title: 'PURCHASE AUDIT LEDGER MATRIX');
+      case _ReportTab.salesReport:
+        return _billAbstract(salesOnly: true, title: 'SALES REPORT');
+      case _ReportTab.purchaseReport:
+        return _billAbstract(
+          salesOnly: false,
+          purchasesOnly: true,
+          title: 'PURCHASE REPORT',
+        );
       case _ReportTab.customerLedger:
         return _partyLedgerRecords(customer: true);
       case _ReportTab.supplierLedger:

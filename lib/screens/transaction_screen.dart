@@ -106,9 +106,9 @@ class _TransactionScreenState extends State<TransactionScreen> {
   String _billEntryType = _itemTypes.first;
   String _paymentEntryType = _itemTypes.first;
   final _billEntryWeight = TextEditingController(text: '0.000');
-  final _billEntryTouch = TextEditingController(text: '100.00');
+  final _billEntryTouch = TextEditingController(text: '0.00');
   final _paymentEntryWeight = TextEditingController(text: '0.000');
-  final _paymentEntryTouch = TextEditingController(text: '100.00');
+  final _paymentEntryTouch = TextEditingController(text: '0.00');
 
   final _billEntryWeightFocus = FocusNode();
   final _billEntryTouchFocus = FocusNode();
@@ -218,13 +218,13 @@ class _TransactionScreenState extends State<TransactionScreen> {
   void _resetBillEntry({bool resetType = true}) {
     if (resetType) _billEntryType = _itemTypes.first;
     _billEntryWeight.text = '0.000';
-    _billEntryTouch.text = '100.00';
+    _billEntryTouch.text = '0.00';
   }
 
   void _resetPaymentEntry({bool resetType = true}) {
     if (resetType) _paymentEntryType = _itemTypes.first;
     _paymentEntryWeight.text = '0.000';
-    _paymentEntryTouch.text = '100.00';
+    _paymentEntryTouch.text = '0.00';
   }
 
   void _onEntryWeightChanged(
@@ -413,69 +413,6 @@ class _TransactionScreenState extends State<TransactionScreen> {
     FocusChain.focusNextFrame(
       _billEntryWeightFocus,
       controller: _billEntryWeight,
-    );
-  }
-
-  Widget _ledgerChip(String label, String value) {
-    return Expanded(
-      child: Container(
-        margin: const EdgeInsets.only(right: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        decoration: BoxDecoration(
-          color: AppColors.headerBand,
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label,
-                style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.mutedBlue)),
-            const SizedBox(height: 4),
-            Text(value,
-                style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.navy)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _partyLedgerRow() {
-    final o = _partyOutstanding;
-    if (_partyController.text.trim().isEmpty) return const SizedBox.shrink();
-    if (o == null) {
-      return const Padding(
-        padding: EdgeInsets.only(top: 8),
-        child: Text('Looking up CR / DR / gold…',
-            style: TextStyle(fontSize: 12, color: AppColors.mutedBlue)),
-      );
-    }
-    return Padding(
-      padding: const EdgeInsets.only(top: 10),
-      child: Row(
-        children: [
-          _ledgerChip(
-            'CR',
-            '₹${(o['crRupees'] ?? 0).toStringAsFixed(2)}  ·  '
-            '${(o['crGrams'] ?? 0).toStringAsFixed(3)} g',
-          ),
-          _ledgerChip(
-            'DR',
-            '₹${(o['drRupees'] ?? 0).toStringAsFixed(2)}  ·  '
-            '${(o['drGrams'] ?? 0).toStringAsFixed(3)} g',
-          ),
-          _ledgerChip(
-            'GOLD',
-            '${(o['grams'] ?? 0).toStringAsFixed(3)} g',
-          ),
-        ],
-      ),
     );
   }
 
@@ -1046,7 +983,6 @@ class _TransactionScreenState extends State<TransactionScreen> {
               },
             ),
           ),
-          _partyLedgerRow(),
           if (_showPanels) ...[
             const SizedBox(height: 12),
             LayoutBuilder(
@@ -1302,14 +1238,17 @@ class _TransactionScreenState extends State<TransactionScreen> {
   }) {
     final pure = _entryPure(weight, touch);
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         _compactField(
           width: FieldSizes.typeDropdown + 8,
           child: DropdownButtonFormField<String>(
             value: selectedType,
-            decoration: InputDecoration(
+            isDense: true,
+            decoration: const InputDecoration(
               labelText: 'Type',
               isDense: true,
+              contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 8),
             ),
             items: _itemTypes
                 .map((t) => DropdownMenuItem(value: t, child: Text(t)))
@@ -1341,6 +1280,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
             decoration: InputDecoration(
               labelText: '$prefix.Weight',
               isDense: true,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
             ),
             onTap: () => weight.selection = TextSelection(
               baseOffset: 0,
@@ -1368,8 +1309,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
             decoration: InputDecoration(
               labelText: '$prefix.Touch %',
               isDense: true,
-              helperText: 'Enter to add',
-              helperStyle: const TextStyle(fontSize: 9),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
             ),
             onTap: () => touch.selection = TextSelection(
               baseOffset: 0,
@@ -1386,6 +1327,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
             decoration: InputDecoration(
               labelText: '$prefix.Pure Wt',
               isDense: true,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
             ),
             child: Text(
               pure.toStringAsFixed(3),
@@ -1446,9 +1389,69 @@ class _TransactionScreenState extends State<TransactionScreen> {
     );
   }
 
+  Widget _cashRow() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          _compactField(
+            width: FieldSizes.typeDropdown,
+            child: InputDecorator(
+              decoration: const InputDecoration(
+                isDense: true,
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+              ),
+              child: const Text(
+                'CASH',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          _compactField(
+            width: FieldSizes.cash,
+            child: TextFormField(
+              controller: _paymentCashController,
+              focusNode: _paymentCashFocus,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+              ],
+              textAlign: TextAlign.right,
+              style: const TextStyle(fontSize: 13),
+              decoration: const InputDecoration(
+                labelText: '₹ Amount',
+                isDense: true,
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+              ),
+              onTap: () => _paymentCashController.selection = TextSelection(
+                baseOffset: 0,
+                extentOffset: _paymentCashController.text.length,
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+          ),
+          if (_paymentCashAmount > 0 && _goldRate > 0) ...[
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '→ ${_paymentCashGold.toStringAsFixed(3)} g @ ₹${_goldRate.toStringAsFixed(0)}/g',
+                style: const TextStyle(fontSize: 10.5, color: Colors.black54),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _paymentPanel({required String title, required String prefix}) {
-    final cashGold = _paymentCashGold;
-  final cashPrefix = _isPurchase ? 'I' : 'R';
     return _panelShell(
       title: title,
       totalLabel: '$title total pure wt',
@@ -1483,155 +1486,33 @@ class _TransactionScreenState extends State<TransactionScreen> {
           ],
         ),
         const SizedBox(height: 8),
-        Padding(
-          padding: const EdgeInsets.only(bottom: 6),
-          child: Row(
-            children: [
-              _compactField(
-                width: FieldSizes.typeDropdown,
-                child: InputDecorator(
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    contentPadding:
-                        EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-                  ),
-                  child: const Text(
-                    'CASH',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              _compactField(
-                width: FieldSizes.cash,
-                child: TextFormField(
-                  controller: _paymentCashController,
-                  focusNode: _paymentCashFocus,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-                  ],
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(fontSize: 13),
-                  decoration: const InputDecoration(
-                    labelText: '₹ Amount',
-                    isDense: true,
-                  ),
-                  onTap: () => _paymentCashController.selection =
-                      TextSelection(
-                    baseOffset: 0,
-                    extentOffset: _paymentCashController.text.length,
-                  ),
-                  onChanged: (_) => setState(() {}),
-                ),
-              ),
-              const SizedBox(width: 6),
-              _compactField(
-                width: FieldSizes.weight,
-                child: InputDecorator(
-                  decoration: InputDecoration(
-                    labelText: '$cashPrefix.Weight',
-                    isDense: true,
-                  ),
-                  child: Text(
-                    cashGold.toStringAsFixed(3),
-                    textAlign: TextAlign.right,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              _compactField(
-                width: FieldSizes.touch,
-                child: InputDecorator(
-                  decoration: InputDecoration(
-                    labelText: '$cashPrefix.Touch %',
-                    isDense: true,
-                  ),
-                  child: const Text(
-                    '100.00',
-                    textAlign: TextAlign.right,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              _compactField(
-                width: FieldSizes.pure,
-                child: InputDecorator(
-                  decoration: InputDecoration(
-                    labelText: '$cashPrefix.Pure Wt',
-                    isDense: true,
-                  ),
-                  child: Text(
-                    cashGold.toStringAsFixed(3),
-                    textAlign: TextAlign.right,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
+        _cashRow(),
         if (_goldRate <= 0 && _paymentCashAmount > 0)
           const Text(
             'Set G.P RATE on Master to convert cash to gold.',
             style: TextStyle(fontSize: 10.5, color: Colors.black54),
-          )
-        else if (_paymentCashAmount > 0)
-          Text(
-            'Cash ₹${_paymentCashAmount.toStringAsFixed(2)} → '
-            '${cashGold.toStringAsFixed(3)} g @ ₹${_goldRate.toStringAsFixed(0)}/g',
-            style: const TextStyle(fontSize: 10.5, color: Colors.black54),
           ),
       ],
     );
   }
 
   Widget _balanceBar() {
-    final billLabel = _isPurchase ? 'Receipt' : 'Issue';
-    final payLabel = _isPurchase ? 'Issue' : 'Receipt';
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: AppColors.navy,
+          color: AppColors.headerBand,
           borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: AppColors.border),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'BALANCE',
-              style: TextStyle(
-                color: Colors.white70,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.4,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              '$billLabel ${_billTotalPure.toStringAsFixed(3)} g  −  '
-              '$payLabel ${_paymentTotalPure.toStringAsFixed(3)} g  =  '
-              '${_balancePure.toStringAsFixed(3)} g',
-              style: const TextStyle(color: Colors.white70, fontSize: 11),
-            ),
-          ],
+        child: Text(
+          'BALANCE  ${_balancePure.toStringAsFixed(3)} g',
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+            color: AppColors.navy,
+          ),
         ),
       ),
     );
