@@ -65,30 +65,18 @@ class _TransactionItem {
       );
 }
 
-class _MetalPanelRow {
+class _PanelLine {
   final String type;
-  final TextEditingController weight;
-  final TextEditingController touch;
+  final double weight;
+  final double touch;
 
-  _MetalPanelRow(this.type)
-      : weight = TextEditingController(text: '0.000'),
-        touch = TextEditingController(text: '100.00');
+  const _PanelLine({
+    required this.type,
+    required this.weight,
+    required this.touch,
+  });
 
-  double get pureWt {
-    final w = double.tryParse(weight.text.trim()) ?? 0;
-    final t = double.tryParse(touch.text.trim()) ?? 0;
-    return w * t / 100;
-  }
-
-  void clear() {
-    weight.text = '0.000';
-    touch.text = '100.00';
-  }
-
-  void dispose() {
-    weight.dispose();
-    touch.dispose();
-  }
+  double get pureWt => weight * touch / 100;
 }
 
 class TransactionScreen extends StatefulWidget {
@@ -107,19 +95,30 @@ class TransactionScreen extends StatefulWidget {
 
 class _TransactionScreenState extends State<TransactionScreen> {
   static const _itemTypes = ['GWT', 'FWT', 'KWT', 'SWT'];
+  static final RegExp _numberRegex = RegExp(r'^\d+(\.\d+)?$');
 
   final _partyController = TextEditingController();
   final _receiptCashController = TextEditingController(text: '0.00');
-  final _issueWeightFocus = List.generate(4, (_) => FocusNode());
-  final _receiptWeightFocus = List.generate(4, (_) => FocusNode());
-  final _receiptCashFocus = FocusNode();
 
-  late final Map<String, _MetalPanelRow> _issueRows = {
-    for (final t in _itemTypes) t: _MetalPanelRow(t),
-  };
-  late final Map<String, _MetalPanelRow> _receiptRows = {
-    for (final t in _itemTypes) t: _MetalPanelRow(t),
-  };
+  final List<_TransactionItem> _issueLines = [];
+  final List<_PanelLine> _receiptLines = [];
+
+  String _issueEntryType = _itemTypes.first;
+  String _receiptEntryType = _itemTypes.first;
+  final _issueEntryWeight = TextEditingController(text: '0.000');
+  final _issueEntryTouch = TextEditingController(text: '100.00');
+  final _receiptEntryWeight = TextEditingController(text: '0.000');
+  final _receiptEntryTouch = TextEditingController(text: '100.00');
+
+  final _issueEntryWeightFocus = FocusNode();
+  final _issueEntryTouchFocus = FocusNode();
+  final _receiptEntryWeightFocus = FocusNode();
+  final _receiptEntryTouchFocus = FocusNode();
+  final _receiptCashFocus = FocusNode();
+  final _saveFocus = FocusNode();
+
+  bool _issueAddPrompt = false;
+  bool _receiptAddPrompt = false;
 
   int _nextBillNo = 1;
   bool _loading = true;
@@ -145,28 +144,11 @@ class _TransactionScreenState extends State<TransactionScreen> {
       _partyController.text.trim().isNotEmpty || _hasIssueOrReceiptData;
 
   bool get _hasIssueOrReceiptData =>
-      _issueRows.values.any((r) => (double.tryParse(r.weight.text) ?? 0) > 0) ||
-      _receiptRows.values.any((r) => (double.tryParse(r.weight.text) ?? 0) > 0) ||
+      _issueLines.isNotEmpty ||
+      _receiptLines.isNotEmpty ||
       (double.tryParse(_receiptCashController.text.trim()) ?? 0) > 0;
 
-  List<_TransactionItem> get _issueItems {
-    final items = <_TransactionItem>[];
-    for (final type in _itemTypes) {
-      final row = _issueRows[type]!;
-      final weight = double.tryParse(row.weight.text.trim()) ?? 0;
-      if (weight <= 0) continue;
-      final touch = double.tryParse(row.touch.text.trim()) ?? 0;
-      final rateName = kItemTypeToRateName[type];
-      final rate = _rates[rateName] ?? 0;
-      items.add(_TransactionItem(
-        type: type,
-        weight: weight,
-        touch: touch,
-        rate: rate,
-      ));
-    }
-    return items;
-  }
+  List<_TransactionItem> get _issueItems => _issueLines;
 
   double get _totalWt =>
       _issueItems.fold(0, (sum, item) => sum + item.weight);
@@ -178,10 +160,10 @@ class _TransactionScreenState extends State<TransactionScreen> {
       _issueItems.fold(0, (sum, item) => sum + item.value);
 
   double get _issueTotalPure =>
-      _issueRows.values.fold(0, (sum, row) => sum + row.pureWt);
+      _issueLines.fold(0, (sum, item) => sum + item.pureWt);
 
   double get _receiptMetalPure =>
-      _receiptRows.values.fold(0, (sum, row) => sum + row.pureWt);
+      _receiptLines.fold(0, (sum, line) => sum + line.pureWt);
 
   double get _receiptCashAmount =>
       double.tryParse(_receiptCashController.text.trim()) ?? 0;
@@ -220,10 +202,6 @@ class _TransactionScreenState extends State<TransactionScreen> {
     super.initState();
     _load();
     _partyController.addListener(() => _onPartyTextChanged());
-    for (final row in {..._issueRows.values, ..._receiptRows.values}) {
-      row.weight.addListener(_onPanelChanged);
-      row.touch.addListener(_onPanelChanged);
-    }
     _receiptCashController.addListener(_onPanelChanged);
   }
 
@@ -231,20 +209,156 @@ class _TransactionScreenState extends State<TransactionScreen> {
     if (mounted) setState(() {});
   }
 
+  double _entryPure(TextEditingController weight, TextEditingController touch) {
+    final w = double.tryParse(weight.text.trim()) ?? 0;
+    final t = double.tryParse(touch.text.trim()) ?? 0;
+    return w * t / 100;
+  }
+
+  void _resetIssueEntry({bool resetType = true}) {
+    if (resetType) _issueEntryType = _itemTypes.first;
+    _issueEntryWeight.text = '0.000';
+    _issueEntryTouch.text = '100.00';
+  }
+
+  void _resetReceiptEntry({bool resetType = true}) {
+    if (resetType) _receiptEntryType = _itemTypes.first;
+    _receiptEntryWeight.text = '0.000';
+    _receiptEntryTouch.text = '100.00';
+  }
+
+  void _onEntryWeightChanged(
+    TextEditingController weight,
+    FocusNode touchFocus,
+    TextEditingController touch,
+  ) {
+    setState(() {});
+    final trimmed = weight.text.trim();
+    final w = double.tryParse(trimmed);
+    if (w == null || w <= 0) return;
+    if (!RegExp(r'^\d+\.\d{3}$').hasMatch(trimmed)) return;
+    FocusChain.focusNextFrame(touchFocus, controller: touch);
+  }
+
+  _TransactionItem? _validatedIssueEntry() {
+    final weight = double.tryParse(_issueEntryWeight.text.trim());
+    final touch = double.tryParse(_issueEntryTouch.text.trim());
+    if (weight == null ||
+        !_numberRegex.hasMatch(_issueEntryWeight.text.trim()) ||
+        weight <= 0) {
+      return null;
+    }
+    if (touch == null || !_numberRegex.hasMatch(_issueEntryTouch.text.trim())) {
+      return null;
+    }
+    final rateName = kItemTypeToRateName[_issueEntryType];
+    final rate = _rates[rateName] ?? 0;
+    return _TransactionItem(
+      type: _issueEntryType,
+      weight: weight,
+      touch: touch,
+      rate: rate,
+    );
+  }
+
+  _PanelLine? _validatedReceiptEntry() {
+    final weight = double.tryParse(_receiptEntryWeight.text.trim());
+    final touch = double.tryParse(_receiptEntryTouch.text.trim());
+    if (weight == null ||
+        !_numberRegex.hasMatch(_receiptEntryWeight.text.trim()) ||
+        weight <= 0) {
+      return null;
+    }
+    if (touch == null ||
+        !_numberRegex.hasMatch(_receiptEntryTouch.text.trim())) {
+      return null;
+    }
+    return _PanelLine(
+      type: _receiptEntryType,
+      weight: weight,
+      touch: touch,
+    );
+  }
+
+  void _commitIssueEntry() {
+    if (_issueAddPrompt) return;
+    final item = _validatedIssueEntry();
+    if (item == null) {
+      _showMessage('Enter weight and touch before continuing');
+      return;
+    }
+    final rateName = kItemTypeToRateName[item.type];
+    if ((_rates[rateName] ?? 0) <= 0) {
+      _showMessage(
+          "$rateName isn't set yet — update it on the Master screen first");
+      return;
+    }
+    setState(() {
+      _issueLines.add(item);
+      _issueAddPrompt = true;
+    });
+  }
+
+  void _commitReceiptEntry() {
+    if (_receiptAddPrompt) return;
+    final line = _validatedReceiptEntry();
+    if (line == null) {
+      _showMessage('Enter weight and touch before continuing');
+      return;
+    }
+    setState(() {
+      _receiptLines.add(line);
+      _receiptAddPrompt = true;
+    });
+  }
+
+  void _issueAddAnother(bool add) {
+    setState(() {
+      _issueAddPrompt = false;
+      if (add) {
+        _resetIssueEntry();
+        FocusChain.focusNextFrame(
+          _issueEntryWeightFocus,
+          controller: _issueEntryWeight,
+        );
+      } else {
+        FocusChain.focusNextFrame(
+          _receiptEntryWeightFocus,
+          controller: _receiptEntryWeight,
+        );
+      }
+    });
+  }
+
+  void _receiptAddAnother(bool add) {
+    setState(() {
+      _receiptAddPrompt = false;
+      if (add) {
+        _resetReceiptEntry();
+        FocusChain.focusNextFrame(
+          _receiptEntryWeightFocus,
+          controller: _receiptEntryWeight,
+        );
+      } else {
+        FocusChain.focus(_saveFocus);
+      }
+    });
+  }
+
   @override
   void dispose() {
     _partyController.dispose();
     _receiptCashController.dispose();
-    for (final node in _issueWeightFocus) {
-      node.dispose();
-    }
-    for (final node in _receiptWeightFocus) {
-      node.dispose();
-    }
+    _issueEntryWeight.dispose();
+    _issueEntryTouch.dispose();
+    _receiptEntryWeight.dispose();
+    _receiptEntryTouch.dispose();
+    _issueEntryWeightFocus.dispose();
+    _issueEntryTouchFocus.dispose();
+    _receiptEntryWeightFocus.dispose();
+    _receiptEntryTouchFocus.dispose();
     _receiptCashFocus.dispose();
-    for (final row in {..._issueRows.values, ..._receiptRows.values}) {
-      row.dispose();
-    }
+    _saveFocus.dispose();
     super.dispose();
   }
 
@@ -297,8 +411,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
     _partyController.text = party.name;
     _onPartyTextChanged(party.name);
     FocusChain.focusNextFrame(
-      _issueWeightFocus.first,
-      controller: _issueRows[_itemTypes.first]!.weight,
+      _issueEntryWeightFocus,
+      controller: _issueEntryWeight,
     );
   }
 
@@ -366,13 +480,13 @@ class _TransactionScreenState extends State<TransactionScreen> {
   }
 
   void _clearPanels() {
-    for (final row in _issueRows.values) {
-      row.clear();
-    }
-    for (final row in _receiptRows.values) {
-      row.clear();
-    }
+    _issueLines.clear();
+    _receiptLines.clear();
     _receiptCashController.text = '0.00';
+    _issueAddPrompt = false;
+    _receiptAddPrompt = false;
+    _resetIssueEntry();
+    _resetReceiptEntry();
   }
 
   void _clearForm() {
@@ -921,8 +1035,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
               onFocus: _refreshParties,
               onSelected: _selectParty,
               onFieldSubmitted: () => FocusChain.focusNextFrame(
-                _issueWeightFocus.first,
-                controller: _issueRows[_itemTypes.first]!.weight,
+                _issueEntryWeightFocus,
+                controller: _issueEntryWeight,
               ),
               onChanged: (v) {
                 _onPartyTextChanged(v);
@@ -960,9 +1074,10 @@ class _TransactionScreenState extends State<TransactionScreen> {
           ],
           const SizedBox(height: 10),
           SizedBox(
-            width: double.infinity,
+            width: 220,
             height: 42,
             child: ElevatedButton(
+              focusNode: _saveFocus,
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.navy,
                 foregroundColor: Colors.white,
@@ -1045,101 +1160,242 @@ class _TransactionScreenState extends State<TransactionScreen> {
     );
   }
 
-  Widget _metalPanelRow({
-    required String prefix,
-    required String type,
-    required _MetalPanelRow row,
-    FocusNode? weightFocus,
-    bool readOnlyTouch = false,
+  Widget _inlineAddPrompt({
+    required bool visible,
+    required void Function(bool add) onAnswer,
   }) {
+    if (!visible) return const SizedBox.shrink();
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.only(top: 6, bottom: 4),
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 4,
+        children: [
+          const Text(
+            'Add another weight?',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+          ),
+          TextButton(
+            onPressed: () => onAnswer(true),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: const Size(0, 30),
+            ),
+            child: const Text('Yes'),
+          ),
+          TextButton(
+            onPressed: () => onAnswer(false),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: const Size(0, 30),
+            ),
+            child: const Text('No'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _linesTable({
+    required List<Widget> rows,
+    bool showRate = false,
+  }) {
+    if (rows.isEmpty) return const SizedBox.shrink();
+    const headerStyle = TextStyle(
+      fontSize: 11,
+      fontWeight: FontWeight.w700,
+      color: AppColors.navy,
+    );
+
+    Widget head(String text, {int flex = 2, TextAlign align = TextAlign.left}) {
+      return Expanded(
+        flex: flex,
+        child: Text(text, style: headerStyle, textAlign: align),
+      );
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(top: 6),
+      decoration: BoxDecoration(
+        border: Border.all(color: AppColors.border),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Column(
+        children: [
+          Container(
+            color: AppColors.tableHeader,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Row(
+              children: [
+                head('TYPE', flex: 2),
+                head('WEIGHT', flex: 2, align: TextAlign.right),
+                head('TOUCH %', flex: 2, align: TextAlign.right),
+                head('PURE WT', flex: 2, align: TextAlign.right),
+                if (showRate) head('RATE', flex: 2, align: TextAlign.right),
+                const SizedBox(width: 24),
+              ],
+            ),
+          ),
+          ...rows,
+        ],
+      ),
+    );
+  }
+
+  Widget _lineDataRow({
+    required String type,
+    required double weight,
+    required double touch,
+    required double pureWt,
+    double? rate,
+    required VoidCallback onRemove,
+    int index = 0,
+  }) {
+    const cellStyle = TextStyle(fontSize: 12);
+    Widget cell(String text, {int flex = 2, TextAlign align = TextAlign.left}) {
+      return Expanded(
+        flex: flex,
+        child: Text(text, style: cellStyle, textAlign: align),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: index.isEven ? Colors.white : AppColors.headerBand,
+        border: const Border(top: BorderSide(color: AppColors.border)),
+      ),
       child: Row(
         children: [
-          _compactField(
-            width: FieldSizes.typeDropdown,
-            child: InputDecorator(
-              decoration: const InputDecoration(
-                isDense: true,
-                contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-              ),
-              child: Text(
-                type,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 6),
-          _compactField(
-            width: FieldSizes.weight,
-            child: TextFormField(
-              controller: row.weight,
-              focusNode: weightFocus,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-              ],
-              textAlign: TextAlign.right,
-              style: const TextStyle(fontSize: 13),
-              decoration: InputDecoration(
-                labelText: '$prefix.Weight',
-                isDense: true,
-              ),
-              onTap: () => row.weight.selection = TextSelection(
-                baseOffset: 0,
-                extentOffset: row.weight.text.length,
-              ),
-            ),
-          ),
-          const SizedBox(width: 6),
-          _compactField(
-            width: FieldSizes.touch,
-            child: TextFormField(
-              controller: row.touch,
-              readOnly: readOnlyTouch,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-              ],
-              textAlign: TextAlign.right,
-              style: const TextStyle(fontSize: 13),
-              decoration: InputDecoration(
-                labelText: '$prefix.Touch %',
-                isDense: true,
-              ),
-              onTap: readOnlyTouch
-                  ? null
-                  : () => row.touch.selection = TextSelection(
-                        baseOffset: 0,
-                        extentOffset: row.touch.text.length,
-                      ),
-            ),
-          ),
-          const SizedBox(width: 6),
-          _compactField(
-            width: FieldSizes.pure,
-            child: InputDecorator(
-              decoration: InputDecoration(
-                labelText: '$prefix.Pure Wt',
-                isDense: true,
-              ),
-              child: Text(
-                row.pureWt.toStringAsFixed(3),
-                textAlign: TextAlign.right,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+          cell(type, flex: 2),
+          cell(weight.toStringAsFixed(3), flex: 2, align: TextAlign.right),
+          cell(touch.toStringAsFixed(2), flex: 2, align: TextAlign.right),
+          cell(pureWt.toStringAsFixed(3), flex: 2, align: TextAlign.right),
+          if (rate != null)
+            cell(rate.toStringAsFixed(0), flex: 2, align: TextAlign.right),
+          SizedBox(
+            width: 24,
+            child: IconButton(
+              icon: const Icon(Icons.close, size: 15, color: Colors.redAccent),
+              onPressed: onRemove,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _metalEntryRow({
+    required String prefix,
+    required String selectedType,
+    required ValueChanged<String> onTypeChanged,
+    required TextEditingController weight,
+    required TextEditingController touch,
+    required FocusNode weightFocus,
+    required FocusNode touchFocus,
+    required VoidCallback onTouchSubmitted,
+    bool enabled = true,
+  }) {
+    final pure = _entryPure(weight, touch);
+    return Row(
+      children: [
+        _compactField(
+          width: FieldSizes.typeDropdown + 8,
+          child: DropdownButtonFormField<String>(
+            value: selectedType,
+            decoration: InputDecoration(
+              labelText: 'Type',
+              isDense: true,
+            ),
+            items: _itemTypes
+                .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                .toList(),
+            onChanged: enabled
+                ? (v) {
+                    if (v == null) return;
+                    onTypeChanged(v);
+                    FocusChain.focusNextFrame(weightFocus, controller: weight);
+                  }
+                : null,
+          ),
+        ),
+        const SizedBox(width: 6),
+        _compactField(
+          width: FieldSizes.weight,
+          child: TextFormField(
+            controller: weight,
+            focusNode: weightFocus,
+            enabled: enabled,
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+            ],
+            textAlign: TextAlign.right,
+            style: const TextStyle(fontSize: 13),
+            textInputAction: TextInputAction.next,
+            decoration: InputDecoration(
+              labelText: '$prefix.Weight',
+              isDense: true,
+            ),
+            onTap: () => weight.selection = TextSelection(
+              baseOffset: 0,
+              extentOffset: weight.text.length,
+            ),
+            onChanged: (_) =>
+                _onEntryWeightChanged(weight, touchFocus, touch),
+          ),
+        ),
+        const SizedBox(width: 6),
+        _compactField(
+          width: FieldSizes.touch,
+          child: TextFormField(
+            controller: touch,
+            focusNode: touchFocus,
+            enabled: enabled,
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+            ],
+            textAlign: TextAlign.right,
+            style: const TextStyle(fontSize: 13),
+            textInputAction: TextInputAction.done,
+            decoration: InputDecoration(
+              labelText: '$prefix.Touch %',
+              isDense: true,
+              helperText: 'Enter to add',
+              helperStyle: const TextStyle(fontSize: 9),
+            ),
+            onTap: () => touch.selection = TextSelection(
+              baseOffset: 0,
+              extentOffset: touch.text.length,
+            ),
+            onFieldSubmitted: (_) => onTouchSubmitted(),
+            onChanged: (_) => setState(() {}),
+          ),
+        ),
+        const SizedBox(width: 6),
+        _compactField(
+          width: FieldSizes.pure,
+          child: InputDecorator(
+            decoration: InputDecoration(
+              labelText: '$prefix.Pure Wt',
+              isDense: true,
+            ),
+            child: Text(
+              pure.toStringAsFixed(3),
+              textAlign: TextAlign.right,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1149,13 +1405,35 @@ class _TransactionScreenState extends State<TransactionScreen> {
       totalLabel: 'Issue total pure wt',
       totalPure: _issueTotalPure,
       rows: [
-        for (var i = 0; i < _itemTypes.length; i++)
-          _metalPanelRow(
-            prefix: 'I',
-            type: _itemTypes[i],
-            row: _issueRows[_itemTypes[i]]!,
-            weightFocus: _issueWeightFocus[i],
-          ),
+        _metalEntryRow(
+          prefix: 'I',
+          selectedType: _issueEntryType,
+          onTypeChanged: (v) => setState(() => _issueEntryType = v),
+          weight: _issueEntryWeight,
+          touch: _issueEntryTouch,
+          weightFocus: _issueEntryWeightFocus,
+          touchFocus: _issueEntryTouchFocus,
+          onTouchSubmitted: _commitIssueEntry,
+          enabled: !_issueAddPrompt,
+        ),
+        _inlineAddPrompt(
+          visible: _issueAddPrompt,
+          onAnswer: _issueAddAnother,
+        ),
+        _linesTable(
+          showRate: false,
+          rows: [
+            for (var i = 0; i < _issueLines.length; i++)
+              _lineDataRow(
+                index: i,
+                type: _issueLines[i].type,
+                weight: _issueLines[i].weight,
+                touch: _issueLines[i].touch,
+                pureWt: _issueLines[i].pureWt,
+                onRemove: () => setState(() => _issueLines.removeAt(i)),
+              ),
+          ],
+        ),
       ],
     );
   }
@@ -1167,13 +1445,35 @@ class _TransactionScreenState extends State<TransactionScreen> {
       totalLabel: 'Receipt total pure wt',
       totalPure: _receiptTotalPure,
       rows: [
-        for (var i = 0; i < _itemTypes.length; i++)
-          _metalPanelRow(
-            prefix: 'R',
-            type: _itemTypes[i],
-            row: _receiptRows[_itemTypes[i]]!,
-            weightFocus: _receiptWeightFocus[i],
-          ),
+        _metalEntryRow(
+          prefix: 'R',
+          selectedType: _receiptEntryType,
+          onTypeChanged: (v) => setState(() => _receiptEntryType = v),
+          weight: _receiptEntryWeight,
+          touch: _receiptEntryTouch,
+          weightFocus: _receiptEntryWeightFocus,
+          touchFocus: _receiptEntryTouchFocus,
+          onTouchSubmitted: _commitReceiptEntry,
+          enabled: !_receiptAddPrompt,
+        ),
+        _inlineAddPrompt(
+          visible: _receiptAddPrompt,
+          onAnswer: _receiptAddAnother,
+        ),
+        _linesTable(
+          rows: [
+            for (var i = 0; i < _receiptLines.length; i++)
+              _lineDataRow(
+                index: i,
+                type: _receiptLines[i].type,
+                weight: _receiptLines[i].weight,
+                touch: _receiptLines[i].touch,
+                pureWt: _receiptLines[i].pureWt,
+                onRemove: () => setState(() => _receiptLines.removeAt(i)),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
         Padding(
           padding: const EdgeInsets.only(bottom: 6),
           child: Row(
@@ -1217,6 +1517,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
                     baseOffset: 0,
                     extentOffset: _receiptCashController.text.length,
                   ),
+                  onChanged: (_) => setState(() {}),
                 ),
               ),
               const SizedBox(width: 6),
@@ -1292,40 +1593,35 @@ class _TransactionScreenState extends State<TransactionScreen> {
   }
 
   Widget _balanceBar() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppColors.navy,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Row(
-        children: [
-          const Text(
-            'BALANCE',
-            style: TextStyle(
-              color: Colors.white70,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.4,
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: AppColors.navy,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'BALANCE',
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.4,
+              ),
             ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
+            const SizedBox(width: 8),
+            Text(
               'Issue ${_issueTotalPure.toStringAsFixed(3)} g  −  '
-              'Receipt ${_receiptTotalPure.toStringAsFixed(3)} g',
+              'Receipt ${_receiptTotalPure.toStringAsFixed(3)} g  =  '
+              '${_balancePure.toStringAsFixed(3)} g',
               style: const TextStyle(color: Colors.white70, fontSize: 11),
             ),
-          ),
-          Text(
-            '${_balancePure.toStringAsFixed(3)} g',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1376,12 +1672,12 @@ class _TransactionScreenState extends State<TransactionScreen> {
                     dense: true,
                     onTap: () => _showBillDetails(row),
                     leading: CircleAvatar(
-                      radius: 16,
+                      radius: 14,
                       backgroundColor: AppColors.headerBand,
                       child: Text(
                         "${row['billNo']}",
                         style: const TextStyle(
-                            fontSize: 11, color: AppColors.navy),
+                            fontSize: 10, color: AppColors.navy),
                       ),
                     ),
                     title: Text(
@@ -1398,20 +1694,12 @@ class _TransactionScreenState extends State<TransactionScreen> {
                           fontSize: 10.5, color: Colors.black54),
                       overflow: TextOverflow.ellipsis,
                     ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.share,
-                              color: AppColors.mutedBlue, size: 18),
-                          onPressed: () => _shareEstimate(row),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete,
-                              color: Colors.redAccent, size: 18),
-                          onPressed: () => _confirmDelete(row['id'] as int),
-                        ),
-                      ],
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete,
+                          color: Colors.redAccent, size: 16),
+                      onPressed: () => _confirmDelete(row['id'] as int),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
                     ),
                   ),
                 );
@@ -1427,7 +1715,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
     final content = _loading
         ? const Center(child: CircularProgressIndicator())
         : WorkbenchLayout(
-            secondaryWidth: 300,
+            secondaryWidth: 240,
             primary: _buildFormCard(),
             secondary: _buildHistorySection(),
           );
