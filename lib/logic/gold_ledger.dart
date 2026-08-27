@@ -219,6 +219,153 @@ class DailyTotals {
   }
 }
 
+/// One transaction or voucher row in a customer/supplier ledger report.
+class PartyLedgerRecord {
+  final String date;
+  final String billRef;
+  final String partyName;
+  final String type;
+  final double weightGrams;
+  final double amountRupees;
+
+  const PartyLedgerRecord({
+    required this.date,
+    required this.billRef,
+    required this.partyName,
+    required this.type,
+    required this.weightGrams,
+    required this.amountRupees,
+  });
+
+  List<String> toTableCells() => [
+        date,
+        billRef,
+        partyName,
+        type,
+        '${weightGrams.toStringAsFixed(3)} g',
+        '₹${amountRupees.toStringAsFixed(2)}',
+      ];
+}
+
+bool inAppDateRange({
+  required String? dateRaw,
+  required DateTime? from,
+  required DateTime? to,
+  required bool allHistory,
+}) {
+  if (allHistory) return true;
+  final d = parseAppDate(dateRaw);
+  if (d == null || from == null || to == null) return false;
+  final day = DateTime(d.year, d.month, d.day);
+  final fromDay = DateTime(from.year, from.month, from.day);
+  final toDay = DateTime(to.year, to.month, to.day);
+  return !day.isBefore(fromDay) && !day.isAfter(toDay);
+}
+
+double voucherAmountRupees(Map<String, dynamic> row, double goldRate) {
+  final mode = (row['paymentMode'] ?? '').toString().toUpperCase();
+  final amt = double.tryParse((row['amount'] ?? '').toString()) ?? 0;
+  if (mode == 'GOLD') return GoldLedger.goldToCash(amt, goldRate);
+  return amt;
+}
+
+/// Individual sales/purchase bills and receipt/payment vouchers for a ledger.
+List<PartyLedgerRecord> buildPartyLedgerRecords({
+  required bool customer,
+  required List<Map<String, dynamic>> transactions,
+  required List<Map<String, dynamic>> vouchers,
+  DateTime? from,
+  DateTime? to,
+  bool allHistory = false,
+  String nameQuery = '',
+  double goldRate = 0,
+}) {
+  final records = <PartyLedgerRecord>[];
+  final q = nameQuery.trim().toLowerCase();
+
+  bool nameMatches(String name) {
+    if (q.isEmpty) return true;
+    return name.toLowerCase().contains(q);
+  }
+
+  for (final bill in transactions) {
+    final type = (bill['transactionType'] ?? '').toString();
+    final name = (bill['partyName'] ?? '').toString();
+    if (!nameMatches(name)) continue;
+    if (!inAppDateRange(
+      dateRaw: bill['date']?.toString(),
+      from: from,
+      to: to,
+      allHistory: allHistory,
+    )) {
+      continue;
+    }
+    final grams =
+        double.tryParse((bill['totalPureWt'] ?? '').toString()) ?? 0;
+    final amount =
+        double.tryParse((bill['totalValue'] ?? '').toString()) ?? 0;
+    if (customer && type == 'SALES') {
+      records.add(PartyLedgerRecord(
+        date: bill['date']?.toString() ?? '',
+        billRef: 'SAL-${bill['billNo']}',
+        partyName: name,
+        type: 'SALES',
+        weightGrams: grams,
+        amountRupees: amount,
+      ));
+    } else if (!customer && type == 'PURCHASE') {
+      records.add(PartyLedgerRecord(
+        date: bill['date']?.toString() ?? '',
+        billRef: 'PUR-${bill['billNo']}',
+        partyName: name,
+        type: 'PURCHASE',
+        weightGrams: grams,
+        amountRupees: amount,
+      ));
+    }
+  }
+
+  for (final v in vouchers) {
+    final name = (v['partyName'] ?? '').toString();
+    if (!nameMatches(name)) continue;
+    final flag = v['isCustomer'];
+    final isCust = flag == 1 || flag == true || flag == '1'
+        ? true
+        : flag == 0 || flag == false || flag == '0'
+            ? false
+            : (v['voucherType'] ?? '').toString() == 'RECEIPT';
+    if (customer != isCust) continue;
+    if (!inAppDateRange(
+      dateRaw: v['date']?.toString(),
+      from: from,
+      to: to,
+      allHistory: allHistory,
+    )) {
+      continue;
+    }
+    final vType = (v['voucherType'] ?? '').toString();
+    records.add(PartyLedgerRecord(
+      date: v['date']?.toString() ?? '',
+      billRef: '$vType-${v['voucherNo']}',
+      partyName: name,
+      type: vType,
+      weightGrams: goldPaidOnRow(v),
+      amountRupees: voucherAmountRupees(v, goldRate),
+    ));
+  }
+
+  records.sort((a, b) {
+    final ad = parseAppDate(a.date);
+    final bd = parseAppDate(b.date);
+    if (ad == null && bd == null) return a.billRef.compareTo(b.billRef);
+    if (ad == null) return 1;
+    if (bd == null) return -1;
+    final cmp = ad.compareTo(bd);
+    return cmp != 0 ? cmp : a.billRef.compareTo(b.billRef);
+  });
+  return records;
+}
+
 /// One row of a customer/supplier name-wise gold statement (grams).
 class PartyNameWiseRow {
   final String name;

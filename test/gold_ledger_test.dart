@@ -65,6 +65,57 @@ void main() {
     expect(result.newGrams, closeTo(-8.25, 0.0001));
   });
 
+  test('party ledger records list bills and vouchers with name filter', () {
+    final rows = buildPartyLedgerRecords(
+      customer: true,
+      transactions: [
+        {
+          'transactionType': 'SALES',
+          'partyName': 'Ravi Kumar',
+          'billNo': 1,
+          'totalPureWt': '10.000',
+          'totalValue': '151000',
+          'date': '01-08-2026',
+        },
+        {
+          'transactionType': 'SALES',
+          'partyName': 'Meena',
+          'billNo': 2,
+          'totalPureWt': '5.000',
+          'totalValue': '75500',
+          'date': '02-08-2026',
+        },
+      ],
+      vouchers: [
+        {
+          'partyName': 'Ravi Kumar',
+          'isCustomer': 1,
+          'voucherType': 'RECEIPT',
+          'voucherNo': 1,
+          'paymentMode': 'CASH',
+          'amount': '30200',
+          'cashToGold': '2.000',
+          'date': '03-08-2026',
+        },
+      ],
+      allHistory: true,
+      nameQuery: 'ravi',
+      goldRate: 15100,
+    );
+    expect(rows.length, 2);
+    expect(rows.first.partyName, 'Ravi Kumar');
+    expect(rows.first.type, 'SALES');
+    expect(rows.last.type, 'RECEIPT');
+    expect(
+      rows.fold<double>(0, (s, r) => s + r.weightGrams),
+      closeTo(12, 0.0001),
+    );
+    expect(
+      rows.fold<double>(0, (s, r) => s + r.amountRupees),
+      closeTo(181200, 0.01),
+    );
+  });
+
   test('customer name-wise uses sales as debit and payments as credit', () {
     final rows = buildPartyNameWise(
       customer: true,
