@@ -10,6 +10,7 @@ import '../logic/gold_ledger.dart';
 import '../pdf/pdf_kit.dart';
 import '../util/focus_chain.dart';
 import '../theme/app_theme.dart';
+import '../theme/field_sizes.dart';
 import '../theme/responsive.dart';
 import '../widgets/material_tile_card.dart';
 import '../widgets/party_autocomplete_field.dart';
@@ -329,10 +330,12 @@ class _VoucherScreenState extends State<VoucherScreen> {
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(
+              SizedBox(
+                width: FieldSizes.typeDropdown + 24,
                 child: DropdownButtonFormField<String>(
                   value: _mode,
-                  decoration: const InputDecoration(labelText: 'Payment mode'),
+                  decoration: const InputDecoration(labelText: 'Mode'),
+                  isDense: true,
                   items: _modes
                       .map((m) => DropdownMenuItem(value: m, child: Text(m)))
                       .toList(),
@@ -340,7 +343,8 @@ class _VoucherScreenState extends State<VoucherScreen> {
                 ),
               ),
               const SizedBox(width: 8),
-              Expanded(
+              SizedBox(
+                width: FieldSizes.cash + 16,
                 child: TextField(
                   controller: _amountController,
                   focusNode: _amountFocus,

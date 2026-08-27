@@ -68,6 +68,7 @@ class WorkbenchLayout extends StatelessWidget {
   final double gap;
   final bool equalSplit;
   final bool disableScroll;
+  final double? secondaryWidth;
 
   const WorkbenchLayout({
     super.key,
@@ -77,6 +78,7 @@ class WorkbenchLayout extends StatelessWidget {
     this.gap = 16,
     this.equalSplit = false,
     this.disableScroll = false,
+    this.secondaryWidth,
   });
 
   @override
@@ -124,14 +126,21 @@ class WorkbenchLayout extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SizedBox(
-            width: primaryWidth,
-            child: SingleChildScrollView(child: primary),
+          Expanded(
+            child: disableScroll
+                ? primary
+                : SingleChildScrollView(child: primary),
           ),
           SizedBox(width: gap),
-          Expanded(
-            child: SingleChildScrollView(child: secondary),
-          ),
+          if (secondaryWidth != null)
+            SizedBox(
+              width: secondaryWidth,
+              child: SingleChildScrollView(child: secondary),
+            )
+          else
+            Expanded(
+              child: SingleChildScrollView(child: secondary),
+            ),
         ],
       ),
     );

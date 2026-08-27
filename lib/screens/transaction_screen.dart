@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -18,6 +17,7 @@ import '../models/party_suggestion.dart';
 import '../widgets/party_search_field.dart';
 import '../util/focus_chain.dart';
 import '../theme/app_theme.dart';
+import '../theme/field_sizes.dart';
 import '../theme/responsive.dart';
 import '../widgets/material_tile_card.dart';
 
@@ -65,6 +65,32 @@ class _TransactionItem {
       );
 }
 
+class _MetalPanelRow {
+  final String type;
+  final TextEditingController weight;
+  final TextEditingController touch;
+
+  _MetalPanelRow(this.type)
+      : weight = TextEditingController(text: '0.000'),
+        touch = TextEditingController(text: '100.00');
+
+  double get pureWt {
+    final w = double.tryParse(weight.text.trim()) ?? 0;
+    final t = double.tryParse(touch.text.trim()) ?? 0;
+    return w * t / 100;
+  }
+
+  void clear() {
+    weight.text = '0.000';
+    touch.text = '100.00';
+  }
+
+  void dispose() {
+    weight.dispose();
+    touch.dispose();
+  }
+}
+
 class TransactionScreen extends StatefulWidget {
   final TransactionKind kind;
   final bool embedded;
@@ -81,31 +107,24 @@ class TransactionScreen extends StatefulWidget {
 
 class _TransactionScreenState extends State<TransactionScreen> {
   static const _itemTypes = ['GWT', 'FWT', 'KWT', 'SWT'];
-  static const _paymentModes = ['CASH', 'UPI', 'GOLD'];
-
-  static final RegExp _numberRegex = RegExp(r'^\d+(\.\d+)?$');
 
   final _partyController = TextEditingController();
-  final _weightController = TextEditingController(text: '0.000');
-  final _touchController = TextEditingController(text: '0.00');
-  final _paymentAmountController = TextEditingController(text: '0.00');
-  final _weightFocus = FocusNode();
-  final _touchFocus = FocusNode();
-  final _typeFocus = FocusNode();
-  final _paymentFocus = FocusNode();
+  final _receiptCashController = TextEditingController(text: '0.00');
+  final _issueWeightFocus = List.generate(4, (_) => FocusNode());
+  final _receiptWeightFocus = List.generate(4, (_) => FocusNode());
+  final _receiptCashFocus = FocusNode();
 
-  bool _promptingAddLine = false;
-  bool _sharingPdf = false;
-  Timer? _partyAdvanceTimer;
-
-  String _selectedItemType = _itemTypes.first;
-  String _selectedPaymentMode = _paymentModes.first;
-
-  final List<_TransactionItem> _items = [];
+  late final Map<String, _MetalPanelRow> _issueRows = {
+    for (final t in _itemTypes) t: _MetalPanelRow(t),
+  };
+  late final Map<String, _MetalPanelRow> _receiptRows = {
+    for (final t in _itemTypes) t: _MetalPanelRow(t),
+  };
 
   int _nextBillNo = 1;
   bool _loading = true;
   bool _saving = false;
+  bool _sharingPdf = false;
 
   List<Map<String, dynamic>> _history = [];
   Map<String, double> _rates = {};
@@ -122,25 +141,66 @@ class _TransactionScreenState extends State<TransactionScreen> {
 
   String get _title => _isPurchase ? 'PURCHASE' : 'SALES';
 
-  bool get _showItemsTable =>
-      _partyController.text.trim().isNotEmpty || _items.isNotEmpty;
+  bool get _showPanels =>
+      _partyController.text.trim().isNotEmpty || _hasIssueOrReceiptData;
+
+  bool get _hasIssueOrReceiptData =>
+      _issueRows.values.any((r) => (double.tryParse(r.weight.text) ?? 0) > 0) ||
+      _receiptRows.values.any((r) => (double.tryParse(r.weight.text) ?? 0) > 0) ||
+      (double.tryParse(_receiptCashController.text.trim()) ?? 0) > 0;
+
+  List<_TransactionItem> get _issueItems {
+    final items = <_TransactionItem>[];
+    for (final type in _itemTypes) {
+      final row = _issueRows[type]!;
+      final weight = double.tryParse(row.weight.text.trim()) ?? 0;
+      if (weight <= 0) continue;
+      final touch = double.tryParse(row.touch.text.trim()) ?? 0;
+      final rateName = kItemTypeToRateName[type];
+      final rate = _rates[rateName] ?? 0;
+      items.add(_TransactionItem(
+        type: type,
+        weight: weight,
+        touch: touch,
+        rate: rate,
+      ));
+    }
+    return items;
+  }
 
   double get _totalWt =>
-      _items.fold(0, (sum, item) => sum + item.weight);
+      _issueItems.fold(0, (sum, item) => sum + item.weight);
 
   double get _totalPureWt =>
-      _items.fold(0, (sum, item) => sum + item.pureWt);
+      _issueItems.fold(0, (sum, item) => sum + item.pureWt);
 
   double get _totalValue =>
-      _items.fold(0, (sum, item) => sum + item.value);
+      _issueItems.fold(0, (sum, item) => sum + item.value);
 
-  double get _paymentAmount =>
-      double.tryParse(_paymentAmountController.text.trim()) ?? 0;
+  double get _issueTotalPure =>
+      _issueRows.values.fold(0, (sum, row) => sum + row.pureWt);
 
-  /// A GOLD settlement is measured against the pure weight (grams);
-  /// CASH/UPI is measured against the rupee value — mixing the two
-  /// units is how balances quietly go wrong on paper books too.
-  bool get _isGoldSettlement => _selectedPaymentMode == 'GOLD';
+  double get _receiptMetalPure =>
+      _receiptRows.values.fold(0, (sum, row) => sum + row.pureWt);
+
+  double get _receiptCashAmount =>
+      double.tryParse(_receiptCashController.text.trim()) ?? 0;
+
+  double get _goldRate => GoldLedger.goldRate(_rates);
+
+  double get _receiptCashGold =>
+      GoldLedger.cashToGold(_receiptCashAmount, _goldRate);
+
+  double get _receiptTotalPure => _receiptMetalPure + _receiptCashGold;
+
+  double get _balancePure => _issueTotalPure - _receiptTotalPure;
+
+  bool get _receiptIsCashOnly =>
+      _receiptCashAmount > 0 && _receiptMetalPure <= 0;
+
+  double get _paymentAmount => _receiptIsCashOnly
+      ? _receiptCashAmount
+      : _receiptTotalPure;
 
   SettlementResult get _settlement {
     return settleLedger(
@@ -148,9 +208,9 @@ class _TransactionScreenState extends State<TransactionScreen> {
       oldRupees: _partyOutstanding?['rupees'] ?? 0,
       billGrams: _totalPureWt,
       billRupees: _totalValue,
-      paymentMode: _selectedPaymentMode,
+      paymentMode: _receiptIsCashOnly ? 'CASH' : 'GOLD',
       paymentAmount: _paymentAmount,
-      ratePerGram: GoldLedger.goldRate(_rates),
+      ratePerGram: _goldRate,
       billSign: _isPurchase ? -1 : 1,
     );
   }
@@ -160,49 +220,31 @@ class _TransactionScreenState extends State<TransactionScreen> {
     super.initState();
     _load();
     _partyController.addListener(() => _onPartyTextChanged());
+    for (final row in {..._issueRows.values, ..._receiptRows.values}) {
+      row.weight.addListener(_onPanelChanged);
+      row.touch.addListener(_onPanelChanged);
+    }
+    _receiptCashController.addListener(_onPanelChanged);
   }
 
-  bool _isTouchComplete(String trimmed) {
-    if (trimmed.isEmpty) return false;
-    if (trimmed == '0' || trimmed == '0.0' || trimmed == '0.00') return false;
-    final touch = double.tryParse(trimmed);
-    if (touch == null) return false;
-    if (RegExp(r'^\d+\.\d{2}$').hasMatch(trimmed)) return true;
-    if (RegExp(r'^\d+\.\d$').hasMatch(trimmed)) return true;
-    if (RegExp(r'^\d+$').hasMatch(trimmed) && touch > 0) return true;
-    return false;
-  }
-
-  void _schedulePartyAdvance() {
-    _partyAdvanceTimer?.cancel();
-    final captured = _partyController.text.trim();
-    if (captured.length < 2) return;
-    _partyAdvanceTimer = Timer(const Duration(milliseconds: 450), () {
-      if (!mounted || _promptingAddLine) return;
-      if (_partyController.text.trim() != captured) return;
-      FocusChain.focusNextFrame(_weightFocus, controller: _weightController);
-    });
-  }
-
-  void _onWeightChanged(String value) {
-    final trimmed = value.trim();
-    final weight = double.tryParse(trimmed);
-    if (weight == null || weight <= 0) return;
-    if (!RegExp(r'^\d+\.\d{3}$').hasMatch(trimmed)) return;
-    FocusChain.focusNextFrame(_touchFocus, controller: _touchController);
+  void _onPanelChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
-    _partyAdvanceTimer?.cancel();
     _partyController.dispose();
-    _weightController.dispose();
-    _touchController.dispose();
-    _paymentAmountController.dispose();
-    _weightFocus.dispose();
-    _touchFocus.dispose();
-    _typeFocus.dispose();
-    _paymentFocus.dispose();
+    _receiptCashController.dispose();
+    for (final node in _issueWeightFocus) {
+      node.dispose();
+    }
+    for (final node in _receiptWeightFocus) {
+      node.dispose();
+    }
+    _receiptCashFocus.dispose();
+    for (final row in {..._issueRows.values, ..._receiptRows.values}) {
+      row.dispose();
+    }
     super.dispose();
   }
 
@@ -254,20 +296,10 @@ class _TransactionScreenState extends State<TransactionScreen> {
   void _selectParty(PartySuggestion party) {
     _partyController.text = party.name;
     _onPartyTextChanged(party.name);
-    FocusChain.focusNextFrame(_weightFocus, controller: _weightController);
-  }
-
-  void _focusTouchField() {
-    FocusChain.focusNextFrame(_touchFocus, controller: _touchController);
-  }
-
-  void _tryPromptFromTouch() {
-    if (_promptingAddLine) return;
-    if (!_isTouchComplete(_touchController.text.trim())) {
-      _showMessage('Enter a valid touch %, then press Enter');
-      return;
-    }
-    _promptAddAnotherLine();
+    FocusChain.focusNextFrame(
+      _issueWeightFocus.first,
+      controller: _issueRows[_itemTypes.first]!.weight,
+    );
   }
 
   Widget _ledgerChip(String label, String value) {
@@ -333,124 +365,36 @@ class _TransactionScreenState extends State<TransactionScreen> {
     );
   }
 
-  void _resetWeightFields({bool focusWeight = true}) {
-    _weightController.text = '0.000';
-    _touchController.text = '0.00';
-    if (focusWeight) {
-      FocusChain.focus(_weightFocus, controller: _weightController);
+  void _clearPanels() {
+    for (final row in _issueRows.values) {
+      row.clear();
     }
+    for (final row in _receiptRows.values) {
+      row.clear();
+    }
+    _receiptCashController.text = '0.00';
   }
 
-  _TransactionItem? _validatedLine() {
-    final weight = double.tryParse(_weightController.text.trim());
-    final touch = double.tryParse(_touchController.text.trim());
-
-    if (weight == null ||
-        !_numberRegex.hasMatch(_weightController.text.trim()) ||
-        weight <= 0) {
-      return null;
-    }
-    if (touch == null || !_numberRegex.hasMatch(_touchController.text.trim())) {
-      return null;
-    }
-
-    final rateName = kItemTypeToRateName[_selectedItemType];
-    final rate = _rates[rateName];
-    if (rate == null) return null;
-
-    return _TransactionItem(
-      type: _selectedItemType,
-      weight: weight,
-      touch: touch,
-      rate: rate,
-    );
-  }
-
-  bool _commitCurrentLine() {
-    final line = _validatedLine();
-    if (line == null) {
-      final rateName = kItemTypeToRateName[_selectedItemType];
-      if (_rates[rateName] == null) {
-        _showMessage(
-            "$rateName isn't set yet — update it on the Master screen first");
-      } else {
-        _showMessage('Enter weight and touch before continuing');
-      }
-      return false;
-    }
-
-    setState(() => _items.add(line));
-    return true;
-  }
-
-  Future<void> _promptAddAnotherLine() async {
-    if (_promptingAddLine) return;
-    final line = _validatedLine();
-    if (line == null) return;
-
-    _promptingAddLine = true;
-    _partyAdvanceTimer?.cancel();
-
-    if (!_commitCurrentLine()) {
-      _promptingAddLine = false;
-      return;
-    }
-
-    _resetWeightFields(focusWeight: false);
-
-    final addAnother = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Add this weight line?'),
-        content: Text(
-          '${line.type}  ${line.weight.toStringAsFixed(3)} g  ·  '
-          'touch ${line.touch.toStringAsFixed(2)}%\n'
-          'Pure ${line.pureWt.toStringAsFixed(3)} g  ·  '
-          'Rate ₹${line.rate.toStringAsFixed(0)}  ·  '
-          'Value ₹${line.value.toStringAsFixed(2)}\n\n'
-          'Add another weight line?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('NO'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('YES'),
-          ),
-        ],
-      ),
-    );
-    _promptingAddLine = false;
-    if (!mounted) return;
-
-    if (addAnother == true) {
-      FocusChain.focusNextFrame(_weightFocus, controller: _weightController);
-    } else {
-      FocusChain.focusNextFrame(_paymentFocus, controller: _paymentAmountController);
-    }
-  }
-
-  void _removeItem(int index) {
-    setState(() => _items.removeAt(index));
+  void _clearForm() {
+    _partyController.clear();
+    _clearPanels();
+    setState(() => _partyOutstanding = null);
   }
 
   void _showMessage(String message) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  void _clearForm() {
-    _partyController.clear();
-    _resetWeightFields();
-    _paymentAmountController.text = '0.00';
-    setState(() {
-      _items.clear();
-      _selectedItemType = _itemTypes.first;
-      _selectedPaymentMode = _paymentModes.first;
-      _partyOutstanding = null;
-    });
+  bool _validateIssueRates() {
+    for (final item in _issueItems) {
+      final rateName = kItemTypeToRateName[item.type];
+      if ((_rates[rateName] ?? 0) <= 0) {
+        _showMessage(
+            "$rateName isn't set yet — update it on the Master screen first");
+        return false;
+      }
+    }
+    return true;
   }
 
   Future<void> _saveTransaction() async {
@@ -458,27 +402,31 @@ class _TransactionScreenState extends State<TransactionScreen> {
       _showMessage("Enter a name");
       return;
     }
-    if (_items.isEmpty) {
-      _showMessage("Add at least one weight line");
+    if (_issueItems.isEmpty) {
+      _showMessage("Enter at least one issue weight");
       return;
     }
+    if (!_validateIssueRates()) return;
 
     setState(() => _saving = true);
 
     final date = DateFormat("dd-MM-yyyy").format(DateTime.now());
     final time = DateFormat("hh:mm a").format(DateTime.now());
 
+    final items = _issueItems;
     final s = _settlement;
+    final paymentMode = _receiptIsCashOnly ? 'CASH' : 'GOLD';
     final record = {
       'transactionType': _transactionType,
       'billNo': _nextBillNo,
       'partyName': _partyController.text.trim(),
-      'items': jsonEncode(_items.map((i) => i.toJson()).toList()),
+      'items': jsonEncode(items.map((i) => i.toJson()).toList()),
       'totalWt': _totalWt.toStringAsFixed(2),
       'totalPureWt': _totalPureWt.toStringAsFixed(3),
       'totalValue': _totalValue.toStringAsFixed(2),
-      'paymentMode': _selectedPaymentMode,
-      'paymentAmount': _paymentAmount.toStringAsFixed(2),
+      'paymentMode': paymentMode,
+      'paymentAmount': _paymentAmount.toStringAsFixed(
+          _receiptIsCashOnly ? 2 : 3),
       'balance': s.newGrams.toStringAsFixed(3),
       'balanceUnit': 'GRAMS',
       'date': date,
@@ -487,7 +435,10 @@ class _TransactionScreenState extends State<TransactionScreen> {
       'oldRupees': s.oldRupees.toStringAsFixed(2),
       'newGrams': s.newGrams.toStringAsFixed(3),
       'newRupees': s.newRupees.toStringAsFixed(2),
-      'cashToGold': s.cashToGoldGrams.toStringAsFixed(3),
+      'cashToGold': (_receiptCashGold > 0
+              ? _receiptCashGold
+              : s.cashToGoldGrams)
+          .toStringAsFixed(3),
       'goldRateUsed': s.ratePerGram.toStringAsFixed(2),
     };
 
@@ -958,189 +909,55 @@ class _TransactionScreenState extends State<TransactionScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: PartySearchField(
-                  label: _isCustomerParty
-                      ? 'Customer Name'
-                      : 'Supplier Name',
-                  controller: _partyController,
-                  parties: _partySuggestions,
-                  helperText: 'Search saved name, mobile, or city',
-                  onFocus: _refreshParties,
-                  onSelected: _selectParty,
-                  onFieldSubmitted: () => FocusChain.focusNextFrame(
-                      _weightFocus, controller: _weightController),
-                  onChanged: (v) {
-                    _onPartyTextChanged(v);
-                    _schedulePartyAdvance();
-                    setState(() {});
-                  },
-                ),
+          SizedBox(
+            width: FieldSizes.name,
+            child: PartySearchField(
+              label: _isCustomerParty
+                  ? 'Customer Name'
+                  : 'Supplier Name',
+              controller: _partyController,
+              parties: _partySuggestions,
+              helperText: 'Search saved name, mobile, or city',
+              onFocus: _refreshParties,
+              onSelected: _selectParty,
+              onFieldSubmitted: () => FocusChain.focusNextFrame(
+                _issueWeightFocus.first,
+                controller: _issueRows[_itemTypes.first]!.weight,
               ),
-            ],
+              onChanged: (v) {
+                _onPartyTextChanged(v);
+                setState(() {});
+              },
+            ),
           ),
           _partyLedgerRow(),
-          const SizedBox(height: 6),
-          const Text(
-            "WEIGHT LINE",
-            style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: AppColors.mutedBlue),
-          ),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              Expanded(
-                flex: 2,
-                child: Focus(
-                  focusNode: _typeFocus,
-                  child: DropdownButtonFormField<String>(
-                    value: _selectedItemType,
-                    decoration: const InputDecoration(
-                      label: Text("Type"),
-                      isDense: true,
-                    ),
-                    items: _itemTypes
-                        .map((t) => DropdownMenuItem(value: t, child: Text(t)))
-                        .toList(),
-                    onChanged: (v) {
-                      setState(() => _selectedItemType = v!);
-                      FocusChain.focusNextFrame(
-                          _weightFocus, controller: _weightController);
-                    },
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                flex: 3,
-                child: TextFormField(
-                  controller: _weightController,
-                  focusNode: _weightFocus,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+          if (_showPanels) ...[
+            const SizedBox(height: 12),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final stacked = constraints.maxWidth < 720;
+                if (stacked) {
+                  return Column(
+                    children: [
+                      _issuePanel(),
+                      const SizedBox(height: 10),
+                      _receiptPanel(),
+                    ],
+                  );
+                }
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: _issuePanel()),
+                    const SizedBox(width: 10),
+                    Expanded(child: _receiptPanel()),
                   ],
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(fontSize: 14),
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
-                    label: Text("Weight (g)"),
-                    isDense: true,
-                  ),
-                  onTap: () => _weightController.selection = TextSelection(
-                    baseOffset: 0,
-                    extentOffset: _weightController.text.length,
-                  ),
-                  onFieldSubmitted: (_) => _focusTouchField(),
-                  onChanged: _onWeightChanged,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                flex: 3,
-                child: TextFormField(
-                  controller: _touchController,
-                  focusNode: _touchFocus,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-                  ],
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(fontSize: 14),
-                  textInputAction: TextInputAction.done,
-                  decoration: const InputDecoration(
-                    label: Text("Touch %"),
-                    isDense: true,
-                    helperText: 'Press Enter to add line',
-                    helperStyle: TextStyle(fontSize: 10),
-                  ),
-                  onTap: () => _touchController.selection = TextSelection(
-                    baseOffset: 0,
-                    extentOffset: _touchController.text.length,
-                  ),
-                  onFieldSubmitted: (_) => _tryPromptFromTouch(),
-                ),
-              ),
-            ],
-          ),
-          if (_showItemsTable) ...[
-            const SizedBox(height: 6),
-            _itemsTable(),
+                );
+              },
+            ),
+            const SizedBox(height: 10),
+            _balanceBar(),
           ],
-          const Divider(height: 14, color: AppColors.border),
-          Row(
-            children: [
-              _totalCell("TOTAL WT", _totalWt),
-              _totalCell("PURE WT", _totalPureWt, decimals: 3),
-              _totalCell("VALUE ₹", _totalValue),
-            ],
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            "PAYMENT",
-            style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: AppColors.mutedBlue),
-          ),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              Expanded(
-                flex: 2,
-                child: DropdownButtonFormField<String>(
-                  value: _selectedPaymentMode,
-                  decoration: const InputDecoration(label: Text("Mode")),
-                  items: _paymentModes
-                      .map((m) =>
-                      DropdownMenuItem(value: m, child: Text(m)))
-                      .toList(),
-                  onChanged: (v) {
-                    setState(() => _selectedPaymentMode = v!);
-                    FocusChain.focusNextFrame(
-                        _paymentFocus, controller: _paymentAmountController);
-                  },
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                flex: 3,
-                child: TextFormField(
-                  controller: _paymentAmountController,
-                  focusNode: _paymentFocus,
-                  keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-                  style: const TextStyle(fontSize: 14),
-                  onChanged: (_) => setState(() {}),
-                  decoration: InputDecoration(
-                    label: Text(
-                      _isGoldSettlement
-                          ? "Amount (grams)"
-                          : _selectedPaymentMode == 'CASH'
-                              ? "Cash Received (₹)"
-                              : "Amount (₹)"),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          _conversionCard(),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              _totalCell("OLD BAL (g)", _settlement.oldGrams, decimals: 3),
-              _totalCell("NEW BAL (g)", _settlement.newGrams,
-                  highlight: true, decimals: 3),
-            ],
-          ),
           const SizedBox(height: 10),
           SizedBox(
             width: double.infinity,
@@ -1167,132 +984,346 @@ class _TransactionScreenState extends State<TransactionScreen> {
       ),
     );
   }
-  Widget _itemsTable() {
-    final headerStyle = const TextStyle(
-      fontSize: 11,
-      fontWeight: FontWeight.w700,
-      color: AppColors.navy,
-    );
-    final cellStyle = const TextStyle(fontSize: 12.5);
+  Widget _compactField({
+    required double width,
+    required Widget child,
+  }) {
+    return SizedBox(width: width, child: child);
+  }
 
-    Widget head(String text, {int flex = 2, TextAlign align = TextAlign.left}) {
-      return Expanded(
-        flex: flex,
-        child: Text(text, style: headerStyle, textAlign: align),
-      );
-    }
-
-    Widget cell(String text, {int flex = 2, TextAlign align = TextAlign.left}) {
-      return Expanded(
-        flex: flex,
-        child: Text(text, style: cellStyle, textAlign: align),
-      );
-    }
-
-    Widget dataRow(int index) {
-      final item = _items[index];
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: index.isEven ? Colors.white : AppColors.headerBand,
-          border: const Border(
-            top: BorderSide(color: AppColors.border),
-          ),
-        ),
-        child: Row(
-          children: [
-            cell(item.type, flex: 2),
-            cell(item.weight.toStringAsFixed(3),
-                flex: 2, align: TextAlign.right),
-            cell(item.touch.toStringAsFixed(2),
-                flex: 2, align: TextAlign.right),
-            cell(item.pureWt.toStringAsFixed(3),
-                flex: 2, align: TextAlign.right),
-            cell(item.rate.toStringAsFixed(0),
-                flex: 2, align: TextAlign.right),
-            cell(item.value.toStringAsFixed(2),
-                flex: 3, align: TextAlign.right),
-            SizedBox(
-              width: 28,
-              child: IconButton(
-                icon: const Icon(Icons.close,
-                    size: 16, color: Colors.redAccent),
-                onPressed: () => _removeItem(index),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
+  Widget _panelShell({
+    required String title,
+    required List<Widget> rows,
+    required String totalLabel,
+    required double totalPure,
+  }) {
     return Container(
       decoration: BoxDecoration(
+        color: AppColors.headerBand,
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(color: AppColors.border),
-        borderRadius: BorderRadius.circular(6),
       ),
+      padding: const EdgeInsets.all(10),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            color: AppColors.tableHeader,
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            child: Row(
-              children: [
-                head('TYPE', flex: 2),
-                head('WEIGHT', flex: 2, align: TextAlign.right),
-                head('TOUCH %', flex: 2, align: TextAlign.right),
-                head('PURE WT', flex: 2, align: TextAlign.right),
-                head('RATE', flex: 2, align: TextAlign.right),
-                head('VALUE ₹', flex: 3, align: TextAlign.right),
-                const SizedBox(width: 28),
-              ],
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: AppColors.navy,
+              letterSpacing: 0.3,
             ),
           ),
-          if (_items.isEmpty)
-            const SizedBox.shrink()
-          else
-            for (var i = 0; i < _items.length; i++) dataRow(i),
+          const SizedBox(height: 8),
+          ...rows,
+          const Divider(height: 16),
+          Row(
+            children: [
+              Text(
+                totalLabel,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.mutedBlue,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${totalPure.toStringAsFixed(3)} g',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.navy,
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
   }
 
-  Widget _conversionCard() {
-    final s = _settlement;
-    final rate = s.ratePerGram;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppColors.headerBand,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _metalPanelRow({
+    required String prefix,
+    required String type,
+    required _MetalPanelRow row,
+    FocusNode? weightFocus,
+    bool readOnlyTouch = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
         children: [
-          Text(
-            _isGoldSettlement
-                ? "Gold payment ${s.paymentAmount.toStringAsFixed(3)} g"
-                : rate <= 0
-                    ? "Set today's G.P RATE to convert cash into gold"
-                    : "Cash ₹${s.paymentAmount.toStringAsFixed(2)} → "
-                        "${s.cashToGoldGrams.toStringAsFixed(3)} g  "
-                        "(rate ₹${rate.toStringAsFixed(0)}/g)",
-            style: const TextStyle(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w600,
-              color: AppColors.navy,
+          _compactField(
+            width: FieldSizes.typeDropdown,
+            child: InputDecorator(
+              decoration: const InputDecoration(
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+              ),
+              child: Text(
+                type,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(width: 6),
+          _compactField(
+            width: FieldSizes.weight,
+            child: TextFormField(
+              controller: row.weight,
+              focusNode: weightFocus,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+              ],
+              textAlign: TextAlign.right,
+              style: const TextStyle(fontSize: 13),
+              decoration: InputDecoration(
+                labelText: '$prefix.Weight',
+                isDense: true,
+              ),
+              onTap: () => row.weight.selection = TextSelection(
+                baseOffset: 0,
+                extentOffset: row.weight.text.length,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          _compactField(
+            width: FieldSizes.touch,
+            child: TextFormField(
+              controller: row.touch,
+              readOnly: readOnlyTouch,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+              ],
+              textAlign: TextAlign.right,
+              style: const TextStyle(fontSize: 13),
+              decoration: InputDecoration(
+                labelText: '$prefix.Touch %',
+                isDense: true,
+              ),
+              onTap: readOnlyTouch
+                  ? null
+                  : () => row.touch.selection = TextSelection(
+                        baseOffset: 0,
+                        extentOffset: row.touch.text.length,
+                      ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          _compactField(
+            width: FieldSizes.pure,
+            child: InputDecorator(
+              decoration: InputDecoration(
+                labelText: '$prefix.Pure Wt',
+                isDense: true,
+              ),
+              child: Text(
+                row.pureWt.toStringAsFixed(3),
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _issuePanel() {
+    return _panelShell(
+      title: 'ISSUE',
+      totalLabel: 'Issue total pure wt',
+      totalPure: _issueTotalPure,
+      rows: [
+        for (var i = 0; i < _itemTypes.length; i++)
+          _metalPanelRow(
+            prefix: 'I',
+            type: _itemTypes[i],
+            row: _issueRows[_itemTypes[i]]!,
+            weightFocus: _issueWeightFocus[i],
+          ),
+      ],
+    );
+  }
+
+  Widget _receiptPanel() {
+    final cashGold = _receiptCashGold;
+    return _panelShell(
+      title: 'RECEIPT',
+      totalLabel: 'Receipt total pure wt',
+      totalPure: _receiptTotalPure,
+      rows: [
+        for (var i = 0; i < _itemTypes.length; i++)
+          _metalPanelRow(
+            prefix: 'R',
+            type: _itemTypes[i],
+            row: _receiptRows[_itemTypes[i]]!,
+            weightFocus: _receiptWeightFocus[i],
+          ),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Row(
+            children: [
+              _compactField(
+                width: FieldSizes.typeDropdown,
+                child: InputDecorator(
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                  ),
+                  child: const Text(
+                    'CASH',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              _compactField(
+                width: FieldSizes.cash,
+                child: TextFormField(
+                  controller: _receiptCashController,
+                  focusNode: _receiptCashFocus,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                  ],
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(fontSize: 13),
+                  decoration: const InputDecoration(
+                    labelText: '₹ Amount',
+                    isDense: true,
+                  ),
+                  onTap: () => _receiptCashController.selection =
+                      TextSelection(
+                    baseOffset: 0,
+                    extentOffset: _receiptCashController.text.length,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              _compactField(
+                width: FieldSizes.weight,
+                child: InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'R.Weight',
+                    isDense: true,
+                  ),
+                  child: Text(
+                    cashGold.toStringAsFixed(3),
+                    textAlign: TextAlign.right,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              _compactField(
+                width: FieldSizes.touch,
+                child: InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'R.Touch %',
+                    isDense: true,
+                  ),
+                  child: const Text(
+                    '100.00',
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              _compactField(
+                width: FieldSizes.pure,
+                child: InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'R.Pure Wt',
+                    isDense: true,
+                  ),
+                  child: Text(
+                    cashGold.toStringAsFixed(3),
+                    textAlign: TextAlign.right,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (_goldRate <= 0 && _receiptCashAmount > 0)
+          const Text(
+            'Set G.P RATE on Master to convert cash to gold.',
+            style: TextStyle(fontSize: 10.5, color: Colors.black54),
+          )
+        else if (_receiptCashAmount > 0)
           Text(
-            "Bill ${_isPurchase ? 'PUR' : 'SAL'}-$_nextBillNo  ·  "
-            "GWT ${_totalWt.toStringAsFixed(2)}  ·  "
-            "${s.paymentMode}  ·  "
-            "Balance gold ${s.newGrams.toStringAsFixed(3)} g",
-            style: const TextStyle(fontSize: 11.5, color: Colors.black54),
+            'Cash ₹${_receiptCashAmount.toStringAsFixed(2)} → '
+            '${cashGold.toStringAsFixed(3)} g @ ₹${_goldRate.toStringAsFixed(0)}/g',
+            style: const TextStyle(fontSize: 10.5, color: Colors.black54),
+          ),
+      ],
+    );
+  }
+
+  Widget _balanceBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.navy,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        children: [
+          const Text(
+            'BALANCE',
+            style: TextStyle(
+              color: Colors.white70,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.4,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Issue ${_issueTotalPure.toStringAsFixed(3)} g  −  '
+              'Receipt ${_receiptTotalPure.toStringAsFixed(3)} g',
+              style: const TextStyle(color: Colors.white70, fontSize: 11),
+            ),
+          ),
+          Text(
+            '${_balancePure.toStringAsFixed(3)} g',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+            ),
           ),
         ],
       ),
@@ -1304,15 +1335,14 @@ class _TransactionScreenState extends State<TransactionScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.symmetric(vertical: 6),
           child: Text(
             "${_isPurchase ? 'PURCHASE' : 'SALES'} HISTORY (${_history.length})",
             textAlign: TextAlign.center,
             style: const TextStyle(
               fontWeight: FontWeight.w600,
-              fontSize: 13,
-              letterSpacing: 0.4,
+              fontSize: 12,
+              letterSpacing: 0.3,
               color: AppColors.mutedBlue,
             ),
           ),
@@ -1357,14 +1387,16 @@ class _TransactionScreenState extends State<TransactionScreen> {
                     title: Text(
                       "${row['partyName'] ?? ''}",
                       style: const TextStyle(
-                          fontWeight: FontWeight.w600, fontSize: 13),
+                          fontWeight: FontWeight.w600, fontSize: 12),
+                      overflow: TextOverflow.ellipsis,
                     ),
                     subtitle: Text(
-                      "₹${row['totalValue'] ?? '-'}   "
-                          "${row['paymentMode'] ?? ''} ${row['paymentAmount'] ?? ''}   "
-                          "Bal ${row['balance'] ?? '-'} ${row['balanceUnit'] ?? ''}",
+                      '#${row['billNo']}  ·  '
+                          '₹${row['totalValue'] ?? '-'}  ·  '
+                          '${row['totalPureWt'] ?? '-'} g',
                       style: const TextStyle(
-                          fontSize: 11.5, color: Colors.black54),
+                          fontSize: 10.5, color: Colors.black54),
+                      overflow: TextOverflow.ellipsis,
                     ),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -1395,11 +1427,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
     final content = _loading
         ? const Center(child: CircularProgressIndicator())
         : WorkbenchLayout(
-            equalSplit: true,
-            disableScroll: false,
-            primary: SingleChildScrollView(
-              child: _buildFormCard(),
-            ),
+            secondaryWidth: 300,
+            primary: _buildFormCard(),
             secondary: _buildHistorySection(),
           );
 
@@ -1420,41 +1449,4 @@ class _TransactionScreenState extends State<TransactionScreen> {
       body: content,
     );
   }
-
-  Widget _totalCell(String label, double value,
-      {bool highlight = false, int decimals = 2}) {
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: highlight ? AppColors.navy : AppColors.mutedBlue,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              value.toStringAsFixed(decimals),
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: highlight ? 14 : 12,
-                fontWeight: FontWeight.bold,
-                color: highlight ? AppColors.navy : Colors.black87,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
-
-
-
-
