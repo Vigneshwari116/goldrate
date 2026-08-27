@@ -376,7 +376,10 @@ class _TransactionScreenState extends State<TransactionScreen> {
       _nextBillNo = billNo;
       _history = history;
       _rates = rates;
-      _partySuggestions = PartySuggestion.fromLedgerRows(partyRows);
+      _partySuggestions = PartySuggestion.fromLedgerRows(
+        partyRows,
+        roleLabel: _isCustomerParty ? 'Customer' : 'Supplier',
+      );
       _loading = false;
     });
   }
@@ -387,7 +390,10 @@ class _TransactionScreenState extends State<TransactionScreen> {
         : await DatabaseHelper.instance.getSuppliers();
     if (!mounted) return;
     setState(() {
-      _partySuggestions = PartySuggestion.fromLedgerRows(partyRows);
+      _partySuggestions = PartySuggestion.fromLedgerRows(
+        partyRows,
+        roleLabel: _isCustomerParty ? 'Customer' : 'Supplier',
+      );
     });
   }
 

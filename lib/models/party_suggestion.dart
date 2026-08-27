@@ -7,6 +7,7 @@ class PartySuggestion {
     this.cr = '0',
     this.dr = '0',
     this.balanceUnit = 'GRAMS',
+    this.roleLabel = '',
   });
 
   final String name;
@@ -15,39 +16,42 @@ class PartySuggestion {
   final String cr;
   final String dr;
   final String balanceUnit;
+  final String roleLabel;
 
   String get detailLine {
     final parts = <String>[];
+    if (roleLabel.isNotEmpty) parts.add(roleLabel);
     if (mobile.isNotEmpty) parts.add('Mob $mobile');
     if (city.isNotEmpty) parts.add(city);
-    if (balanceUnit == 'GRAMS') {
-      parts.add('CR ${cr}g · DR ${dr}g');
-    } else {
-      parts.add('CR ₹$cr · DR ₹$dr');
-    }
-    return parts.join('  ·  ');
+    return parts.isEmpty ? 'Saved party' : parts.join('  ·  ');
   }
 
   bool matches(String query) {
     final q = query.trim().toLowerCase();
-    if (q.isEmpty) return true;
+    if (q.isEmpty) return false;
     return name.toLowerCase().contains(q) ||
         mobile.toLowerCase().contains(q) ||
         city.toLowerCase().contains(q);
   }
 
+  bool isExactNameMatch(String query) =>
+      name.trim().toLowerCase() == query.trim().toLowerCase();
+
   static List<PartySuggestion> fromLedgerRows(
-    List<Map<String, dynamic>> rows,
-  ) {
+    List<Map<String, dynamic>> rows, {
+    String roleLabel = '',
+  }) {
     final grouped = <String, List<Map<String, dynamic>>>{};
     for (final row in rows) {
       final name = (row['name'] ?? '').toString().trim();
       if (name.isEmpty) continue;
-      grouped.putIfAbsent(name, () => []).add(row);
+      final key = name.toLowerCase();
+      grouped.putIfAbsent(key, () => []).add(row);
     }
 
     final out = <PartySuggestion>[];
-    grouped.forEach((name, entries) {
+    grouped.forEach((_, entries) {
+      final name = (entries.first['name'] ?? '').toString().trim();
       var mobile = '';
       var city = '';
       var cr = 0.0;
@@ -73,6 +77,7 @@ class PartySuggestion {
         cr: cr.toStringAsFixed(unit == 'GRAMS' ? 3 : 2),
         dr: dr.toStringAsFixed(unit == 'GRAMS' ? 3 : 2),
         balanceUnit: unit,
+        roleLabel: roleLabel,
       ));
     });
 

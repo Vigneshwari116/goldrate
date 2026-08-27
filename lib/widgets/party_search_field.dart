@@ -32,8 +32,18 @@ class PartySearchField extends StatefulWidget {
 
 class _PartySearchFieldState extends State<PartySearchField> {
   Iterable<PartySuggestion> _options(String query) {
-    final matches = widget.parties.where((p) => p.matches(query));
-    return query.trim().isEmpty ? matches.take(24) : matches.take(24);
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return const Iterable.empty();
+
+    final matches =
+        widget.parties.where((p) => p.matches(trimmed)).take(24).toList();
+    if (matches.isEmpty) return const Iterable.empty();
+
+    if (matches.length == 1 && matches.first.isExactNameMatch(trimmed)) {
+      return const Iterable.empty();
+    }
+
+    return matches;
   }
 
   @override
@@ -104,6 +114,16 @@ class _PartySearchFieldState extends State<PartySearchField> {
           textInputAction: TextInputAction.next,
           onTap: widget.onFocus,
           onFieldSubmitted: (_) {
+            final typed = fieldController.text.trim();
+            final exact = widget.parties
+                .where((p) => p.isExactNameMatch(typed))
+                .toList();
+            if (exact.length == 1) {
+              final match = exact.first;
+              widget.controller.text = match.name;
+              widget.onSelected?.call(match);
+              widget.onChanged?.call(match.name);
+            }
             onAutocompleteSubmit();
             widget.onFieldSubmitted?.call();
           },
