@@ -67,6 +67,7 @@ class WorkbenchLayout extends StatelessWidget {
   final double primaryWidth;
   final double gap;
   final bool equalSplit;
+  final bool disableScroll;
 
   const WorkbenchLayout({
     super.key,
@@ -75,11 +76,21 @@ class WorkbenchLayout extends StatelessWidget {
     this.primaryWidth = 380,
     this.gap = 16,
     this.equalSplit = false,
+    this.disableScroll = false,
   });
 
   @override
   Widget build(BuildContext context) {
     if (!Responsive.isWide(context)) {
+      if (disableScroll) {
+        return Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [primary, const SizedBox(height: 12), secondary],
+          ),
+        );
+      }
       return ListView(
         padding: const EdgeInsets.all(12),
         children: [primary, const SizedBox(height: 16), secondary],
@@ -94,7 +105,9 @@ class WorkbenchLayout extends StatelessWidget {
           children: [
             Expanded(
               flex: 3,
-              child: SingleChildScrollView(child: primary),
+              child: disableScroll
+                  ? primary
+                  : SingleChildScrollView(child: primary),
             ),
             SizedBox(width: gap),
             Expanded(

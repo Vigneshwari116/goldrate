@@ -49,6 +49,7 @@ class FileShare {
     String folderName = 'JewelleryPDFs',
     String? subject,
     String? text,
+    bool openAfterSave = true,
   }) async {
     final safe = safeFileName(fileName);
     if (Platform.isAndroid || Platform.isIOS) {
@@ -65,7 +66,9 @@ class FileShare {
     final dir = await desktopFolder(folderName);
     final file = File('${dir.path}${Platform.pathSeparator}$safe');
     await file.writeAsBytes(bytes, flush: true);
-    await openPath(file.path);
+    if (openAfterSave) {
+      await openPath(file.path);
+    }
     return file;
   }
 

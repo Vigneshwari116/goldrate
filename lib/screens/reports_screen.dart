@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -18,8 +17,6 @@ enum _ReportTab {
   purchaseAudit,
   customerLedger,
   supplierLedger,
-  customerNameWise,
-  supplierNameWise,
 }
 
 class ReportsScreen extends StatefulWidget {
@@ -42,8 +39,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   List<Map<String, dynamic>> _txns = [];
   List<Map<String, dynamic>> _vouchers = [];
-  List<Map<String, dynamic>> _customers = [];
-  List<Map<String, dynamic>> _suppliers = [];
+  Map<String, double> _rates = {};
+
+  bool _customerLedgerByName = false;
+  bool _supplierLedgerByName = false;
+  final _customerNameQuery = TextEditingController();
+  final _supplierNameQuery = TextEditingController();
 
   static final _fmt = DateFormat('dd-MM-yyyy');
   static final _pretty = DateFormat('dd/MM/yyyy');
@@ -51,20 +52,33 @@ class _ReportsScreenState extends State<ReportsScreen> {
   @override
   void initState() {
     super.initState();
+    _customerNameQuery.addListener(_onLedgerQueryChanged);
+    _supplierNameQuery.addListener(_onLedgerQueryChanged);
     _load();
+  }
+
+  @override
+  void dispose() {
+    _customerNameQuery.removeListener(_onLedgerQueryChanged);
+    _supplierNameQuery.removeListener(_onLedgerQueryChanged);
+    _customerNameQuery.dispose();
+    _supplierNameQuery.dispose();
+    super.dispose();
+  }
+
+  void _onLedgerQueryChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _load() async {
     final txns = await DatabaseHelper.instance.getAllTransactions();
     final vouchers = await DatabaseHelper.instance.getVouchers();
-    final customers = await DatabaseHelper.instance.getCustomers();
-    final suppliers = await DatabaseHelper.instance.getSuppliers();
+    final rates = await DatabaseHelper.instance.getRatesMap();
     if (!mounted) return;
     setState(() {
       _txns = txns;
       _vouchers = vouchers;
-      _customers = customers;
-      _suppliers = suppliers;
+      _rates = rates;
       _loading = false;
     });
   }
@@ -238,8 +252,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
             tab(_ReportTab.purchaseAudit, 'PURCHASE AUDIT'),
             tab(_ReportTab.customerLedger, 'CUSTOMER LEDGER'),
             tab(_ReportTab.supplierLedger, 'SUPPLIER LEDGER'),
-            tab(_ReportTab.customerNameWise, 'CUSTOMER NAME WISE'),
-            tab(_ReportTab.supplierNameWise, 'SUPPLIER NAME WISE'),
           ],
         ),
       ),
@@ -320,13 +332,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
       case _ReportTab.purchaseAudit:
         return _billAbstract(salesOnly: false, purchasesOnly: true, title: 'PURCHASE AUDIT LEDGER MATRIX');
       case _ReportTab.customerLedger:
-        return _partyLedger(_customers, 'CUSTOMER LEDGER MATRIX');
+        return _partyLedgerRecords(customer: true);
       case _ReportTab.supplierLedger:
-        return _partyLedger(_suppliers, 'SUPPLIER LEDGER MATRIX');
-      case _ReportTab.customerNameWise:
-        return _nameWise(customer: true);
-      case _ReportTab.supplierNameWise:
-        return _nameWise(customer: false);
+        return _partyLedgerRecords(customer: false);
     }
   }
 
@@ -408,48 +416,26 @@ class _ReportsScreenState extends State<ReportsScreen> {
     for (final bill in rows) {
       total += double.tryParse((bill['totalValue'] ?? '').toString()) ?? 0;
       units += double.tryParse((bill['totalPureWt'] ?? '').toString()) ?? 0;
-      List items;
-      try {
-        items = jsonDecode((bill['items'] ?? '[]').toString()) as List;
-      } catch (_) {
-        items = [];
-      }
       final billNo =
           '${bill['transactionType'] == 'PURCHASE' ? 'PUR' : 'SAL'}-${bill['billNo']}';
       final name = '${bill['partyName'] ?? ''}';
       final mode = paymentModeLabel(bill['paymentMode']?.toString());
-      if (items.isEmpty) {
-        table.add([
-          billNo,
-          name,
-          '-',
-          mode,
-          '-',
-          '${bill['totalPureWt']} g',
-          'Rs.${bill['totalValue']}',
-        ]);
-      }
-      for (final item in items) {
-        if (item is! Map) continue;
-        table.add([
-          billNo,
-          name,
-          '${item['type'] ?? ''}',
-          mode,
-          'Rs.${item['rate'] ?? 0}',
-          '${item['weight']} g',
-          'Rs.${((item['value'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
-        ]);
-      }
+      table.add([
+        billNo,
+        name,
+        bill['date']?.toString() ?? '',
+        mode,
+        '${bill['totalPureWt']} g',
+        'Rs.${bill['totalValue']}',
+      ]);
     }
 
     const headers = [
       'BILL NO',
       'NAME',
-      'PARTICULARS',
+      'DATE',
       'MODE',
-      'RATE',
-      'QTY',
+      'WEIGHT',
       'AMOUNT',
     ];
     return _reportShell(
@@ -457,92 +443,113 @@ class _ReportsScreenState extends State<ReportsScreen> {
       records: rows.length,
       units: units,
       total: total,
-      child: _htmlTable(table, headers: headers, columnFlex: const [2, 3, 2, 2, 2, 2, 2]),
+      child: _htmlTable(table, headers: headers, columnFlex: const [2, 3, 2, 2, 2, 2]),
       pdfRows: table,
       headers: headers,
     );
   }
 
-  Widget _partyLedger(List<Map<String, dynamic>> all, String title) {
-    final rows = all.where((r) => _inRange(r['date']?.toString())).toList();
-    double total = 0;
-    final table = <List<String>>[];
-    for (final e in rows) {
-      final dr = double.tryParse((e['dr'] ?? '').toString()) ?? 0;
-      final cr = double.tryParse((e['cr'] ?? '').toString()) ?? 0;
-      total += dr;
-      table.add([
-        (e['billRef'] ?? '-').toString(),
-        ledgerEntryType((e['billRef'] ?? '').toString()),
-        (e['name'] ?? '').toString(),
-        (e['narration'] ?? '').toString(),
-        dr > 0 ? 'DR ${dr.toStringAsFixed(3)}' : 'CR ${cr.toStringAsFixed(3)}',
-        e['date']?.toString() ?? '',
-      ]);
-    }
-    const headers = [
-      'BILL NO',
-      'TYPE',
-      'NAME',
-      'PARTICULARS',
-      'QTY',
-      'DATE',
-    ];
-    return _reportShell(
-      title: title,
-      records: rows.length,
-      units: 0,
-      total: total,
-      child: _htmlTable(table, headers: headers, columnFlex: const [2, 2, 3, 4, 2, 2]),
-      pdfRows: table,
-      headers: headers,
+  Widget _ledgerModeBar({
+    required bool byName,
+    required TextEditingController query,
+    required ValueChanged<bool> onModeChanged,
+    required String nameHint,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          _chip('ALL', () => onModeChanged(false), active: !byName),
+          _chip('NAME', () => onModeChanged(true), active: byName),
+          if (byName)
+            SizedBox(
+              width: 220,
+              child: TextField(
+                controller: query,
+                decoration: InputDecoration(
+                  isDense: true,
+                  hintText: nameHint,
+                  border: const OutlineInputBorder(),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
-  Widget _nameWise({required bool customer}) {
-    final known = (customer ? _customers : _suppliers)
-        .map((e) => (e['name'] ?? '').toString())
-        .where((n) => n.trim().isNotEmpty);
-    final rows = buildPartyNameWise(
+  Widget _partyLedgerRecords({required bool customer}) {
+    final byName = customer ? _customerLedgerByName : _supplierLedgerByName;
+    final query =
+        customer ? _customerNameQuery.text : _supplierNameQuery.text;
+    final goldRate = GoldLedger.goldRate(_rates);
+    final rows = buildPartyLedgerRecords(
       customer: customer,
-      knownNames: known,
       transactions: _txns,
       vouchers: _vouchers,
       from: _from,
       to: _to,
       allHistory: _allHistory,
+      nameQuery: byName ? query : '',
+      goldRate: goldRate,
     );
-    final headers = customer
-        ? const [
-            'Customer Name',
-            'Type',
-            'Opening Balance',
-            'Debit (Sales)',
-            'Credit (Receipt)',
-            'Closing Balance',
-          ]
-        : const [
-            'Supplier Name',
-            'Type',
-            'Opening Balance',
-            'Debit (Payment)',
-            'Credit (Purchase)',
-            'Closing Balance',
-          ];
+    final totalWeight =
+        rows.fold<double>(0, (sum, r) => sum + r.weightGrams);
+    final totalAmount =
+        rows.fold<double>(0, (sum, r) => sum + r.amountRupees);
+    const headers = [
+      'DATE',
+      'BILL NO',
+      'NAME',
+      'TYPE',
+      'WEIGHT',
+      'AMOUNT',
+    ];
     final table = [for (final r in rows) r.toTableCells()];
-    final closingTotal =
-        rows.fold<double>(0, (sum, r) => sum + r.closing);
-    return _reportShell(
-      title: customer
-          ? 'CUSTOMER NAME WISE GOLD STATEMENT'
-          : 'SUPPLIER NAME WISE GOLD STATEMENT',
-      records: rows.length,
-      units: closingTotal,
-      total: closingTotal,
-      totalText: 'CLOSING: ${closingTotal.toStringAsFixed(3)} g',
-      child: _htmlTable(table, headers: headers, evenFlex: true),
-      pdfRows: table,
-      headers: headers,
+    final title =
+        customer ? 'CUSTOMER LEDGER' : 'SUPPLIER LEDGER';
+    final totalText =
+        'WEIGHT: ${totalWeight.toStringAsFixed(3)} g  |  AMOUNT: ₹${totalAmount.toStringAsFixed(2)}';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _ledgerModeBar(
+          byName: byName,
+          query: customer ? _customerNameQuery : _supplierNameQuery,
+          nameHint: customer ? 'Customer name' : 'Supplier name',
+          onModeChanged: (nameMode) => setState(() {
+            if (customer) {
+              _customerLedgerByName = nameMode;
+              if (!nameMode) _customerNameQuery.clear();
+            } else {
+              _supplierLedgerByName = nameMode;
+              if (!nameMode) _supplierNameQuery.clear();
+            }
+          }),
+        ),
+        Expanded(
+          child: _reportShell(
+            title: title,
+            records: rows.length,
+            units: totalWeight,
+            total: totalAmount,
+            totalText: totalText,
+            child: _htmlTable(
+              table,
+              headers: headers,
+              columnFlex: const [2, 2, 3, 2, 2, 2],
+            ),
+            pdfRows: table,
+            headers: headers,
+          ),
+        ),
+      ],
     );
   }
 
