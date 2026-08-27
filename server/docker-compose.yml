@@ -1,0 +1,13 @@
+services:
+  api:
+    build: .
+    container_name: jewellery-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      # Connect to PostgreSQL already running on the VPS host.
+      DATABASE_URL: postgresql://jewellery_user:YOUR_PASSWORD@host.docker.internal:5432/jewellery_db
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

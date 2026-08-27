@@ -2,7 +2,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'screens/login_screen.dart';
+import 'screens/bootstrap_screen.dart';
 import 'theme/app_theme.dart';
 
 void main() {
@@ -25,7 +25,7 @@ class JewelleryApp extends StatelessWidget {
       title: 'Jewellery Management',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.theme,
-      home: const LoginScreen(),
+      home: const BootstrapScreen(),
       builder: (context, child) {
         return MediaQuery(
           data: MediaQuery.of(context).copyWith(

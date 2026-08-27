@@ -1,0 +1,16 @@
+enum AppPage {
+  home,
+  openingWeight,
+  stock,
+  sales,
+  purchase,
+  receipt,
+  customers,
+  suppliers,
+  rates,
+  reports,
+  rateRecords,
+  backup,
+  printerSettings,
+  reset,
+}

@@ -72,7 +72,7 @@ class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         isDense: true,
         contentPadding:
-        const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
         filled: true,
         fillColor: AppColors.cardWhite,
         labelStyle: const TextStyle(
