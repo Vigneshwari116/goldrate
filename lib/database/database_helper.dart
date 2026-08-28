@@ -872,6 +872,14 @@ class DatabaseHelper {
     final db = await database;
     await db.delete('transactions');
     await db.delete('vouchers');
+    await db.delete(
+      'customers',
+      where: "billRef LIKE 'SAL-%' OR billRef LIKE 'RECEIPT-%'",
+    );
+    await db.delete(
+      'suppliers',
+      where: "billRef LIKE 'PUR-%' OR billRef LIKE 'PAYMENT-%'",
+    );
   }
 
   /// Wipes all business data (masters, bills, rates, opening weight) but

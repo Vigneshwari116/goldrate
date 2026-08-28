@@ -1476,12 +1476,6 @@ class _TransactionScreenState extends State<TransactionScreen>
                   isComplete: FieldComplete.touchWholeNumber,
                   action: _commitPaymentEntry,
                 );
-                advanceWhenIdle(
-                  value: v,
-                  from: _paymentEntryTouchFocus,
-                  when: FieldComplete.touchShortWhole,
-                  action: _commitPaymentEntry,
-                );
               },
             ),
           ),
@@ -1627,12 +1621,6 @@ class _TransactionScreenState extends State<TransactionScreen>
                 value: v,
                 from: touchFocus,
                 isComplete: FieldComplete.touchWholeNumber,
-                action: onTouchSubmitted,
-              );
-              advanceWhenIdle(
-                value: v,
-                from: touchFocus,
-                when: FieldComplete.touchShortWhole,
                 action: onTouchSubmitted,
               );
             },

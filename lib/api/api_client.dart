@@ -383,5 +383,27 @@ class ApiClient {
     final res =
         await http.post(_uri('/admin/clear-transactions'), headers: _jsonHeaders);
     await _decodeObject(res);
+    await _clearTransactionLedgerRows();
+  }
+
+  /// Removes SAL/PUR/RECEIPT/PAYMENT ledger rows so merged reads stay empty
+  /// after reset (covers servers not yet redeployed with ledger deletes).
+  static Future<void> _clearTransactionLedgerRows() async {
+    final customers = await getCustomers();
+    for (final row in customers) {
+      final ref = (row['billRef'] ?? '').toString().toUpperCase();
+      if (ref.startsWith('SAL-') || ref.startsWith('RECEIPT-')) {
+        final id = row['id'];
+        if (id != null) await deleteCustomer(int.parse(id.toString()));
+      }
+    }
+    final suppliers = await getSuppliers();
+    for (final row in suppliers) {
+      final ref = (row['billRef'] ?? '').toString().toUpperCase();
+      if (ref.startsWith('PUR-') || ref.startsWith('PAYMENT-')) {
+        final id = row['id'];
+        if (id != null) await deleteSupplier(int.parse(id.toString()));
+      }
+    }
   }
 }

@@ -31,12 +31,6 @@ class FieldComplete {
     return RegExp(r'^\d{3}$').hasMatch(t);
   }
 
-  /// Two-digit whole touch (e.g. 92) — advance only after typing pause.
-  static bool touchShortWhole(String value) {
-    final t = value.trim();
-    return RegExp(r'^\d{2}$').hasMatch(t) && !t.contains('.');
-  }
-
   static bool mobile(String value) => _mobile10.hasMatch(value.trim());
 
   static bool cash(String value) {

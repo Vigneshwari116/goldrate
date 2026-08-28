@@ -9,14 +9,15 @@ void main() {
     expect(FieldComplete.weight('0.000'), isFalse);
   });
 
-  test('touch completes with two decimals or whole number after idle', () {
+  test('touch completes with two decimals or three-digit whole number', () {
     expect(FieldComplete.touch('91.6'), isFalse);
     expect(FieldComplete.touch('91.60'), isTrue);
+    expect(FieldComplete.touch('99.89'), isTrue);
     expect(FieldComplete.touch('91'), isFalse);
+    expect(FieldComplete.touch('99'), isFalse);
     expect(FieldComplete.touchWholeNumber('100'), isTrue);
+    expect(FieldComplete.touchWholeNumber('99'), isFalse);
     expect(FieldComplete.touchWholeNumber('91'), isFalse);
-    expect(FieldComplete.touchShortWhole('92'), isTrue);
-    expect(FieldComplete.touchShortWhole('9'), isFalse);
   });
 
   test('mobile completes at ten digits', () {

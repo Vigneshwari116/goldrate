@@ -333,6 +333,15 @@ app.post('/api/admin/clear-transactions', async (_req, res) => {
   try {
     await pool.query('DELETE FROM transactions');
     await pool.query('DELETE FROM vouchers');
+    // Sales/receipt ledger rows live on customers; purchase/payment on suppliers.
+    await pool.query(
+      `DELETE FROM customers
+       WHERE bill_ref LIKE 'SAL-%' OR bill_ref LIKE 'RECEIPT-%'`,
+    );
+    await pool.query(
+      `DELETE FROM suppliers
+       WHERE bill_ref LIKE 'PUR-%' OR bill_ref LIKE 'PAYMENT-%'`,
+    );
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: String(e) });
