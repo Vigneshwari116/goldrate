@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../util/focus_chain.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
@@ -20,6 +21,7 @@ class MasterScreen extends StatefulWidget {
 class _MasterScreenState extends State<MasterScreen> {
   List<Map<String, dynamic>> rates = [];
   final Map<int, TextEditingController> _controllers = {};
+  final Map<int, FocusNode> _focusNodes = {};
   bool _loading = true;
   bool _saving = false;
 
@@ -37,6 +39,9 @@ class _MasterScreenState extends State<MasterScreen> {
     for (final c in _controllers.values) {
       c.dispose();
     }
+    for (final n in _focusNodes.values) {
+      n.dispose();
+    }
     super.dispose();
   }
 
@@ -48,10 +53,16 @@ class _MasterScreenState extends State<MasterScreen> {
       c.dispose();
     }
     _controllers.clear();
+    for (final n in _focusNodes.values) {
+      n.dispose();
+    }
+    _focusNodes.clear();
 
     for (final item in data) {
-      _controllers[item['id']] =
+      final id = item['id'] as int;
+      _controllers[id] =
           TextEditingController(text: (item['rateValue'] ?? '').toString());
+      _focusNodes[id] = FocusNode();
     }
 
     if (!mounted) return;
@@ -149,7 +160,9 @@ class _MasterScreenState extends State<MasterScreen> {
                           itemCount: rates.length,
                           itemBuilder: (context, index) {
                             final item = rates[index];
-                            final controller = _controllers[item['id']]!;
+                            final id = item['id'] as int;
+                            final controller = _controllers[id]!;
+                            final focusNode = _focusNodes[id]!;
 
                             return Container(
                               margin: const EdgeInsets.only(bottom: 10),
@@ -175,9 +188,21 @@ class _MasterScreenState extends State<MasterScreen> {
                                     flex: 4,
                                     child: TextField(
                                       controller: controller,
+                                      focusNode: focusNode,
                                       style: const TextStyle(fontSize: 14),
                                       keyboardType: const TextInputType
                                           .numberWithOptions(decimal: true),
+                                      textInputAction: TextInputAction.next,
+                                      onSubmitted: (_) {
+                                        if (index + 1 < rates.length) {
+                                          final nextId =
+                                              rates[index + 1]['id'] as int;
+                                          FocusChain.focus(
+                                            _focusNodes[nextId]!,
+                                            controller: _controllers[nextId],
+                                          );
+                                        }
+                                      },
                                       decoration: const InputDecoration(
                                         isDense: true,
                                         contentPadding: EdgeInsets.symmetric(
