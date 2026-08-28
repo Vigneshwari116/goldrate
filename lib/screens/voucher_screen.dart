@@ -10,6 +10,7 @@ import '../logic/gold_ledger.dart';
 import '../pdf/pdf_kit.dart';
 import '../util/field_advance.dart';
 import '../util/focus_chain.dart';
+import '../util/screen_activation.dart';
 import '../util/party_save_prompt.dart';
 import '../theme/app_theme.dart';
 import '../theme/field_sizes.dart';
@@ -20,15 +21,21 @@ import '../widgets/party_autocomplete_field.dart';
 /// Receipt from a customer (they pay gold or cash) or payment to a
 /// supplier. Cash is converted to gold at today's G.P RATE.
 class VoucherScreen extends StatefulWidget {
-  const VoucherScreen({super.key, this.embedded = false});
+  const VoucherScreen({
+    super.key,
+    this.embedded = false,
+    this.isActive = true,
+  });
 
   final bool embedded;
+  final bool isActive;
 
   @override
   State<VoucherScreen> createState() => _VoucherScreenState();
 }
 
-class _VoucherScreenState extends State<VoucherScreen> with FocusAdvanceMixin {
+class _VoucherScreenState extends State<VoucherScreen>
+    with FocusAdvanceMixin, ScreenActivationMixin<VoucherScreen> {
   static const _modes = ['CASH', 'UPI', 'GOLD'];
 
   final _partyController = TextEditingController();
@@ -54,11 +61,30 @@ class _VoucherScreenState extends State<VoucherScreen> with FocusAdvanceMixin {
   void initState() {
     super.initState();
     _partyController.addListener(_onParty);
+    _partyFocus.addListener(_onPartyFocus);
     _load();
   }
 
   @override
+  bool get screenIsActive => widget.isActive;
+
+  @override
+  bool wasScreenActive(VoucherScreen oldWidget) => oldWidget.isActive;
+
+  @override
+  void onScreenActivated() {
+    _refreshNames();
+  }
+
+  void _onPartyFocus() {
+    if (_partyFocus.hasFocus) {
+      _refreshNames();
+    }
+  }
+
+  @override
   void dispose() {
+    _partyFocus.removeListener(_onPartyFocus);
     _partyFocus.dispose();
     _modeFocus.dispose();
     _amountFocus.dispose();
@@ -89,6 +115,13 @@ class _VoucherScreenState extends State<VoucherScreen> with FocusAdvanceMixin {
     _refreshOutstanding();
   }
 
+  Future<void> _refreshNames() async {
+    final names = await DatabaseHelper.instance
+        .getDistinctPartyNames(isCustomer: _isCustomer);
+    if (!mounted) return;
+    setState(() => _names = names);
+  }
+
   void _onParty([String? value]) {
     _refreshOutstanding();
   }
@@ -100,6 +133,9 @@ class _VoucherScreenState extends State<VoucherScreen> with FocusAdvanceMixin {
 
   void _onPartyNameChanged(String value) {
     _onParty(value);
+    if (_names.isEmpty && value.trim().isNotEmpty) {
+      _refreshNames();
+    }
     final trimmed = value.trim();
     if (trimmed.isEmpty) return;
 
@@ -396,6 +432,7 @@ class _VoucherScreenState extends State<VoucherScreen> with FocusAdvanceMixin {
               options: _partyOptions,
               helperText: 'Search saved name or type a new one',
               focusNode: _partyFocus,
+              onFocus: _refreshNames,
               onChanged: _onPartyNameChanged,
               onFieldSubmitted: () => _advanceFromParty(_partyController.text),
             ),

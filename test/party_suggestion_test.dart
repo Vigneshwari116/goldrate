@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grate_app/models/party_suggestion.dart';
+import 'package:grate_app/widgets/party_search_field.dart';
 
 void main() {
   test('groups duplicate names case-insensitively', () {
@@ -29,5 +30,15 @@ void main() {
     const party = PartySuggestion(name: 'Gajendra');
     expect(party.isExactNameMatch('gajendra'), isTrue);
     expect(party.isExactNameMatch('Gaj'), isFalse);
+  });
+
+  test('filterParties keeps single exact match visible in dropdown', () {
+    const parties = [
+      PartySuggestion(name: 'Gajendra', mobile: '99999', city: 'Chennai'),
+    ];
+    final options =
+        PartySearchField.filterParties(parties, 'Gajendra').toList();
+    expect(options, hasLength(1));
+    expect(options.first.name, 'Gajendra');
   });
 }

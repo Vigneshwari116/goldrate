@@ -144,7 +144,7 @@ class _AppShellState extends State<AppShell> {
     return IndexedStack(
       key: ValueKey(_sessionGeneration),
       index: _pageIndex,
-      children: const [
+      children: [
         _KeepAlivePage(child: _HomePage()),
         _KeepAlivePage(child: OpeningWeightScreen(embedded: true)),
         _KeepAlivePage(child: StockScreen(embedded: true)),
@@ -152,17 +152,34 @@ class _AppShellState extends State<AppShell> {
           child: TransactionScreen(
             kind: TransactionKind.sales,
             embedded: true,
+            isActive: _page == AppPage.sales,
           ),
         ),
         _KeepAlivePage(
           child: TransactionScreen(
             kind: TransactionKind.purchase,
             embedded: true,
+            isActive: _page == AppPage.purchase,
           ),
         ),
-        _KeepAlivePage(child: VoucherScreen(embedded: true)),
-        _KeepAlivePage(child: CustomerMasterScreen(embedded: true)),
-        _KeepAlivePage(child: SupplierMasterScreen(embedded: true)),
+        _KeepAlivePage(
+          child: VoucherScreen(
+            embedded: true,
+            isActive: _page == AppPage.receipt,
+          ),
+        ),
+        _KeepAlivePage(
+          child: CustomerMasterScreen(
+            embedded: true,
+            isActive: _page == AppPage.customers,
+          ),
+        ),
+        _KeepAlivePage(
+          child: SupplierMasterScreen(
+            embedded: true,
+            isActive: _page == AppPage.suppliers,
+          ),
+        ),
         _KeepAlivePage(child: MasterScreen(embedded: true)),
         _KeepAlivePage(child: ReportsScreen(embedded: true)),
         _KeepAlivePage(child: HistoryScreen(embedded: true)),

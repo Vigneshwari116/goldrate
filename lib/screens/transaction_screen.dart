@@ -18,6 +18,7 @@ import '../widgets/party_search_field.dart';
 import '../util/party_save_prompt.dart';
 import '../util/field_advance.dart';
 import '../util/focus_chain.dart';
+import '../util/screen_activation.dart';
 import '../theme/app_theme.dart';
 import '../theme/field_sizes.dart';
 import '../theme/responsive.dart';
@@ -103,11 +104,13 @@ class _PanelLine {
 class TransactionScreen extends StatefulWidget {
   final TransactionKind kind;
   final bool embedded;
+  final bool isActive;
 
   const TransactionScreen({
     super.key,
     required this.kind,
     this.embedded = false,
+    this.isActive = true,
   });
 
   @override
@@ -115,7 +118,7 @@ class TransactionScreen extends StatefulWidget {
 }
 
 class _TransactionScreenState extends State<TransactionScreen>
-    with FocusAdvanceMixin {
+    with FocusAdvanceMixin, ScreenActivationMixin<TransactionScreen> {
   static const _itemTypes = ['GWT', 'FWT', 'KWT', 'SWT'];
   static const _paymentItemTypes = ['GWT', 'FWT', 'KWT', 'SWT', 'CASH'];
   static final RegExp _numberRegex = RegExp(r'^\d+(\.\d+)?$');
@@ -231,6 +234,24 @@ class _TransactionScreenState extends State<TransactionScreen>
     super.initState();
     _load();
     _partyController.addListener(() => _onPartyTextChanged());
+    _partyFocus.addListener(_onPartyFocus);
+  }
+
+  @override
+  bool get screenIsActive => widget.isActive;
+
+  @override
+  bool wasScreenActive(TransactionScreen oldWidget) => oldWidget.isActive;
+
+  @override
+  void onScreenActivated() {
+    _refreshParties();
+  }
+
+  void _onPartyFocus() {
+    if (_partyFocus.hasFocus) {
+      _refreshParties();
+    }
   }
 
   double _entryPure(TextEditingController weight, TextEditingController touch) {
@@ -389,6 +410,7 @@ class _TransactionScreenState extends State<TransactionScreen>
 
   @override
   void dispose() {
+    _partyFocus.removeListener(_onPartyFocus);
     _partyController.dispose();
     _partyFocus.dispose();
     _billEntryWeight.dispose();
@@ -475,6 +497,9 @@ class _TransactionScreenState extends State<TransactionScreen>
 
   void _onPartyNameChanged(String value) {
     _onPartyTextChanged(value);
+    if (_partySuggestions.isEmpty && value.trim().isNotEmpty) {
+      _refreshParties();
+    }
     setState(() {});
     final trimmed = value.trim();
     if (trimmed.isEmpty) return;

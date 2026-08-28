@@ -5,6 +5,16 @@ import '../theme/app_theme.dart';
 
 /// Sales/Purchase party field with a rich autocomplete dropdown.
 class PartySearchField extends StatefulWidget {
+  /// Filters [parties] for the autocomplete dropdown.
+  static Iterable<PartySuggestion> filterParties(
+    List<PartySuggestion> parties,
+    String query,
+  ) {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return const Iterable.empty();
+    return parties.where((p) => p.matches(trimmed)).take(24);
+  }
+
   const PartySearchField({
     super.key,
     required this.label,
@@ -33,25 +43,56 @@ class PartySearchField extends StatefulWidget {
 }
 
 class _PartySearchFieldState extends State<PartySearchField> {
-  Iterable<PartySuggestion> _options(String query) {
-    final trimmed = query.trim();
-    if (trimmed.isEmpty) return const Iterable.empty();
+  FocusNode? _attachedFocusNode;
 
-    final matches =
-        widget.parties.where((p) => p.matches(trimmed)).take(24).toList();
-    if (matches.isEmpty) return const Iterable.empty();
+  @override
+  void initState() {
+    super.initState();
+    _attachFocusListener(widget.focusNode);
+  }
 
-    if (matches.length == 1 && matches.first.isExactNameMatch(trimmed)) {
-      return const Iterable.empty();
+  @override
+  void didUpdateWidget(covariant PartySearchField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.focusNode != widget.focusNode) {
+      _detachFocusListener(oldWidget.focusNode);
+      _attachFocusListener(widget.focusNode);
     }
+  }
 
-    return matches;
+  @override
+  void dispose() {
+    _detachFocusListener(widget.focusNode);
+    super.dispose();
+  }
+
+  void _attachFocusListener(FocusNode? node) {
+    if (node == null || widget.onFocus == null) return;
+    _attachedFocusNode = node;
+    node.addListener(_handleFocus);
+  }
+
+  void _detachFocusListener(FocusNode? node) {
+    if (node == null) return;
+    node.removeListener(_handleFocus);
+    if (_attachedFocusNode == node) {
+      _attachedFocusNode = null;
+    }
+  }
+
+  void _handleFocus() {
+    if (_attachedFocusNode?.hasFocus == true) {
+      widget.onFocus?.call();
+    }
+  }
+
+  Iterable<PartySuggestion> _options(String query) {
+    return PartySearchField.filterParties(widget.parties, query);
   }
 
   @override
   Widget build(BuildContext context) {
     return Autocomplete<PartySuggestion>(
-      key: ValueKey('${widget.label}-${widget.parties.length}'),
       displayStringForOption: (option) => option.name,
       optionsBuilder: (value) => _options(value.text),
       onSelected: (selection) {

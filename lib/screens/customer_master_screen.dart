@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../database/database_helper.dart';
 import '../util/field_advance.dart';
 import '../util/focus_chain.dart';
+import '../util/screen_activation.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
 import '../widgets/material_tile_card.dart';
@@ -112,9 +113,11 @@ class CustomerMasterScreen extends StatefulWidget {
   const CustomerMasterScreen({
     super.key,
     this.embedded = false,
+    this.isActive = true,
   });
 
   final bool embedded;
+  final bool isActive;
 
   @override
   State<CustomerMasterScreen> createState() =>
@@ -122,7 +125,7 @@ class CustomerMasterScreen extends StatefulWidget {
 }
 
 class _CustomerMasterScreenState extends State<CustomerMasterScreen>
-    with FocusAdvanceMixin {
+    with FocusAdvanceMixin, ScreenActivationMixin<CustomerMasterScreen> {
   final _formKey = GlobalKey<FormState>();
 
   final _nameController = TextEditingController();
@@ -160,6 +163,17 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
 
     _searchController.addListener(_applySearch);
 
+    loadCustomers();
+  }
+
+  @override
+  bool get screenIsActive => widget.isActive;
+
+  @override
+  bool wasScreenActive(CustomerMasterScreen oldWidget) => oldWidget.isActive;
+
+  @override
+  void onScreenActivated() {
     loadCustomers();
   }
 
@@ -1007,6 +1021,7 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
                     onSelected: _prefillFromExistingName,
                     onFieldSubmitted: () => _focusNext(_mobileFocus),
                     onChanged: _onNameChanged,
+                    onFocus: loadCustomers,
                   ),
                 ),
                 const SizedBox(width: 10),
