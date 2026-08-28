@@ -361,6 +361,11 @@ app.post('/api/admin/reset', async (_req, res) => {
   }
 });
 
+// JSON 404 for unknown API routes (avoids HTML error pages in the Flutter client).
+app.use('/api', (_req, res) => {
+  res.status(404).json({ error: 'API route not found' });
+});
+
 const port = process.env.PORT || 3000;
 app.listen(port, '0.0.0.0', () => {
   console.log(`Jewellery API listening on port ${port}`);

@@ -213,4 +213,27 @@ void main() {
     expect(totals.purchaseCreditGrams, 8.25);
     expect(totals.salesAmount, 1000);
   });
+
+  test('party ledger ALL names mode includes all history by default', () {
+    final rows = buildPartyLedgerRecords(
+      customer: true,
+      transactions: [
+        {
+          'transactionType': 'SALES',
+          'partyName': 'Ravi',
+          'billNo': 1,
+          'totalPureWt': '10.000',
+          'totalValue': '151000',
+          'date': '01-08-2026',
+        },
+      ],
+      vouchers: const [],
+      from: DateTime(2026, 8, 28),
+      to: DateTime(2026, 8, 28),
+      allHistory: true,
+      goldRate: 15100,
+    );
+    expect(rows.length, 1);
+    expect(rows.first.partyName, 'Ravi');
+  });
 }

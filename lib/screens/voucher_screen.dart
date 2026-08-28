@@ -9,6 +9,7 @@ import '../database/database_helper.dart';
 import '../logic/gold_ledger.dart';
 import '../pdf/pdf_kit.dart';
 import '../util/focus_chain.dart';
+import '../util/party_save_prompt.dart';
 import '../theme/app_theme.dart';
 import '../theme/field_sizes.dart';
 import '../theme/responsive.dart';
@@ -33,8 +34,10 @@ class _VoucherScreenState extends State<VoucherScreen> {
   final _amountController = TextEditingController(text: '0.00');
   final _narrationController = TextEditingController();
   final _partyFocus = FocusNode();
+  final _modeFocus = FocusNode();
   final _amountFocus = FocusNode();
   final _narrationFocus = FocusNode();
+  final _saveFocus = FocusNode();
 
   bool _isCustomer = true;
   String _mode = 'CASH';
@@ -56,8 +59,10 @@ class _VoucherScreenState extends State<VoucherScreen> {
   @override
   void dispose() {
     _partyFocus.dispose();
+    _modeFocus.dispose();
     _amountFocus.dispose();
     _narrationFocus.dispose();
+    _saveFocus.dispose();
     _partyController.dispose();
     _amountController.dispose();
     _narrationController.dispose();
@@ -89,7 +94,7 @@ class _VoucherScreenState extends State<VoucherScreen> {
 
   Iterable<String> _partyOptions(String query) {
     final lower = query.trim().toLowerCase();
-    if (lower.isEmpty) return _names.take(12);
+    if (lower.isEmpty) return const Iterable.empty();
     return _names.where((n) => n.toLowerCase().contains(lower)).take(12);
   }
 
@@ -103,6 +108,23 @@ class _VoucherScreenState extends State<VoucherScreen> {
         .getPartyOutstanding(name, isCustomer: _isCustomer);
     if (!mounted) return;
     setState(() => _outstanding = result);
+  }
+
+  Future<bool> _ensurePartySaved() async {
+    final name = _partyController.text.trim();
+    if (name.isEmpty) return false;
+    if (_names.any((n) => n.toLowerCase() == name.toLowerCase())) {
+      return true;
+    }
+    final save = await confirmSaveNewParty(
+      context,
+      isCustomer: _isCustomer,
+      name: name,
+    );
+    if (!save) return false;
+    await DatabaseHelper.instance.ensureParty(name, isCustomer: _isCustomer);
+    await _load();
+    return true;
   }
 
   SettlementResult get _settlement {
@@ -119,6 +141,11 @@ class _VoucherScreenState extends State<VoucherScreen> {
     );
   }
 
+  String _signedGrams(double grams) {
+    final sign = grams > 0 ? '+' : grams < 0 ? '' : '';
+    return '$sign${grams.toStringAsFixed(3)} g';
+  }
+
   Future<void> _save() async {
     final name = _partyController.text.trim();
     final amount = double.tryParse(_amountController.text.trim()) ?? 0;
@@ -126,6 +153,7 @@ class _VoucherScreenState extends State<VoucherScreen> {
       _toast('Enter a name');
       return;
     }
+    if (!await _ensurePartySaved()) return;
     if (amount <= 0) {
       _toast('Enter a receipt amount');
       return;
@@ -141,7 +169,6 @@ class _VoucherScreenState extends State<VoucherScreen> {
     final s = _settlement;
     final type = _isCustomer ? 'RECEIPT' : 'PAYMENT';
 
-    await DatabaseHelper.instance.ensureParty(name, isCustomer: _isCustomer);
     await DatabaseHelper.instance.insertVoucher({
       'voucherType': type,
       'voucherNo': _nextNo,
@@ -167,7 +194,7 @@ class _VoucherScreenState extends State<VoucherScreen> {
       'mobile': '',
       'city': '',
       'cr': deltaG < 0 ? deltaG.abs().toStringAsFixed(3) : '0',
-      'dr': deltaG > 0 ? deltaG.toStringAsFixed(3) : '0',
+      'dr': deltaG > 0 ? deltaG.abs().toStringAsFixed(3) : '0',
       'narration':
           'Voucher $type #$_nextNo · ${s.paymentLabel}. Old ${s.oldGrams.toStringAsFixed(3)}g → New ${s.newGrams.toStringAsFixed(3)}g',
       'balanceUnit': 'GRAMS',
@@ -210,7 +237,7 @@ class _VoucherScreenState extends State<VoucherScreen> {
     _amountController.text = '0.00';
     _narrationController.clear();
     _toast(
-        'Voucher #$type-${saved['voucherNo']} saved. New gold balance ${s.newGrams.toStringAsFixed(3)} g');
+        'Voucher #$type-${saved['voucherNo']} saved. Balance ${_signedGrams(s.newGrams)}');
     await _load();
     if (!mounted) return;
     await _shareVoucherPdf(saved);
@@ -243,8 +270,7 @@ class _VoucherScreenState extends State<VoucherScreen> {
             pw.Text('Amount: ${row['amount'] ?? ''}'),
             pw.Text('Cash to gold: ${row['cashToGold'] ?? '0'} g'),
             pw.Text('G.P rate used: ${row['goldRateUsed'] ?? ''}'),
-            pw.Text('Old gold: ${row['oldGrams'] ?? ''} g'),
-            pw.Text('New gold: ${row['newGrams'] ?? ''} g'),
+            pw.Text('Balance: ${row['newGrams'] ?? ''} g'),
             if ((row['narration'] ?? '').toString().isNotEmpty)
               pw.Text('Narration: ${row['narration']}'),
             pw.SizedBox(height: 16),
@@ -273,6 +299,7 @@ class _VoucherScreenState extends State<VoucherScreen> {
   @override
   Widget build(BuildContext context) {
     final s = _settlement;
+    final currentGrams = _outstanding['grams'] ?? 0;
     final form = Container(
       decoration: BoxDecoration(
         color: AppColors.cardWhite,
@@ -310,41 +337,73 @@ class _VoucherScreenState extends State<VoucherScreen> {
             ],
           ),
           const SizedBox(height: 10),
-          PartyAutocompleteField(
-            label: _isCustomer ? 'Customer Name' : 'Supplier Name',
-            controller: _partyController,
-            options: _partyOptions,
-            helperText: 'Search and pick a saved name, or type a new one',
-            focusNode: _partyFocus,
-            onChanged: (_) => _onParty(),
-            onFieldSubmitted: () =>
-                FocusChain.focus(_amountFocus, controller: _amountController),
+          SizedBox(
+            width: FieldSizes.name,
+            child: PartyAutocompleteField(
+              label: _isCustomer ? 'Customer Name' : 'Supplier Name',
+              controller: _partyController,
+              options: _partyOptions,
+              helperText: 'Search saved name or type a new one',
+              focusNode: _partyFocus,
+              onChanged: (_) => _onParty(),
+              onFieldSubmitted: () async {
+                if (!await _ensurePartySaved()) return;
+                FocusChain.focus(_modeFocus);
+              },
+            ),
           ),
-          const SizedBox(height: 6),
-          Text(
-            'Old balance ${_outstanding['grams']?.toStringAsFixed(3) ?? '0.000'} g'
-            '${GoldLedger.goldRate(_rates) > 0 ? '  ·  ₹${GoldLedger.goldToCash(_outstanding['grams'] ?? 0, GoldLedger.goldRate(_rates)).toStringAsFixed(2)}' : ''}',
-            style: const TextStyle(
-                fontWeight: FontWeight.w600, color: AppColors.navy),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.headerBand,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Text(
+              'Balance  ${_signedGrams(currentGrams)}',
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                color: AppColors.navy,
+              ),
+            ),
           ),
           const SizedBox(height: 12),
           Row(
             children: [
               SizedBox(
                 width: FieldSizes.typeDropdown + 24,
-                child: DropdownButtonFormField<String>(
-                  value: _mode,
-                  decoration: const InputDecoration(labelText: 'Mode'),
-                  isDense: true,
-                  items: _modes
-                      .map((m) => DropdownMenuItem(value: m, child: Text(m)))
-                      .toList(),
-                  onChanged: (v) => setState(() => _mode = v!),
+                child: Focus(
+                  focusNode: _modeFocus,
+                  onKeyEvent: (_, event) {
+                    return KeyEventResult.ignored;
+                  },
+                  child: DropdownButtonFormField<String>(
+                    value: _mode,
+                    decoration: const InputDecoration(
+                      labelText: 'Mode',
+                      isDense: true,
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                    ),
+                    isDense: true,
+                    items: _modes
+                        .map((m) => DropdownMenuItem(value: m, child: Text(m)))
+                        .toList(),
+                    onChanged: (v) {
+                      setState(() => _mode = v!);
+                      FocusChain.focus(
+                        _amountFocus,
+                        controller: _amountController,
+                      );
+                    },
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
               SizedBox(
-                width: FieldSizes.cash + 16,
+                width: FieldSizes.cash,
                 child: TextField(
                   controller: _amountController,
                   focusNode: _amountFocus,
@@ -353,51 +412,56 @@ class _VoucherScreenState extends State<VoucherScreen> {
                   textInputAction: TextInputAction.next,
                   onChanged: (_) => setState(() {}),
                   onSubmitted: (_) => FocusChain.focus(
-                      _narrationFocus, controller: _narrationController),
+                    _narrationFocus,
+                    controller: _narrationController,
+                  ),
                   decoration: InputDecoration(
+                    isDense: true,
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
                     labelText: _mode == 'GOLD'
                         ? 'Gold (g)'
                         : _mode == 'CASH'
-                            ? 'Cash Received (₹)'
+                            ? 'Cash (₹)'
                             : 'Amount (₹)',
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: AppColors.headerBand,
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              s.isGoldPayment
-                  ? 'Gold ${s.paymentAmount.toStringAsFixed(3)} g received'
-                  : s.ratePerGram <= 0
-                      ? 'Set G.P RATE to convert cash to gold'
-                      : '₹${s.paymentAmount.toStringAsFixed(2)} → ${s.cashToGoldGrams.toStringAsFixed(3)} g',
+          if ((double.tryParse(_amountController.text.trim()) ?? 0) > 0) ...[
+            const SizedBox(height: 8),
+            Text(
+              'After this voucher: ${_signedGrams(s.newGrams)}',
               style: const TextStyle(
-                  fontWeight: FontWeight.w600, color: AppColors.navy),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.mutedBlue,
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'New gold balance ${s.newGrams.toStringAsFixed(3)} g',
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
+          ],
           const SizedBox(height: 10),
-          TextField(
-            controller: _narrationController,
-            focusNode: _narrationFocus,
-            textInputAction: TextInputAction.done,
-            decoration: const InputDecoration(labelText: 'Narration'),
+          SizedBox(
+            width: FieldSizes.name,
+            child: TextField(
+              controller: _narrationController,
+              focusNode: _narrationFocus,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => FocusChain.focus(_saveFocus),
+              decoration: const InputDecoration(
+                labelText: 'Narration',
+                isDense: true,
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+              ),
+            ),
           ),
           const SizedBox(height: 14),
           SizedBox(
+            width: 220,
             height: 42,
             child: ElevatedButton(
+              focusNode: _saveFocus,
               onPressed: _saving ? null : _save,
               child: _saving
                   ? const SizedBox(
@@ -420,7 +484,9 @@ class _VoucherScreenState extends State<VoucherScreen> {
           '${_isCustomer ? 'RECEIPTS' : 'PAYMENTS'} (${_history.length})',
           textAlign: TextAlign.center,
           style: const TextStyle(
-              fontWeight: FontWeight.w600, color: AppColors.mutedBlue),
+              fontWeight: FontWeight.w600,
+              fontSize: 12,
+              color: AppColors.mutedBlue),
         ),
         const SizedBox(height: 8),
         if (_history.isEmpty)
@@ -429,34 +495,44 @@ class _VoucherScreenState extends State<VoucherScreen> {
             child: Center(child: Text('No vouchers yet')),
           )
         else
-          ..._history.map((row) {
-            return MaterialTileCard(
-              margin: const EdgeInsets.only(bottom: 8),
-              child: ListTile(
-                dense: true,
-                onTap: () => _shareVoucherPdf(row),
-                title: Text('${row['partyName']}  ·  ${row['voucherType']}-#${row['voucherNo']}'),
-                subtitle: Text(
-                  '${row['paymentMode']} ${row['amount']}  '
-                  'cash→gold ${row['cashToGold'] ?? '0'} g  '
-                  'old ${row['oldGrams']} → new ${row['newGrams']}  '
-                  '${row['date']} ${row['time']}',
-                ),
-                trailing: IconButton(
-                  icon: const Icon(Icons.share, size: 18, color: AppColors.mutedBlue),
-                  onPressed: () => _shareVoucherPdf(row),
-                ),
-              ),
-            );
-          }),
+          Expanded(
+            child: ListView(
+              children: _history.map((row) {
+                return MaterialTileCard(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  child: ListTile(
+                    dense: true,
+                    onTap: () => _shareVoucherPdf(row),
+                    title: Text(
+                      '${row['partyName']}',
+                      style: const TextStyle(fontSize: 13),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text(
+                      '${row['voucherType']}-#${row['voucherNo']}  '
+                      '${row['paymentMode']} ${row['amount']}  '
+                      '${row['date']}',
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.share,
+                          size: 16, color: AppColors.mutedBlue),
+                      onPressed: () => _shareVoucherPdf(row),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
       ],
     );
 
     final content = _loading
         ? const Center(child: CircularProgressIndicator())
         : WorkbenchLayout(
-            equalSplit: true,
-            disableScroll: true,
+            secondaryWidth: 220,
             primary: form,
             secondary: list,
           );

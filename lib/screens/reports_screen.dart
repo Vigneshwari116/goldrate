@@ -491,13 +491,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final query =
         customer ? _customerNameQuery.text : _supplierNameQuery.text;
     final goldRate = GoldLedger.goldRate(_rates);
+  // ALL names mode shows every ledger row; date chips still apply when NAME filter
+  // is active or when SHOW ALL HISTORY is not set and user narrowed dates.
     final rows = buildPartyLedgerRecords(
       customer: customer,
       transactions: _txns,
       vouchers: _vouchers,
       from: _from,
       to: _to,
-      allHistory: _allHistory,
+      allHistory: _allHistory || !byName,
       nameQuery: byName ? query : '',
       goldRate: goldRate,
     );

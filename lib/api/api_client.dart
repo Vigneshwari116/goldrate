@@ -16,9 +16,29 @@ class ApiClient {
         'Content-Type': 'application/json',
       };
 
+  static dynamic _parseBody(http.Response res) {
+    if (res.body.isEmpty) return null;
+    final trimmed = res.body.trimLeft();
+    if (trimmed.startsWith('<!DOCTYPE') ||
+        trimmed.startsWith('<html') ||
+        trimmed.startsWith('<HTML')) {
+      throw Exception(
+        'Server returned an HTML error page (${res.statusCode}) instead of JSON. '
+        'The API route may be missing on the server — redeploy the latest '
+        'server/index.js (including /api/admin/clear-transactions).',
+      );
+    }
+    try {
+      return jsonDecode(res.body);
+    } on FormatException catch (e) {
+      throw Exception(
+        'Invalid server response (${res.statusCode}): ${e.message}',
+      );
+    }
+  }
+
   static Future<Map<String, dynamic>> _decodeObject(http.Response res) async {
-    if (res.body.isEmpty) return {};
-    final body = jsonDecode(res.body);
+    final body = _parseBody(res);
     if (res.statusCode >= 400) {
       throw Exception(body is Map ? (body['error'] ?? res.body) : res.body);
     }
@@ -27,7 +47,7 @@ class ApiClient {
   }
 
   static Future<List<Map<String, dynamic>>> _decodeList(http.Response res) async {
-    final body = jsonDecode(res.body);
+    final body = _parseBody(res);
     if (res.statusCode >= 400) {
       throw Exception(body is Map ? (body['error'] ?? res.body) : res.body);
     }
@@ -38,7 +58,7 @@ class ApiClient {
   }
 
   static Future<List<String>> _decodeStringList(http.Response res) async {
-    final body = jsonDecode(res.body);
+    final body = _parseBody(res);
     if (res.statusCode >= 400) {
       throw Exception(body is Map ? (body['error'] ?? res.body) : res.body);
     }

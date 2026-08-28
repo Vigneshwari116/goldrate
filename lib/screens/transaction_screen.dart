@@ -15,6 +15,7 @@ import '../pdf/estimate_receipt_pdf.dart';
 import '../pdf/pdf_kit.dart';
 import '../models/party_suggestion.dart';
 import '../widgets/party_search_field.dart';
+import '../util/party_save_prompt.dart';
 import '../util/focus_chain.dart';
 import '../theme/app_theme.dart';
 import '../theme/field_sizes.dart';
@@ -69,14 +70,33 @@ class _PanelLine {
   final String type;
   final double weight;
   final double touch;
+  final double? cashAmount;
 
   const _PanelLine({
     required this.type,
-    required this.weight,
-    required this.touch,
+    this.weight = 0,
+    this.touch = 0,
+    this.cashAmount,
   });
 
-  double get pureWt => weight * touch / 100;
+  factory _PanelLine.cash(double amount) => _PanelLine(
+        type: 'CASH',
+        cashAmount: amount,
+      );
+
+  factory _PanelLine.metal({
+    required String type,
+    required double weight,
+    required double touch,
+  }) =>
+      _PanelLine(type: type, weight: weight, touch: touch);
+
+  bool get isCash => type == 'CASH';
+
+  double get metalPureWt => isCash ? 0 : weight * touch / 100;
+
+  double pureWtAtRate(double goldRate) =>
+      isCash ? GoldLedger.cashToGold(cashAmount ?? 0, goldRate) : metalPureWt;
 }
 
 class TransactionScreen extends StatefulWidget {
@@ -95,26 +115,27 @@ class TransactionScreen extends StatefulWidget {
 
 class _TransactionScreenState extends State<TransactionScreen> {
   static const _itemTypes = ['GWT', 'FWT', 'KWT', 'SWT'];
+  static const _paymentItemTypes = ['GWT', 'FWT', 'KWT', 'SWT', 'CASH'];
   static final RegExp _numberRegex = RegExp(r'^\d+(\.\d+)?$');
 
   final _partyController = TextEditingController();
-  final _paymentCashController = TextEditingController(text: '0.00');
 
   final List<_TransactionItem> _billLines = [];
-  final List<_PanelLine> _paymentMetalLines = [];
+  final List<_PanelLine> _paymentLines = [];
 
   String _billEntryType = _itemTypes.first;
-  String _paymentEntryType = _itemTypes.first;
+  String _paymentEntryType = _paymentItemTypes.first;
   final _billEntryWeight = TextEditingController(text: '0.000');
   final _billEntryTouch = TextEditingController(text: '0.00');
   final _paymentEntryWeight = TextEditingController(text: '0.000');
   final _paymentEntryTouch = TextEditingController(text: '0.00');
+  final _paymentEntryAmount = TextEditingController(text: '0.00');
 
   final _billEntryWeightFocus = FocusNode();
   final _billEntryTouchFocus = FocusNode();
   final _paymentEntryWeightFocus = FocusNode();
   final _paymentEntryTouchFocus = FocusNode();
-  final _paymentCashFocus = FocusNode();
+  final _paymentEntryAmountFocus = FocusNode();
   final _saveFocus = FocusNode();
 
   bool _billAddPrompt = false;
@@ -144,9 +165,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
       _partyController.text.trim().isNotEmpty || _hasBillOrPaymentData;
 
   bool get _hasBillOrPaymentData =>
-      _billLines.isNotEmpty ||
-      _paymentMetalLines.isNotEmpty ||
-      (double.tryParse(_paymentCashController.text.trim()) ?? 0) > 0;
+      _billLines.isNotEmpty || _paymentLines.isNotEmpty;
 
   List<_TransactionItem> get _billItems => _billLines;
 
@@ -162,26 +181,29 @@ class _TransactionScreenState extends State<TransactionScreen> {
   double get _billTotalPure =>
       _billLines.fold(0, (sum, item) => sum + item.pureWt);
 
-  double get _paymentMetalPure =>
-      _paymentMetalLines.fold(0, (sum, line) => sum + line.pureWt);
+  double get _paymentMetalPure => _paymentLines
+      .where((line) => !line.isCash)
+      .fold(0, (sum, line) => sum + line.metalPureWt);
 
-  double get _paymentCashAmount =>
-      double.tryParse(_paymentCashController.text.trim()) ?? 0;
+  double get _paymentTotalCash => _paymentLines
+      .where((line) => line.isCash)
+      .fold(0, (sum, line) => sum + (line.cashAmount ?? 0));
 
-  double get _goldRate => GoldLedger.goldRate(_rates);
-
-  double get _paymentCashGold =>
-      GoldLedger.cashToGold(_paymentCashAmount, _goldRate);
+  double get _paymentCashGold => _paymentLines
+      .where((line) => line.isCash)
+      .fold(0, (sum, line) => sum + line.pureWtAtRate(_goldRate));
 
   double get _paymentTotalPure => _paymentMetalPure + _paymentCashGold;
+
+  double get _goldRate => GoldLedger.goldRate(_rates);
 
   double get _balancePure => _billTotalPure - _paymentTotalPure;
 
   bool get _paymentIsCashOnly =>
-      _paymentCashAmount > 0 && _paymentMetalPure <= 0;
+      _paymentLines.isNotEmpty && _paymentLines.every((line) => line.isCash);
 
   double get _paymentAmount => _paymentIsCashOnly
-      ? _paymentCashAmount
+      ? _paymentTotalCash
       : _paymentTotalPure;
 
   SettlementResult get _settlement {
@@ -202,11 +224,6 @@ class _TransactionScreenState extends State<TransactionScreen> {
     super.initState();
     _load();
     _partyController.addListener(() => _onPartyTextChanged());
-    _paymentCashController.addListener(_onPanelChanged);
-  }
-
-  void _onPanelChanged() {
-    if (mounted) setState(() {});
   }
 
   double _entryPure(TextEditingController weight, TextEditingController touch) {
@@ -222,9 +239,10 @@ class _TransactionScreenState extends State<TransactionScreen> {
   }
 
   void _resetPaymentEntry({bool resetType = true}) {
-    if (resetType) _paymentEntryType = _itemTypes.first;
+    if (resetType) _paymentEntryType = _paymentItemTypes.first;
     _paymentEntryWeight.text = '0.000';
     _paymentEntryTouch.text = '0.00';
+    _paymentEntryAmount.text = '0.00';
   }
 
   void _onEntryWeightChanged(
@@ -262,6 +280,15 @@ class _TransactionScreenState extends State<TransactionScreen> {
   }
 
   _PanelLine? _validatedPaymentEntry() {
+    if (_paymentEntryType == 'CASH') {
+      final amount = double.tryParse(_paymentEntryAmount.text.trim());
+      if (amount == null ||
+          !_numberRegex.hasMatch(_paymentEntryAmount.text.trim()) ||
+          amount <= 0) {
+        return null;
+      }
+      return _PanelLine.cash(amount);
+    }
     final weight = double.tryParse(_paymentEntryWeight.text.trim());
     final touch = double.tryParse(_paymentEntryTouch.text.trim());
     if (weight == null ||
@@ -273,7 +300,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
         !_numberRegex.hasMatch(_paymentEntryTouch.text.trim())) {
       return null;
     }
-    return _PanelLine(
+    return _PanelLine.metal(
       type: _paymentEntryType,
       weight: weight,
       touch: touch,
@@ -303,13 +330,34 @@ class _TransactionScreenState extends State<TransactionScreen> {
     if (_paymentAddPrompt) return;
     final line = _validatedPaymentEntry();
     if (line == null) {
-      _showMessage('Enter weight and touch before continuing');
+      _showMessage(_paymentEntryType == 'CASH'
+          ? 'Enter a cash amount before continuing'
+          : 'Enter weight and touch before continuing');
+      return;
+    }
+    if (line.isCash && _goldRate <= 0) {
+      _showMessage("Set G.P RATE on Master so cash can convert to gold");
       return;
     }
     setState(() {
-      _paymentMetalLines.add(line);
+      _paymentLines.add(line);
       _paymentAddPrompt = true;
     });
+  }
+
+  void _onPaymentTypeChanged(String type) {
+    setState(() => _paymentEntryType = type);
+    if (type == 'CASH') {
+      FocusChain.focusNextFrame(
+        _paymentEntryAmountFocus,
+        controller: _paymentEntryAmount,
+      );
+    } else {
+      FocusChain.focusNextFrame(
+        _paymentEntryWeightFocus,
+        controller: _paymentEntryWeight,
+      );
+    }
   }
 
   void _billAddAnother(bool add) {
@@ -348,16 +396,16 @@ class _TransactionScreenState extends State<TransactionScreen> {
   @override
   void dispose() {
     _partyController.dispose();
-    _paymentCashController.dispose();
     _billEntryWeight.dispose();
     _billEntryTouch.dispose();
     _paymentEntryWeight.dispose();
     _paymentEntryTouch.dispose();
+    _paymentEntryAmount.dispose();
     _billEntryWeightFocus.dispose();
     _billEntryTouchFocus.dispose();
     _paymentEntryWeightFocus.dispose();
     _paymentEntryTouchFocus.dispose();
-    _paymentCashFocus.dispose();
+    _paymentEntryAmountFocus.dispose();
     _saveFocus.dispose();
     super.dispose();
   }
@@ -422,10 +470,32 @@ class _TransactionScreenState extends State<TransactionScreen> {
     );
   }
 
+  Future<bool> _ensurePartySaved() async {
+    final name = _partyController.text.trim();
+    if (name.isEmpty) return false;
+    final exists =
+        _partySuggestions.any((party) => party.isExactNameMatch(name));
+    if (exists) return true;
+
+    final save = await confirmSaveNewParty(
+      context,
+      isCustomer: _isCustomerParty,
+      name: name,
+    );
+    if (!save) return false;
+
+    await DatabaseHelper.instance.ensureParty(
+      name,
+      isCustomer: _isCustomerParty,
+    );
+    await _refreshParties();
+    _onPartyTextChanged(name);
+    return true;
+  }
+
   void _clearPanels() {
     _billLines.clear();
-    _paymentMetalLines.clear();
-    _paymentCashController.text = '0.00';
+    _paymentLines.clear();
     _billAddPrompt = false;
     _paymentAddPrompt = false;
     _resetBillEntry();
@@ -459,6 +529,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
       _showMessage("Enter a name");
       return;
     }
+    if (!await _ensurePartySaved()) return;
     if (_billItems.isEmpty) {
       _showMessage(_isPurchase
           ? "Enter at least one receipt weight (gold received)"
@@ -501,10 +572,6 @@ class _TransactionScreenState extends State<TransactionScreen> {
       'goldRateUsed': s.ratePerGram.toStringAsFixed(2),
     };
 
-    await DatabaseHelper.instance.ensureParty(
-      _partyController.text.trim(),
-      isCustomer: _isCustomerParty,
-    );
     await DatabaseHelper.instance.insertTransaction(record);
     await _postToLedger(date, time, s);
 
@@ -979,10 +1046,13 @@ class _TransactionScreenState extends State<TransactionScreen> {
               helperText: 'Search saved name, mobile, or city',
               onFocus: _refreshParties,
               onSelected: _selectParty,
-              onFieldSubmitted: () => FocusChain.focusNextFrame(
-                _billEntryWeightFocus,
-                controller: _billEntryWeight,
-              ),
+              onFieldSubmitted: () async {
+                if (!await _ensurePartySaved()) return;
+                FocusChain.focusNextFrame(
+                  _billEntryWeightFocus,
+                  controller: _billEntryWeight,
+                );
+              },
               onChanged: (v) {
                 _onPartyTextChanged(v);
                 setState(() {});
@@ -1055,6 +1125,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
     required List<Widget> rows,
     required String totalLabel,
     required double totalPure,
+    double? totalCash,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -1089,6 +1160,17 @@ class _TransactionScreenState extends State<TransactionScreen> {
                 ),
               ),
               const Spacer(),
+              if (totalCash != null && totalCash > 0) ...[
+                Text(
+                  '₹${totalCash.toStringAsFixed(2)}',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.navy,
+                  ),
+                ),
+                const SizedBox(width: 10),
+              ],
               Text(
                 '${totalPure.toStringAsFixed(3)} g',
                 style: const TextStyle(
@@ -1191,6 +1273,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
     required double weight,
     required double touch,
     required double pureWt,
+    double? cashAmount,
     double? rate,
     required VoidCallback onRemove,
     int index = 0,
@@ -1203,6 +1286,8 @@ class _TransactionScreenState extends State<TransactionScreen> {
       );
     }
 
+    final isCash = type == 'CASH';
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
@@ -1212,8 +1297,12 @@ class _TransactionScreenState extends State<TransactionScreen> {
       child: Row(
         children: [
           cell(type, flex: 2),
-          cell(weight.toStringAsFixed(3), flex: 2, align: TextAlign.right),
-          cell(touch.toStringAsFixed(2), flex: 2, align: TextAlign.right),
+          cell(
+            isCash ? '₹${(cashAmount ?? 0).toStringAsFixed(2)}' : weight.toStringAsFixed(3),
+            flex: 2,
+            align: TextAlign.right,
+          ),
+          cell(isCash ? '—' : touch.toStringAsFixed(2), flex: 2, align: TextAlign.right),
           cell(pureWt.toStringAsFixed(3), flex: 2, align: TextAlign.right),
           if (rate != null)
             cell(rate.toStringAsFixed(0), flex: 2, align: TextAlign.right),
@@ -1228,6 +1317,159 @@ class _TransactionScreenState extends State<TransactionScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _paymentEntryBlock({
+    required String prefix,
+    required bool enabled,
+  }) {
+    final isCash = _paymentEntryType == 'CASH';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            _compactField(
+              width: FieldSizes.typeDropdown + 8,
+              child: DropdownButtonFormField<String>(
+                value: _paymentEntryType,
+                isDense: true,
+                decoration: const InputDecoration(
+                  labelText: 'Type',
+                  isDense: true,
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                ),
+                items: _paymentItemTypes
+                    .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                    .toList(),
+                onChanged: enabled
+                    ? (v) {
+                        if (v == null) return;
+                        _onPaymentTypeChanged(v);
+                      }
+                    : null,
+              ),
+            ),
+            if (!isCash) ...[
+              const SizedBox(width: 6),
+              _compactField(
+                width: FieldSizes.weight,
+                child: TextFormField(
+                  controller: _paymentEntryWeight,
+                  focusNode: _paymentEntryWeightFocus,
+                  enabled: enabled,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                  ],
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(fontSize: 13),
+                  textInputAction: TextInputAction.next,
+                  decoration: InputDecoration(
+                    labelText: '$prefix.Weight',
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 6, vertical: 8),
+                  ),
+                  onTap: () => _paymentEntryWeight.selection = TextSelection(
+                    baseOffset: 0,
+                    extentOffset: _paymentEntryWeight.text.length,
+                  ),
+                  onChanged: (_) => _onEntryWeightChanged(
+                    _paymentEntryWeight,
+                    _paymentEntryTouchFocus,
+                    _paymentEntryTouch,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              _compactField(
+                width: FieldSizes.touch,
+                child: TextFormField(
+                  controller: _paymentEntryTouch,
+                  focusNode: _paymentEntryTouchFocus,
+                  enabled: enabled,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                  ],
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(fontSize: 13),
+                  textInputAction: TextInputAction.done,
+                  decoration: InputDecoration(
+                    labelText: '$prefix.Touch %',
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 6, vertical: 8),
+                  ),
+                  onTap: () => _paymentEntryTouch.selection = TextSelection(
+                    baseOffset: 0,
+                    extentOffset: _paymentEntryTouch.text.length,
+                  ),
+                  onFieldSubmitted: (_) => _commitPaymentEntry(),
+                  onChanged: (_) => setState(() {}),
+                ),
+              ),
+              const SizedBox(width: 6),
+              _compactField(
+                width: FieldSizes.pure,
+                child: InputDecorator(
+                  decoration: InputDecoration(
+                    labelText: '$prefix.Pure Wt',
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 6, vertical: 8),
+                  ),
+                  child: Text(
+                    _entryPure(_paymentEntryWeight, _paymentEntryTouch)
+                        .toStringAsFixed(3),
+                    textAlign: TextAlign.right,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+        if (isCash) ...[
+          const SizedBox(height: 6),
+          _compactField(
+            width: FieldSizes.cash,
+            child: TextFormField(
+              controller: _paymentEntryAmount,
+              focusNode: _paymentEntryAmountFocus,
+              enabled: enabled,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+              ],
+              textAlign: TextAlign.right,
+              style: const TextStyle(fontSize: 13),
+              textInputAction: TextInputAction.done,
+              decoration: const InputDecoration(
+                labelText: '₹ Amount',
+                isDense: true,
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+              ),
+              onTap: () => _paymentEntryAmount.selection = TextSelection(
+                baseOffset: 0,
+                extentOffset: _paymentEntryAmount.text.length,
+              ),
+              onFieldSubmitted: (_) => _commitPaymentEntry(),
+              onChanged: (_) => setState(() {}),
+            ),
+          ),
+        ],
+      ],
     );
   }
 
@@ -1395,83 +1637,15 @@ class _TransactionScreenState extends State<TransactionScreen> {
     );
   }
 
-  Widget _cashRow() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        children: [
-          _compactField(
-            width: FieldSizes.typeDropdown,
-            child: InputDecorator(
-              decoration: const InputDecoration(
-                isDense: true,
-                contentPadding:
-                    EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-              ),
-              child: const Text(
-                'CASH',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 6),
-          _compactField(
-            width: FieldSizes.cash,
-            child: TextFormField(
-              controller: _paymentCashController,
-              focusNode: _paymentCashFocus,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-              ],
-              textAlign: TextAlign.right,
-              style: const TextStyle(fontSize: 13),
-              decoration: const InputDecoration(
-                labelText: '₹ Amount',
-                isDense: true,
-                contentPadding:
-                    EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-              ),
-              onTap: () => _paymentCashController.selection = TextSelection(
-                baseOffset: 0,
-                extentOffset: _paymentCashController.text.length,
-              ),
-              onChanged: (_) => setState(() {}),
-            ),
-          ),
-          if (_paymentCashAmount > 0 && _goldRate > 0) ...[
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                '→ ${_paymentCashGold.toStringAsFixed(3)} g @ ₹${_goldRate.toStringAsFixed(0)}/g',
-                style: const TextStyle(fontSize: 10.5, color: Colors.black54),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
   Widget _paymentPanel({required String title, required String prefix}) {
     return _panelShell(
       title: title,
-      totalLabel: '$title total pure wt',
+      totalLabel: '$title totals',
       totalPure: _paymentTotalPure,
+      totalCash: _paymentTotalCash,
       rows: [
-        _metalEntryRow(
+        _paymentEntryBlock(
           prefix: prefix,
-          selectedType: _paymentEntryType,
-          onTypeChanged: (v) => setState(() => _paymentEntryType = v),
-          weight: _paymentEntryWeight,
-          touch: _paymentEntryTouch,
-          weightFocus: _paymentEntryWeightFocus,
-          touchFocus: _paymentEntryTouchFocus,
-          onTouchSubmitted: _commitPaymentEntry,
           enabled: !_paymentAddPrompt,
         ),
         _inlineAddPrompt(
@@ -1480,20 +1654,19 @@ class _TransactionScreenState extends State<TransactionScreen> {
         ),
         _linesTable(
           rows: [
-            for (var i = 0; i < _paymentMetalLines.length; i++)
+            for (var i = 0; i < _paymentLines.length; i++)
               _lineDataRow(
                 index: i,
-                type: _paymentMetalLines[i].type,
-                weight: _paymentMetalLines[i].weight,
-                touch: _paymentMetalLines[i].touch,
-                pureWt: _paymentMetalLines[i].pureWt,
-                onRemove: () => setState(() => _paymentMetalLines.removeAt(i)),
+                type: _paymentLines[i].type,
+                weight: _paymentLines[i].weight,
+                touch: _paymentLines[i].touch,
+                cashAmount: _paymentLines[i].cashAmount,
+                pureWt: _paymentLines[i].pureWtAtRate(_goldRate),
+                onRemove: () => setState(() => _paymentLines.removeAt(i)),
               ),
           ],
         ),
-        const SizedBox(height: 8),
-        _cashRow(),
-        if (_goldRate <= 0 && _paymentCashAmount > 0)
+        if (_goldRate <= 0 && _paymentTotalCash > 0)
           const Text(
             'Set G.P RATE on Master to convert cash to gold.',
             style: TextStyle(fontSize: 10.5, color: Colors.black54),
