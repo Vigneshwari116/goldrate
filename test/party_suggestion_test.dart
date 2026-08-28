@@ -32,13 +32,13 @@ void main() {
     expect(party.isExactNameMatch('Gaj'), isFalse);
   });
 
-  test('filterParties shows all parties when query is empty', () {
+  test('filterParties hides list until user starts typing', () {
     const parties = [
       PartySuggestion(name: 'ab'),
       PartySuggestion(name: 'raja'),
     ];
-    final options = PartySearchField.filterParties(parties, '').toList();
-    expect(options, hasLength(2));
+    expect(PartySearchField.filterParties(parties, ''), isEmpty);
+    expect(PartySearchField.filterParties(parties, 'a'), hasLength(2));
   });
 
   test('filterParties keeps single exact match visible in dropdown', () {

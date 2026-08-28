@@ -283,7 +283,7 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen>
 
   Iterable<String> _nameOptions(String query) {
     final lower = query.trim().toLowerCase();
-    if (lower.isEmpty) return _allNames.take(12);
+    if (lower.isEmpty) return const Iterable.empty();
     return _allNames.where((n) => n.toLowerCase().contains(lower)).take(12);
   }
 
