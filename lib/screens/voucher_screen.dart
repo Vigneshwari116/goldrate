@@ -175,7 +175,7 @@ class _VoucherScreenState extends State<VoucherScreen>
 
   Iterable<String> _partyOptions(String query) {
     final lower = query.trim().toLowerCase();
-    if (lower.isEmpty) return const Iterable.empty();
+    if (lower.isEmpty) return _names.take(12);
     return _names.where((n) => n.toLowerCase().contains(lower)).take(12);
   }
 

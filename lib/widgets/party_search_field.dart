@@ -8,10 +8,13 @@ class PartySearchField extends StatefulWidget {
   /// Filters [parties] for the autocomplete dropdown.
   static Iterable<PartySuggestion> filterParties(
     List<PartySuggestion> parties,
-    String query,
-  ) {
+    String query, {
+    bool includeAllWhenEmpty = true,
+  }) {
     final trimmed = query.trim();
-    if (trimmed.isEmpty) return const Iterable.empty();
+    if (trimmed.isEmpty) {
+      return includeAllWhenEmpty ? parties.take(24) : const Iterable.empty();
+    }
     return parties.where((p) => p.matches(trimmed)).take(24);
   }
 
@@ -43,11 +46,17 @@ class PartySearchField extends StatefulWidget {
 }
 
 class _PartySearchFieldState extends State<PartySearchField> {
+  late final SearchController _searchController;
   FocusNode? _attachedFocusNode;
+  bool _syncingControllers = false;
 
   @override
   void initState() {
     super.initState();
+    _searchController = SearchController();
+    _setSearchText(widget.controller.text);
+    _searchController.addListener(_onSearchTextChanged);
+    widget.controller.addListener(_onWidgetTextChanged);
     _attachFocusListener(widget.focusNode);
   }
 
@@ -58,16 +67,46 @@ class _PartySearchFieldState extends State<PartySearchField> {
       _detachFocusListener(oldWidget.focusNode);
       _attachFocusListener(widget.focusNode);
     }
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_onWidgetTextChanged);
+      widget.controller.addListener(_onWidgetTextChanged);
+      _setSearchText(widget.controller.text);
+    }
   }
 
   @override
   void dispose() {
     _detachFocusListener(widget.focusNode);
+    _searchController.removeListener(_onSearchTextChanged);
+    widget.controller.removeListener(_onWidgetTextChanged);
+    _searchController.dispose();
     super.dispose();
   }
 
+  void _setSearchText(String value) {
+    if (_searchController.text == value) return;
+    _syncingControllers = true;
+    _searchController.text = value;
+    _searchController.selection = TextSelection.collapsed(offset: value.length);
+    _syncingControllers = false;
+  }
+
+  void _onWidgetTextChanged() {
+    if (_syncingControllers) return;
+    _setSearchText(widget.controller.text);
+  }
+
+  void _onSearchTextChanged() {
+    if (_syncingControllers) return;
+    final value = _searchController.text;
+    if (widget.controller.text != value) {
+      widget.controller.text = value;
+    }
+    widget.onChanged?.call(value);
+  }
+
   void _attachFocusListener(FocusNode? node) {
-    if (node == null || widget.onFocus == null) return;
+    if (node == null) return;
     _attachedFocusNode = node;
     node.addListener(_handleFocus);
   }
@@ -82,97 +121,53 @@ class _PartySearchFieldState extends State<PartySearchField> {
 
   void _handleFocus() {
     if (_attachedFocusNode?.hasFocus == true) {
-      widget.onFocus?.call();
+      _openSuggestions();
     }
   }
 
-  Iterable<PartySuggestion> _options(String query) {
+  void _openSuggestions() {
+    widget.onFocus?.call();
+    if (!_searchController.isOpen) {
+      _searchController.openView();
+    }
+  }
+
+  void _selectParty(PartySuggestion party) {
+    _setSearchText(party.name);
+    widget.controller.text = party.name;
+    widget.onSelected?.call(party);
+    widget.onChanged?.call(party.name);
+    _searchController.closeView(party.name);
+    widget.onFieldSubmitted?.call();
+  }
+
+  Iterable<PartySuggestion> _matches(String query) {
     return PartySearchField.filterParties(widget.parties, query);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Autocomplete<PartySuggestion>(
-      displayStringForOption: (option) => option.name,
-      optionsBuilder: (value) => _options(value.text),
-      onSelected: (selection) {
-        widget.controller.text = selection.name;
-        widget.onSelected?.call(selection);
-        widget.onChanged?.call(selection.name);
-        widget.onFieldSubmitted?.call();
-      },
-      optionsViewBuilder: (context, onSelected, options) {
-        if (options.isEmpty) return const SizedBox.shrink();
-        return Align(
-          alignment: Alignment.topLeft,
-          child: Material(
-            elevation: 6,
-            borderRadius: BorderRadius.circular(6),
-            color: Colors.white,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 280, minWidth: 320),
-              child: ScrollConfiguration(
-                behavior: ScrollConfiguration.of(context).copyWith(
-                  scrollbars: false,
-                ),
-                child: ListView.builder(
-                  padding: EdgeInsets.zero,
-                  shrinkWrap: true,
-                  itemCount: options.length,
-                  itemBuilder: (context, index) {
-                    final option = options.elementAt(index);
-                    return ListTile(
-                      dense: true,
-                      title: Text(
-                        option.name,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                        ),
-                      ),
-                      subtitle: Text(
-                        option.detailLine,
-                        style: const TextStyle(
-                          fontSize: 11.5,
-                          color: AppColors.mutedBlue,
-                        ),
-                      ),
-                      onTap: () => onSelected(option),
-                    );
-                  },
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-      fieldViewBuilder: (context, fieldController, focusNode, onAutocompleteSubmit) {
-        if (fieldController.text != widget.controller.text) {
-          fieldController.text = widget.controller.text;
-        }
+    return SearchAnchor(
+      searchController: _searchController,
+      viewConstraints: const BoxConstraints(maxHeight: 280, minWidth: 320),
+      builder: (context, controller) {
         return TextFormField(
-          controller: fieldController,
-          focusNode: widget.focusNode ?? focusNode,
+          controller: controller,
+          focusNode: widget.focusNode,
           style: const TextStyle(fontSize: 14),
           textInputAction: TextInputAction.next,
-          onTap: widget.onFocus,
+          onTap: _openSuggestions,
           onFieldSubmitted: (_) {
-            final typed = fieldController.text.trim();
+            final typed = controller.text.trim();
             final exact = widget.parties
                 .where((p) => p.isExactNameMatch(typed))
                 .toList();
             if (exact.length == 1) {
-              final match = exact.first;
-              widget.controller.text = match.name;
-              widget.onSelected?.call(match);
-              widget.onChanged?.call(match.name);
+              _selectParty(exact.first);
+              return;
             }
-            onAutocompleteSubmit();
+            controller.closeView(typed);
             widget.onFieldSubmitted?.call();
-          },
-          onChanged: (value) {
-            widget.controller.text = value;
-            widget.onChanged?.call(value);
           },
           decoration: InputDecoration(
             label: Text(widget.label),
@@ -180,6 +175,43 @@ class _PartySearchFieldState extends State<PartySearchField> {
             helperStyle: const TextStyle(fontSize: 11),
           ),
         );
+      },
+      suggestionsBuilder: (context, controller) {
+        final matches = _matches(controller.text).toList();
+        if (matches.isEmpty) {
+          return [
+            const ListTile(
+              dense: true,
+              enabled: false,
+              title: Text(
+                'No saved parties found',
+                style: TextStyle(fontSize: 13, color: Colors.black54),
+              ),
+            ),
+          ];
+        }
+
+        return [
+          for (final party in matches)
+            ListTile(
+              dense: true,
+              title: Text(
+                party.name,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+              subtitle: Text(
+                party.detailLine,
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  color: AppColors.mutedBlue,
+                ),
+              ),
+              onTap: () => _selectParty(party),
+            ),
+        ];
       },
     );
   }
