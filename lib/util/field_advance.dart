@@ -20,10 +20,16 @@ class FieldComplete {
     return (double.tryParse(t) ?? 0) > 0;
   }
 
-  /// Touch % — two decimals (91.60) or a whole number (100, 92).
+  /// Touch % — only advance once two decimal places are entered (e.g. 91.60).
   static bool touch(String value) {
     final t = value.trim();
-    return _touch2.hasMatch(t) || _touchInt.hasMatch(t);
+    return _touch2.hasMatch(t);
+  }
+
+  /// Whole-number touch values (100, 92) — advance after typing pause only.
+  static bool touchWholeNumber(String value) {
+    final t = value.trim();
+    return _touchInt.hasMatch(t);
   }
 
   static bool mobile(String value) => _mobile10.hasMatch(value.trim());

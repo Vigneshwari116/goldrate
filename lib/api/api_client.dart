@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../config/api_config.dart';
+import '../util/api_row_keys.dart';
 
 class ApiClient {
   ApiClient._();
@@ -52,8 +53,10 @@ class ApiClient {
       throw Exception(body is Map ? (body['error'] ?? res.body) : res.body);
     }
     if (body == null) return [];
-    return List<Map<String, dynamic>>.from(
-      (body as List).map((e) => Map<String, dynamic>.from(e as Map)),
+    return normalizeApiList(
+      List<Map<String, dynamic>>.from(
+        (body as List).map((e) => Map<String, dynamic>.from(e as Map)),
+      ),
     );
   }
 

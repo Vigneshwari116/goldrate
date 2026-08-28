@@ -145,9 +145,6 @@ class _TransactionScreenState extends State<TransactionScreen>
   final _paymentEntryAmountFocus = FocusNode();
   final _saveFocus = FocusNode();
 
-  bool _billAddPrompt = false;
-  bool _paymentAddPrompt = false;
-
   int _nextBillNo = 1;
   bool _loading = true;
   bool _saving = false;
@@ -247,7 +244,7 @@ class _TransactionScreenState extends State<TransactionScreen>
 
   @override
   void onScreenActivated() {
-    _refreshParties();
+    _load();
   }
 
   void _onPartyFocus() {
@@ -325,7 +322,6 @@ class _TransactionScreenState extends State<TransactionScreen>
   }
 
   void _commitBillEntry() {
-    if (_billAddPrompt) return;
     final item = _validatedBillEntry();
     if (item == null) {
       _showMessage('Enter weight and touch before continuing');
@@ -339,12 +335,15 @@ class _TransactionScreenState extends State<TransactionScreen>
     }
     setState(() {
       _billLines.add(item);
-      _billAddPrompt = true;
+      _resetBillEntry(resetType: false);
     });
+    FocusChain.focusNextFrame(
+      _billEntryWeightFocus,
+      controller: _billEntryWeight,
+    );
   }
 
   void _commitPaymentEntry() {
-    if (_paymentAddPrompt) return;
     final line = _validatedPaymentEntry();
     if (line == null) {
       _showMessage(_paymentEntryType == 'CASH'
@@ -358,8 +357,19 @@ class _TransactionScreenState extends State<TransactionScreen>
     }
     setState(() {
       _paymentLines.add(line);
-      _paymentAddPrompt = true;
+      _resetPaymentEntry(resetType: false);
     });
+    if (line.isCash) {
+      FocusChain.focusNextFrame(
+        _paymentEntryAmountFocus,
+        controller: _paymentEntryAmount,
+      );
+    } else {
+      FocusChain.focusNextFrame(
+        _paymentEntryWeightFocus,
+        controller: _paymentEntryWeight,
+      );
+    }
   }
 
   void _onPaymentTypeChanged(String type) {
@@ -375,39 +385,6 @@ class _TransactionScreenState extends State<TransactionScreen>
         controller: _paymentEntryWeight,
       );
     }
-  }
-
-  void _billAddAnother(bool add) {
-    setState(() {
-      _billAddPrompt = false;
-      if (add) {
-        _resetBillEntry();
-        FocusChain.focusNextFrame(
-          _billEntryWeightFocus,
-          controller: _billEntryWeight,
-        );
-      } else {
-        FocusChain.focusNextFrame(
-          _paymentEntryWeightFocus,
-          controller: _paymentEntryWeight,
-        );
-      }
-    });
-  }
-
-  void _paymentAddAnother(bool add) {
-    setState(() {
-      _paymentAddPrompt = false;
-      if (add) {
-        _resetPaymentEntry();
-        FocusChain.focusNextFrame(
-          _paymentEntryWeightFocus,
-          controller: _paymentEntryWeight,
-        );
-      } else {
-        FocusChain.focus(_saveFocus);
-      }
-    });
   }
 
   @override
@@ -544,8 +521,6 @@ class _TransactionScreenState extends State<TransactionScreen>
   void _clearPanels() {
     _billLines.clear();
     _paymentLines.clear();
-    _billAddPrompt = false;
-    _paymentAddPrompt = false;
     _resetBillEntry();
     _resetPaymentEntry();
   }
@@ -1218,42 +1193,6 @@ class _TransactionScreenState extends State<TransactionScreen>
     );
   }
 
-  Widget _inlineAddPrompt({
-    required bool visible,
-    required void Function(bool add) onAnswer,
-  }) {
-    if (!visible) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(top: 6, bottom: 4),
-      child: Wrap(
-        crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: 4,
-        children: [
-          const Text(
-            'Add another weight?',
-            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-          ),
-          TextButton(
-            onPressed: () => onAnswer(true),
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              minimumSize: const Size(0, 30),
-            ),
-            child: const Text('Yes'),
-          ),
-          TextButton(
-            onPressed: () => onAnswer(false),
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              minimumSize: const Size(0, 30),
-            ),
-            child: const Text('No'),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _linesTable({
     required List<Widget> rows,
     bool showRate = false,
@@ -1354,7 +1293,7 @@ class _TransactionScreenState extends State<TransactionScreen>
 
   Widget _paymentEntryBlock({
     required String prefix,
-    required bool enabled,
+    bool enabled = true,
   }) {
     final isCash = _paymentEntryType == 'CASH';
     final cashAmount =
@@ -1526,6 +1465,12 @@ class _TransactionScreenState extends State<TransactionScreen>
                   isComplete: FieldComplete.touch,
                   action: _commitPaymentEntry,
                 );
+                advanceWhenIdle(
+                  value: v,
+                  from: _paymentEntryTouchFocus,
+                  when: FieldComplete.touchWholeNumber,
+                  action: _commitPaymentEntry,
+                );
               },
             ),
           ),
@@ -1667,6 +1612,12 @@ class _TransactionScreenState extends State<TransactionScreen>
                 isComplete: FieldComplete.touch,
                 action: onTouchSubmitted,
               );
+              advanceWhenIdle(
+                value: v,
+                from: touchFocus,
+                when: FieldComplete.touchWholeNumber,
+                action: onTouchSubmitted,
+              );
             },
           ),
         ),
@@ -1715,11 +1666,6 @@ class _TransactionScreenState extends State<TransactionScreen>
           weightFocus: _billEntryWeightFocus,
           touchFocus: _billEntryTouchFocus,
           onTouchSubmitted: _commitBillEntry,
-          enabled: !_billAddPrompt,
-        ),
-        _inlineAddPrompt(
-          visible: _billAddPrompt,
-          onAnswer: _billAddAnother,
         ),
         _linesTable(
           showRate: false,
@@ -1749,11 +1695,6 @@ class _TransactionScreenState extends State<TransactionScreen>
       rows: [
         _paymentEntryBlock(
           prefix: prefix,
-          enabled: !_paymentAddPrompt,
-        ),
-        _inlineAddPrompt(
-          visible: _paymentAddPrompt,
-          onAnswer: _paymentAddAnother,
         ),
         _linesTable(
           rows: [
@@ -1868,13 +1809,15 @@ class _TransactionScreenState extends State<TransactionScreen>
                           fontSize: 10.5, color: Colors.black54),
                       overflow: TextOverflow.ellipsis,
                     ),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.delete,
-                          color: Colors.redAccent, size: 16),
-                      onPressed: () => _confirmDelete(row['id'] as int),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                    ),
+                    trailing: row['fromLedger'] == true
+                        ? null
+                        : IconButton(
+                            icon: const Icon(Icons.delete,
+                                color: Colors.redAccent, size: 16),
+                            onPressed: () => _confirmDelete(row['id'] as int),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                          ),
                   ),
                 );
               }),

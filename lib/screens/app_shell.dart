@@ -181,7 +181,12 @@ class _AppShellState extends State<AppShell> {
           ),
         ),
         _KeepAlivePage(child: MasterScreen(embedded: true)),
-        _KeepAlivePage(child: ReportsScreen(embedded: true)),
+        _KeepAlivePage(
+          child: ReportsScreen(
+            embedded: true,
+            isActive: _page == AppPage.reports,
+          ),
+        ),
         _KeepAlivePage(child: HistoryScreen(embedded: true)),
         _KeepAlivePage(child: BackupScreen(embedded: true)),
         _KeepAlivePage(child: PrinterSettingsScreen(embedded: true)),

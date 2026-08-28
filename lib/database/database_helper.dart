@@ -7,6 +7,8 @@ import 'package:sqflite/sqflite.dart';
 
 import '../api/api_client.dart';
 import '../config/api_config.dart';
+import '../logic/transaction_records.dart';
+import '../util/api_row_keys.dart';
 
 class DatabaseHelper {
   DatabaseHelper._();
@@ -545,10 +547,33 @@ class DatabaseHelper {
     return (maxBill ?? 0) + 1;
   }
 
+  Future<List<Map<String, dynamic>>> _loadMergedTransactions() async {
+    final transactions = ApiConfig.useRemoteApi
+        ? await ApiClient.getAllTransactions()
+        : normalizeApiList(
+            await (await database).query('transactions', orderBy: 'id DESC'),
+          );
+    final customers = await getCustomers();
+    final suppliers = await getSuppliers();
+    return mergeTransactionsWithLedgerBills(
+      transactions: transactions,
+      customerRows: customers,
+      supplierRows: suppliers,
+    );
+  }
+
   Future<List<Map<String, dynamic>>> getAllTransactions() async {
-    if (ApiConfig.useRemoteApi) return ApiClient.getAllTransactions();
+    if (ApiConfig.useRemoteApi) return _loadMergedTransactions();
     final db = await database;
-    return await db.query('transactions', orderBy: 'id DESC');
+    final transactions =
+        normalizeApiList(await db.query('transactions', orderBy: 'id DESC'));
+    final customers = await getCustomers();
+    final suppliers = await getSuppliers();
+    return mergeTransactionsWithLedgerBills(
+      transactions: transactions,
+      customerRows: customers,
+      supplierRows: suppliers,
+    );
   }
 
   Future<int> insertTransaction(Map<String, dynamic> transaction) async {
@@ -559,16 +584,10 @@ class DatabaseHelper {
 
   Future<List<Map<String, dynamic>>> getTransactions(
       String transactionType) async {
-    if (ApiConfig.useRemoteApi) {
-      return ApiClient.getTransactions(transactionType);
-    }
-    final db = await database;
-    return await db.query(
-      'transactions',
-      where: 'transactionType = ?',
-      whereArgs: [transactionType],
-      orderBy: 'id DESC',
-    );
+    final all = await getAllTransactions();
+    return all
+        .where((row) => apiStr(row, 'transactionType') == transactionType)
+        .toList();
   }
 
   Future<int> deleteTransaction(int id) async {
@@ -695,14 +714,8 @@ class DatabaseHelper {
   /// app) — used by the Today Summary screen.
   Future<List<Map<String, dynamic>>> getTransactionsByDate(
       String date) async {
-    if (ApiConfig.useRemoteApi) return ApiClient.getTransactionsByDate(date);
-    final db = await database;
-    return await db.query(
-      'transactions',
-      where: 'date = ?',
-      whereArgs: [date],
-      orderBy: 'id DESC',
-    );
+    final all = await getAllTransactions();
+    return all.where((row) => apiStr(row, 'date') == date).toList();
   }
 
   // ---------- Live current stock ----------

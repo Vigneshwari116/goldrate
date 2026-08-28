@@ -8,6 +8,7 @@ import '../logic/gold_ledger.dart';
 import '../pdf/pdf_kit.dart';
 import '../theme/app_theme.dart';
 import '../util/platform_detect.dart';
+import '../util/screen_activation.dart';
 
 enum _ReportTab {
   dailySales,
@@ -19,15 +20,21 @@ enum _ReportTab {
 }
 
 class ReportsScreen extends StatefulWidget {
-  const ReportsScreen({super.key, this.embedded = false});
+  const ReportsScreen({
+    super.key,
+    this.embedded = false,
+    this.isActive = true,
+  });
 
   final bool embedded;
+  final bool isActive;
 
   @override
   State<ReportsScreen> createState() => _ReportsScreenState();
 }
 
-class _ReportsScreenState extends State<ReportsScreen> {
+class _ReportsScreenState extends State<ReportsScreen>
+    with ScreenActivationMixin<ReportsScreen> {
   _ReportTab _tab = _ReportTab.salesReport;
   DateTime _from = DateTime(
       DateTime.now().year, DateTime.now().month, DateTime.now().day);
@@ -53,6 +60,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
     super.initState();
     _customerNameQuery.addListener(_onLedgerQueryChanged);
     _supplierNameQuery.addListener(_onLedgerQueryChanged);
+    _load();
+  }
+
+  @override
+  bool get screenIsActive => widget.isActive;
+
+  @override
+  bool wasScreenActive(ReportsScreen oldWidget) => oldWidget.isActive;
+
+  @override
+  void onScreenActivated() {
     _load();
   }
 
