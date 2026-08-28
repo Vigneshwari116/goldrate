@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/party_suggestion.dart';
 import '../theme/app_theme.dart';
+import 'party_options_overlay.dart';
 
 /// Sales/Purchase party field with a rich autocomplete dropdown.
 class PartySearchField extends StatefulWidget {
@@ -25,7 +26,7 @@ class PartySearchField extends StatefulWidget {
     this.onChanged,
     this.onFieldSubmitted,
     this.onFocus,
-    this.focusNode,
+    this.onFocusNodeReady,
   });
 
   final String label;
@@ -36,52 +37,31 @@ class PartySearchField extends StatefulWidget {
   final ValueChanged<String>? onChanged;
   final VoidCallback? onFieldSubmitted;
   final VoidCallback? onFocus;
-  final FocusNode? focusNode;
+  final ValueChanged<FocusNode>? onFocusNodeReady;
 
   @override
   State<PartySearchField> createState() => _PartySearchFieldState();
 }
 
 class _PartySearchFieldState extends State<PartySearchField> {
-  FocusNode? _attachedFocusNode;
-
-  @override
-  void initState() {
-    super.initState();
-    _attachFocusListener(widget.focusNode);
-  }
-
-  @override
-  void didUpdateWidget(covariant PartySearchField oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.focusNode != widget.focusNode) {
-      _detachFocusListener(oldWidget.focusNode);
-      _attachFocusListener(widget.focusNode);
-    }
-  }
+  FocusNode? _fieldFocusNode;
 
   @override
   void dispose() {
-    _detachFocusListener(widget.focusNode);
+    _fieldFocusNode?.removeListener(_handleFocus);
     super.dispose();
   }
 
-  void _attachFocusListener(FocusNode? node) {
-    if (node == null || widget.onFocus == null) return;
-    _attachedFocusNode = node;
+  void _bindFieldFocusNode(FocusNode node) {
+    if (_fieldFocusNode == node) return;
+    _fieldFocusNode?.removeListener(_handleFocus);
+    _fieldFocusNode = node;
     node.addListener(_handleFocus);
-  }
-
-  void _detachFocusListener(FocusNode? node) {
-    if (node == null) return;
-    node.removeListener(_handleFocus);
-    if (_attachedFocusNode == node) {
-      _attachedFocusNode = null;
-    }
+    widget.onFocusNodeReady?.call(node);
   }
 
   void _handleFocus() {
-    if (_attachedFocusNode?.hasFocus == true) {
+    if (_fieldFocusNode?.hasFocus == true) {
       widget.onFocus?.call();
     }
   }
@@ -93,6 +73,7 @@ class _PartySearchFieldState extends State<PartySearchField> {
   @override
   Widget build(BuildContext context) {
     return Autocomplete<PartySuggestion>(
+      optionsViewOpenDirection: OptionsViewOpenDirection.down,
       displayStringForOption: (option) => option.name,
       optionsBuilder: (value) => _options(value.text),
       onSelected: (selection) {
@@ -103,56 +84,51 @@ class _PartySearchFieldState extends State<PartySearchField> {
       },
       optionsViewBuilder: (context, onSelected, options) {
         if (options.isEmpty) return const SizedBox.shrink();
-        return Align(
-          alignment: Alignment.topLeft,
-          child: Material(
-            elevation: 6,
-            borderRadius: BorderRadius.circular(6),
-            color: Colors.white,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 280, minWidth: 320),
-              child: ScrollConfiguration(
-                behavior: ScrollConfiguration.of(context).copyWith(
-                  scrollbars: false,
-                ),
-                child: ListView.builder(
-                  padding: EdgeInsets.zero,
-                  shrinkWrap: true,
-                  itemCount: options.length,
-                  itemBuilder: (context, index) {
-                    final option = options.elementAt(index);
-                    return ListTile(
-                      dense: true,
-                      title: Text(
-                        option.name,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                        ),
+        return partyAutocompleteOptionsView(
+          context: context,
+          child: partyAutocompleteOptionsShell(
+            child: ScrollConfiguration(
+              behavior: ScrollConfiguration.of(context).copyWith(
+                scrollbars: false,
+              ),
+              child: ListView.builder(
+                padding: EdgeInsets.zero,
+                shrinkWrap: true,
+                itemCount: options.length,
+                itemBuilder: (context, index) {
+                  final option = options.elementAt(index);
+                  return ListTile(
+                    dense: true,
+                    title: Text(
+                      option.name,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
                       ),
-                      subtitle: Text(
-                        option.detailLine,
-                        style: const TextStyle(
-                          fontSize: 11.5,
-                          color: AppColors.mutedBlue,
-                        ),
+                    ),
+                    subtitle: Text(
+                      option.detailLine,
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        color: AppColors.mutedBlue,
                       ),
-                      onTap: () => onSelected(option),
-                    );
-                  },
-                ),
+                    ),
+                    onTap: () => onSelected(option),
+                  );
+                },
               ),
             ),
           ),
         );
       },
       fieldViewBuilder: (context, fieldController, focusNode, onAutocompleteSubmit) {
+        _bindFieldFocusNode(focusNode);
         if (fieldController.text != widget.controller.text) {
           fieldController.text = widget.controller.text;
         }
         return TextFormField(
           controller: fieldController,
-          focusNode: widget.focusNode ?? focusNode,
+          focusNode: focusNode,
           style: const TextStyle(fontSize: 14),
           textInputAction: TextInputAction.next,
           onTap: widget.onFocus,

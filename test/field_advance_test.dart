@@ -14,7 +14,9 @@ void main() {
     expect(FieldComplete.touch('91.60'), isTrue);
     expect(FieldComplete.touch('91'), isFalse);
     expect(FieldComplete.touchWholeNumber('100'), isTrue);
-    expect(FieldComplete.touchWholeNumber('9'), isFalse);
+    expect(FieldComplete.touchWholeNumber('91'), isFalse);
+    expect(FieldComplete.touchShortWhole('92'), isTrue);
+    expect(FieldComplete.touchShortWhole('9'), isFalse);
   });
 
   test('mobile completes at ten digits', () {

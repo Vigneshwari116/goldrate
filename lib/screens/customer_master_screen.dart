@@ -136,7 +136,7 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
   final _narrationController = TextEditingController();
   final _searchController = TextEditingController();
 
-  final _nameFocus = FocusNode();
+  FocusNode? _nameFocus;
   final _mobileFocus = FocusNode();
   final _cityFocus = FocusNode();
   final _pureWeightFocus = FocusNode();
@@ -179,7 +179,6 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
 
   @override
   void dispose() {
-    _nameFocus.dispose();
     _mobileFocus.dispose();
     _cityFocus.dispose();
     _pureWeightFocus.dispose();
@@ -282,13 +281,17 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
     FocusChain.focus(next, controller: controller);
   }
 
+  void _bindNameFocus(FocusNode node) {
+    _nameFocus = node;
+  }
+
   void _onNameChanged(String value) {
     final trimmed = value.trim();
-    if (trimmed.isEmpty) return;
+    if (trimmed.isEmpty || _nameFocus == null) return;
 
     advanceWhenIdle(
       value: trimmed,
-      from: _nameFocus,
+      from: _nameFocus!,
       when: (v) => v.trim().length >= 2,
       to: _mobileFocus,
       toController: _mobileController,
@@ -1004,7 +1007,7 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
                     controller: _nameController,
                     options: _nameOptions,
                     validator: _validateName,
-                    focusNode: _nameFocus,
+                    onFocusNodeReady: _bindNameFocus,
                     onSelected: _prefillFromExistingName,
                     onFieldSubmitted: () => _focusNext(_mobileFocus),
                     onChanged: _onNameChanged,

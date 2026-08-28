@@ -10,7 +10,6 @@ class FieldComplete {
 
   static final _weight3 = RegExp(r'^\d+\.\d{3}$');
   static final _touch2 = RegExp(r'^\d+\.\d{2}$');
-  static final _touchInt = RegExp(r'^\d{2,3}$');
   static final _mobile10 = RegExp(r'^\d{10}$');
   static final _cash2 = RegExp(r'^\d+\.\d{2}$');
 
@@ -26,10 +25,16 @@ class FieldComplete {
     return _touch2.hasMatch(t);
   }
 
-  /// Whole-number touch values (100, 92) — advance after typing pause only.
+  /// Whole-number touch (e.g. 100) — complete immediately when three digits.
   static bool touchWholeNumber(String value) {
     final t = value.trim();
-    return _touchInt.hasMatch(t);
+    return RegExp(r'^\d{3}$').hasMatch(t);
+  }
+
+  /// Two-digit whole touch (e.g. 92) — advance only after typing pause.
+  static bool touchShortWhole(String value) {
+    final t = value.trim();
+    return RegExp(r'^\d{2}$').hasMatch(t) && !t.contains('.');
   }
 
   static bool mobile(String value) => _mobile10.hasMatch(value.trim());
@@ -70,12 +75,14 @@ mixin FocusAdvanceMixin<T extends StatefulWidget> on State<T> {
     if (!from.hasFocus) return;
     if (!isComplete(value)) return;
     _focusAdvanceIdle?.cancel();
+    final completedValue = value;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !from.hasFocus) return;
+      if (!mounted) return;
+      if (!isComplete(completedValue)) return;
       if (action != null) {
         action();
       } else if (to != null) {
-        FocusChain.focusNextFrame(to, controller: toController);
+        FocusChain.focus(to, controller: toController);
       }
     });
   }

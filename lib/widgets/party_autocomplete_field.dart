@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'party_options_overlay.dart';
+
 /// Searchable name field used on sales, purchase, voucher, and master screens.
 class PartyAutocompleteField extends StatefulWidget {
   const PartyAutocompleteField({
@@ -11,9 +13,9 @@ class PartyAutocompleteField extends StatefulWidget {
     this.validator,
     this.onSelected,
     this.onChanged,
-    this.focusNode,
     this.onFieldSubmitted,
     this.onFocus,
+    this.onFocusNodeReady,
   });
 
   final String label;
@@ -23,54 +25,33 @@ class PartyAutocompleteField extends StatefulWidget {
   final String? Function(String?)? validator;
   final ValueChanged<String>? onSelected;
   final ValueChanged<String>? onChanged;
-  final FocusNode? focusNode;
   final VoidCallback? onFieldSubmitted;
   final VoidCallback? onFocus;
+  final ValueChanged<FocusNode>? onFocusNodeReady;
 
   @override
   State<PartyAutocompleteField> createState() => _PartyAutocompleteFieldState();
 }
 
 class _PartyAutocompleteFieldState extends State<PartyAutocompleteField> {
-  FocusNode? _attachedFocusNode;
-
-  @override
-  void initState() {
-    super.initState();
-    _attachFocusListener(widget.focusNode);
-  }
-
-  @override
-  void didUpdateWidget(covariant PartyAutocompleteField oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.focusNode != widget.focusNode) {
-      _detachFocusListener(oldWidget.focusNode);
-      _attachFocusListener(widget.focusNode);
-    }
-  }
+  FocusNode? _fieldFocusNode;
 
   @override
   void dispose() {
-    _detachFocusListener(widget.focusNode);
+    _fieldFocusNode?.removeListener(_handleFocus);
     super.dispose();
   }
 
-  void _attachFocusListener(FocusNode? node) {
-    if (node == null || widget.onFocus == null) return;
-    _attachedFocusNode = node;
+  void _bindFieldFocusNode(FocusNode node) {
+    if (_fieldFocusNode == node) return;
+    _fieldFocusNode?.removeListener(_handleFocus);
+    _fieldFocusNode = node;
     node.addListener(_handleFocus);
-  }
-
-  void _detachFocusListener(FocusNode? node) {
-    if (node == null) return;
-    node.removeListener(_handleFocus);
-    if (_attachedFocusNode == node) {
-      _attachedFocusNode = null;
-    }
+    widget.onFocusNodeReady?.call(node);
   }
 
   void _handleFocus() {
-    if (_attachedFocusNode?.hasFocus == true) {
+    if (_fieldFocusNode?.hasFocus == true) {
       widget.onFocus?.call();
     }
   }
@@ -78,6 +59,7 @@ class _PartyAutocompleteFieldState extends State<PartyAutocompleteField> {
   @override
   Widget build(BuildContext context) {
     return Autocomplete<String>(
+      optionsViewOpenDirection: OptionsViewOpenDirection.down,
       optionsBuilder: (value) => widget.options(value.text),
       onSelected: (selection) {
         widget.controller.text = selection;
@@ -85,14 +67,41 @@ class _PartyAutocompleteFieldState extends State<PartyAutocompleteField> {
         widget.onChanged?.call(selection);
         widget.onFieldSubmitted?.call();
       },
+      optionsViewBuilder: (context, onSelected, options) {
+        if (options.isEmpty) return const SizedBox.shrink();
+        return partyAutocompleteOptionsView(
+          context: context,
+          child: partyAutocompleteOptionsShell(
+            child: ListView.builder(
+              padding: EdgeInsets.zero,
+              shrinkWrap: true,
+              itemCount: options.length,
+              itemBuilder: (context, index) {
+                final option = options.elementAt(index);
+                return ListTile(
+                  dense: true,
+                  title: Text(
+                    option,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                  ),
+                  onTap: () => onSelected(option),
+                );
+              },
+            ),
+          ),
+        );
+      },
       fieldViewBuilder: (context, fieldController, focusNode, onAutocompleteSubmit) {
+        _bindFieldFocusNode(focusNode);
         if (fieldController.text != widget.controller.text) {
           fieldController.text = widget.controller.text;
         }
-        final node = widget.focusNode ?? focusNode;
         return TextFormField(
           controller: fieldController,
-          focusNode: node,
+          focusNode: focusNode,
           style: const TextStyle(fontSize: 14),
           textInputAction: TextInputAction.next,
           validator: widget.validator,

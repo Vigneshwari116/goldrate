@@ -125,7 +125,7 @@ class _TransactionScreenState extends State<TransactionScreen>
   static final RegExp _numberRegex = RegExp(r'^\d+(\.\d+)?$');
 
   final _partyController = TextEditingController();
-  final _partyFocus = FocusNode();
+  FocusNode? _partyFocus;
 
   final List<_TransactionItem> _billLines = [];
   final List<_PanelLine> _paymentLines = [];
@@ -233,7 +233,6 @@ class _TransactionScreenState extends State<TransactionScreen>
     super.initState();
     _load();
     _partyController.addListener(() => _onPartyTextChanged());
-    _partyFocus.addListener(_onPartyFocus);
   }
 
   @override
@@ -247,8 +246,15 @@ class _TransactionScreenState extends State<TransactionScreen>
     _load();
   }
 
+  void _bindPartyFocus(FocusNode node) {
+    if (_partyFocus == node) return;
+    _partyFocus?.removeListener(_onPartyFocus);
+    _partyFocus = node;
+    node.addListener(_onPartyFocus);
+  }
+
   void _onPartyFocus() {
-    if (_partyFocus.hasFocus) {
+    if (_partyFocus?.hasFocus == true) {
       _refreshParties();
     }
   }
@@ -390,9 +396,8 @@ class _TransactionScreenState extends State<TransactionScreen>
   @override
   void dispose() {
     _partyRefreshTimer?.cancel();
-    _partyFocus.removeListener(_onPartyFocus);
+    _partyFocus?.removeListener(_onPartyFocus);
     _partyController.dispose();
-    _partyFocus.dispose();
     _billEntryWeight.dispose();
     _billEntryTouch.dispose();
     _paymentEntryWeight.dispose();
@@ -485,11 +490,11 @@ class _TransactionScreenState extends State<TransactionScreen>
     }
     setState(() {});
     final trimmed = value.trim();
-    if (trimmed.isEmpty) return;
+    if (trimmed.isEmpty || _partyFocus == null) return;
 
     advanceWhenIdle(
       value: trimmed,
-      from: _partyFocus,
+      from: _partyFocus!,
       when: (v) => v.trim().length >= 2,
       action: () => _advanceFromParty(trimmed),
     );
@@ -1065,7 +1070,7 @@ class _TransactionScreenState extends State<TransactionScreen>
                   ? 'Customer Name'
                   : 'Supplier Name',
               controller: _partyController,
-              focusNode: _partyFocus,
+              onFocusNodeReady: _bindPartyFocus,
               parties: _partySuggestions,
               helperText: 'Search saved name, mobile, or city',
               onFocus: _refreshParties,
@@ -1465,10 +1470,16 @@ class _TransactionScreenState extends State<TransactionScreen>
                   isComplete: FieldComplete.touch,
                   action: _commitPaymentEntry,
                 );
+                advanceWhenComplete(
+                  value: v,
+                  from: _paymentEntryTouchFocus,
+                  isComplete: FieldComplete.touchWholeNumber,
+                  action: _commitPaymentEntry,
+                );
                 advanceWhenIdle(
                   value: v,
                   from: _paymentEntryTouchFocus,
-                  when: FieldComplete.touchWholeNumber,
+                  when: FieldComplete.touchShortWhole,
                   action: _commitPaymentEntry,
                 );
               },
@@ -1612,10 +1623,16 @@ class _TransactionScreenState extends State<TransactionScreen>
                 isComplete: FieldComplete.touch,
                 action: onTouchSubmitted,
               );
+              advanceWhenComplete(
+                value: v,
+                from: touchFocus,
+                isComplete: FieldComplete.touchWholeNumber,
+                action: onTouchSubmitted,
+              );
               advanceWhenIdle(
                 value: v,
                 from: touchFocus,
-                when: FieldComplete.touchWholeNumber,
+                when: FieldComplete.touchShortWhole,
                 action: onTouchSubmitted,
               );
             },

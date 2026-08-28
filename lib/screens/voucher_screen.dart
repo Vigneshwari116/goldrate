@@ -42,7 +42,7 @@ class _VoucherScreenState extends State<VoucherScreen>
   final _partyController = TextEditingController();
   final _amountController = TextEditingController(text: '0.00');
   final _narrationController = TextEditingController();
-  final _partyFocus = FocusNode();
+  FocusNode? _partyFocus;
   final _modeFocus = FocusNode();
   final _amountFocus = FocusNode();
   final _narrationFocus = FocusNode();
@@ -63,8 +63,20 @@ class _VoucherScreenState extends State<VoucherScreen>
   void initState() {
     super.initState();
     _partyController.addListener(_onParty);
-    _partyFocus.addListener(_onPartyFocus);
     _load();
+  }
+
+  void _bindPartyFocus(FocusNode node) {
+    if (_partyFocus == node) return;
+    _partyFocus?.removeListener(_onPartyFocus);
+    _partyFocus = node;
+    node.addListener(_onPartyFocus);
+  }
+
+  void _onPartyFocus() {
+    if (_partyFocus?.hasFocus == true) {
+      _refreshNames();
+    }
   }
 
   @override
@@ -78,17 +90,10 @@ class _VoucherScreenState extends State<VoucherScreen>
     _refreshNames();
   }
 
-  void _onPartyFocus() {
-    if (_partyFocus.hasFocus) {
-      _refreshNames();
-    }
-  }
-
   @override
   void dispose() {
     _nameRefreshTimer?.cancel();
-    _partyFocus.removeListener(_onPartyFocus);
-    _partyFocus.dispose();
+    _partyFocus?.removeListener(_onPartyFocus);
     _modeFocus.dispose();
     _amountFocus.dispose();
     _narrationFocus.dispose();
@@ -143,11 +148,11 @@ class _VoucherScreenState extends State<VoucherScreen>
       });
     }
     final trimmed = value.trim();
-    if (trimmed.isEmpty) return;
+    if (trimmed.isEmpty || _partyFocus == null) return;
 
     advanceWhenIdle(
       value: trimmed,
-      from: _partyFocus,
+      from: _partyFocus!,
       when: (v) => v.trim().length >= 2,
       action: () => _advanceFromParty(trimmed),
     );
@@ -425,7 +430,7 @@ class _VoucherScreenState extends State<VoucherScreen>
               controller: _partyController,
               options: _partyOptions,
               helperText: 'Search saved name or type a new one',
-              focusNode: _partyFocus,
+              onFocusNodeReady: _bindPartyFocus,
               onFocus: _refreshNames,
               onChanged: _onPartyNameChanged,
               onFieldSubmitted: () => _advanceFromParty(_partyController.text),
