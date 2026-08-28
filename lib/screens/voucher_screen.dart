@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -56,6 +57,7 @@ class _VoucherScreenState extends State<VoucherScreen>
   Map<String, double> _outstanding = const {'rupees': 0, 'grams': 0};
   Map<String, double> _rates = {};
   List<Map<String, dynamic>> _history = [];
+  Timer? _nameRefreshTimer;
 
   @override
   void initState() {
@@ -84,6 +86,7 @@ class _VoucherScreenState extends State<VoucherScreen>
 
   @override
   void dispose() {
+    _nameRefreshTimer?.cancel();
     _partyFocus.removeListener(_onPartyFocus);
     _partyFocus.dispose();
     _modeFocus.dispose();
@@ -133,28 +136,19 @@ class _VoucherScreenState extends State<VoucherScreen>
 
   void _onPartyNameChanged(String value) {
     _onParty(value);
-    if (_names.isEmpty && value.trim().isNotEmpty) {
-      _refreshNames();
+    if (value.trim().isNotEmpty) {
+      _nameRefreshTimer?.cancel();
+      _nameRefreshTimer = Timer(const Duration(milliseconds: 300), () {
+        if (mounted) _refreshNames();
+      });
     }
     final trimmed = value.trim();
     if (trimmed.isEmpty) return;
 
-    final exact =
-        _names.any((name) => name.toLowerCase() == trimmed.toLowerCase());
-    if (exact) {
-      advanceWhenComplete(
-        value: trimmed,
-        from: _partyFocus,
-        isComplete: (_) => true,
-        action: () => _advanceFromParty(trimmed),
-      );
-      return;
-    }
-
     advanceWhenIdle(
       value: trimmed,
       from: _partyFocus,
-      when: (v) => v.trim().length >= 3,
+      when: (v) => v.trim().length >= 2,
       action: () => _advanceFromParty(trimmed),
     );
   }

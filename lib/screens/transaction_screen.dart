@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -156,6 +157,7 @@ class _TransactionScreenState extends State<TransactionScreen>
   Map<String, double> _rates = {};
   List<PartySuggestion> _partySuggestions = [];
   Map<String, double>? _partyOutstanding;
+  Timer? _partyRefreshTimer;
 
   /// Purchase looks up Suppliers (stock coming in from them); Sales
   /// looks up Customers (stock going out to them).
@@ -410,6 +412,7 @@ class _TransactionScreenState extends State<TransactionScreen>
 
   @override
   void dispose() {
+    _partyRefreshTimer?.cancel();
     _partyFocus.removeListener(_onPartyFocus);
     _partyController.dispose();
     _partyFocus.dispose();
@@ -497,29 +500,20 @@ class _TransactionScreenState extends State<TransactionScreen>
 
   void _onPartyNameChanged(String value) {
     _onPartyTextChanged(value);
-    if (_partySuggestions.isEmpty && value.trim().isNotEmpty) {
-      _refreshParties();
+    if (value.trim().isNotEmpty) {
+      _partyRefreshTimer?.cancel();
+      _partyRefreshTimer = Timer(const Duration(milliseconds: 300), () {
+        if (mounted) _refreshParties();
+      });
     }
     setState(() {});
     final trimmed = value.trim();
     if (trimmed.isEmpty) return;
 
-    final exact =
-        _partySuggestions.where((p) => p.isExactNameMatch(trimmed)).toList();
-    if (exact.length == 1) {
-      advanceWhenComplete(
-        value: trimmed,
-        from: _partyFocus,
-        isComplete: (_) => true,
-        action: () => _advanceFromParty(trimmed),
-      );
-      return;
-    }
-
     advanceWhenIdle(
       value: trimmed,
       from: _partyFocus,
-      when: (v) => v.trim().length >= 3,
+      when: (v) => v.trim().length >= 2,
       action: () => _advanceFromParty(trimmed),
     );
   }

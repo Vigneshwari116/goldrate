@@ -286,23 +286,10 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
     final trimmed = value.trim();
     if (trimmed.isEmpty) return;
 
-    final exact = _allNames
-        .any((name) => name.toLowerCase() == trimmed.toLowerCase());
-    if (exact) {
-      advanceWhenComplete(
-        value: trimmed,
-        from: _nameFocus,
-        isComplete: (_) => true,
-        to: _mobileFocus,
-        toController: _mobileController,
-      );
-      return;
-    }
-
     advanceWhenIdle(
       value: trimmed,
       from: _nameFocus,
-      when: (v) => v.trim().length >= 3,
+      when: (v) => v.trim().length >= 2,
       to: _mobileFocus,
       toController: _mobileController,
     );
