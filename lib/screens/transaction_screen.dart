@@ -157,6 +157,10 @@ class _TransactionScreenState extends State<TransactionScreen> {
 
   bool get _isPurchase => widget.kind == TransactionKind.purchase;
 
+  static final _rupeeFmt = NumberFormat('#,##0.00', 'en_IN');
+
+  String _rupee(double amount) => _rupeeFmt.format(amount);
+
   String get _transactionType => _isPurchase ? 'PURCHASE' : 'SALES';
 
   String get _title => _isPurchase ? 'PURCHASE' : 'SALES';
@@ -1126,6 +1130,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
     required String totalLabel,
     required double totalPure,
     double? totalCash,
+    bool combinedCashAndGrams = false,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -1160,21 +1165,12 @@ class _TransactionScreenState extends State<TransactionScreen> {
                 ),
               ),
               const Spacer(),
-              if (totalCash != null && totalCash > 0) ...[
-                Text(
-                  '₹${totalCash.toStringAsFixed(2)}',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.navy,
-                  ),
-                ),
-                const SizedBox(width: 10),
-              ],
               Text(
-                '${totalPure.toStringAsFixed(3)} g',
+                combinedCashAndGrams
+                    ? '₹${_rupee(totalCash ?? 0)} · ${totalPure.toStringAsFixed(3)} g'
+                    : '${totalPure.toStringAsFixed(3)} g',
                 style: const TextStyle(
-                  fontSize: 14,
+                  fontSize: 13,
                   fontWeight: FontWeight.w800,
                   color: AppColors.navy,
                 ),
@@ -1325,121 +1321,43 @@ class _TransactionScreenState extends State<TransactionScreen> {
     required bool enabled,
   }) {
     final isCash = _paymentEntryType == 'CASH';
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    final cashAmount =
+        double.tryParse(_paymentEntryAmount.text.trim()) ?? 0;
+    final cashGold = GoldLedger.cashToGold(cashAmount, _goldRate);
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Row(
-          children: [
-            _compactField(
-              width: FieldSizes.typeDropdown + 8,
-              child: DropdownButtonFormField<String>(
-                value: _paymentEntryType,
-                isDense: true,
-                decoration: const InputDecoration(
-                  labelText: 'Type',
-                  isDense: true,
-                  contentPadding:
-                      EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-                ),
-                items: _paymentItemTypes
-                    .map((t) => DropdownMenuItem(value: t, child: Text(t)))
-                    .toList(),
-                onChanged: enabled
-                    ? (v) {
-                        if (v == null) return;
-                        _onPaymentTypeChanged(v);
-                      }
-                    : null,
-              ),
+        _compactField(
+          width: FieldSizes.paymentTypeDropdown,
+          child: DropdownButtonFormField<String>(
+            value: _paymentEntryType,
+            isExpanded: true,
+            isDense: true,
+            decoration: const InputDecoration(
+              labelText: 'Type',
+              isDense: true,
+              contentPadding:
+                  EdgeInsets.symmetric(horizontal: 6, vertical: 8),
             ),
-            if (!isCash) ...[
-              const SizedBox(width: 6),
-              _compactField(
-                width: FieldSizes.weight,
-                child: TextFormField(
-                  controller: _paymentEntryWeight,
-                  focusNode: _paymentEntryWeightFocus,
-                  enabled: enabled,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-                  ],
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(fontSize: 13),
-                  textInputAction: TextInputAction.next,
-                  decoration: InputDecoration(
-                    labelText: '$prefix.Weight',
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 6, vertical: 8),
+            items: _paymentItemTypes
+                .map(
+                  (t) => DropdownMenuItem(
+                    value: t,
+                    child: Text(t, overflow: TextOverflow.ellipsis),
                   ),
-                  onTap: () => _paymentEntryWeight.selection = TextSelection(
-                    baseOffset: 0,
-                    extentOffset: _paymentEntryWeight.text.length,
-                  ),
-                  onChanged: (_) => _onEntryWeightChanged(
-                    _paymentEntryWeight,
-                    _paymentEntryTouchFocus,
-                    _paymentEntryTouch,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              _compactField(
-                width: FieldSizes.touch,
-                child: TextFormField(
-                  controller: _paymentEntryTouch,
-                  focusNode: _paymentEntryTouchFocus,
-                  enabled: enabled,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-                  ],
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(fontSize: 13),
-                  textInputAction: TextInputAction.done,
-                  decoration: InputDecoration(
-                    labelText: '$prefix.Touch %',
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 6, vertical: 8),
-                  ),
-                  onTap: () => _paymentEntryTouch.selection = TextSelection(
-                    baseOffset: 0,
-                    extentOffset: _paymentEntryTouch.text.length,
-                  ),
-                  onFieldSubmitted: (_) => _commitPaymentEntry(),
-                  onChanged: (_) => setState(() {}),
-                ),
-              ),
-              const SizedBox(width: 6),
-              _compactField(
-                width: FieldSizes.pure,
-                child: InputDecorator(
-                  decoration: InputDecoration(
-                    labelText: '$prefix.Pure Wt',
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 6, vertical: 8),
-                  ),
-                  child: Text(
-                    _entryPure(_paymentEntryWeight, _paymentEntryTouch)
-                        .toStringAsFixed(3),
-                    textAlign: TextAlign.right,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ],
+                )
+                .toList(),
+            onChanged: enabled
+                ? (v) {
+                    if (v == null) return;
+                    _onPaymentTypeChanged(v);
+                  }
+                : null,
+          ),
         ),
         if (isCash) ...[
-          const SizedBox(height: 6),
+          const SizedBox(width: 6),
           _compactField(
             width: FieldSizes.cash,
             child: TextFormField(
@@ -1466,6 +1384,109 @@ class _TransactionScreenState extends State<TransactionScreen> {
               ),
               onFieldSubmitted: (_) => _commitPaymentEntry(),
               onChanged: (_) => setState(() {}),
+            ),
+          ),
+          const SizedBox(width: 6),
+          _compactField(
+            width: FieldSizes.weight,
+            child: InputDecorator(
+              decoration: InputDecoration(
+                labelText: '$prefix.Weight',
+                isDense: true,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+              ),
+              child: Text(
+                cashGold.toStringAsFixed(3),
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ] else ...[
+          const SizedBox(width: 6),
+          _compactField(
+            width: FieldSizes.weight,
+            child: TextFormField(
+              controller: _paymentEntryWeight,
+              focusNode: _paymentEntryWeightFocus,
+              enabled: enabled,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+              ],
+              textAlign: TextAlign.right,
+              style: const TextStyle(fontSize: 13),
+              textInputAction: TextInputAction.next,
+              decoration: InputDecoration(
+                labelText: '$prefix.Weight',
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 6, vertical: 8),
+              ),
+              onTap: () => _paymentEntryWeight.selection = TextSelection(
+                baseOffset: 0,
+                extentOffset: _paymentEntryWeight.text.length,
+              ),
+              onChanged: (_) => _onEntryWeightChanged(
+                _paymentEntryWeight,
+                _paymentEntryTouchFocus,
+                _paymentEntryTouch,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          _compactField(
+            width: FieldSizes.touch,
+            child: TextFormField(
+              controller: _paymentEntryTouch,
+              focusNode: _paymentEntryTouchFocus,
+              enabled: enabled,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+              ],
+              textAlign: TextAlign.right,
+              style: const TextStyle(fontSize: 13),
+              textInputAction: TextInputAction.done,
+              decoration: InputDecoration(
+                labelText: '$prefix.Touch %',
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 6, vertical: 8),
+              ),
+              onTap: () => _paymentEntryTouch.selection = TextSelection(
+                baseOffset: 0,
+                extentOffset: _paymentEntryTouch.text.length,
+              ),
+              onFieldSubmitted: (_) => _commitPaymentEntry(),
+              onChanged: (_) => setState(() {}),
+            ),
+          ),
+          const SizedBox(width: 6),
+          _compactField(
+            width: FieldSizes.pure,
+            child: InputDecorator(
+              decoration: InputDecoration(
+                labelText: '$prefix.Pure Wt',
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 6, vertical: 8),
+              ),
+              child: Text(
+                _entryPure(_paymentEntryWeight, _paymentEntryTouch)
+                    .toStringAsFixed(3),
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ),
           ),
         ],
@@ -1643,6 +1664,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
       totalLabel: '$title totals',
       totalPure: _paymentTotalPure,
       totalCash: _paymentTotalCash,
+      combinedCashAndGrams: true,
       rows: [
         _paymentEntryBlock(
           prefix: prefix,

@@ -3,6 +3,8 @@ class FieldSizes {
   FieldSizes._();
 
   static const typeDropdown = 72.0;
+  /// Payment type dropdown includes "CASH" — needs extra width for label + icon.
+  static const paymentTypeDropdown = 84.0;
   static const weight = 72.0;
   static const touch = 64.0;
   static const pure = 72.0;
