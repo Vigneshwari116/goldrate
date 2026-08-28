@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../database/database_helper.dart';
+import '../util/field_advance.dart';
 import '../util/focus_chain.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
@@ -120,8 +121,8 @@ class CustomerMasterScreen extends StatefulWidget {
       _CustomerMasterScreenState();
 }
 
-class _CustomerMasterScreenState
-    extends State<CustomerMasterScreen> {
+class _CustomerMasterScreenState extends State<CustomerMasterScreen>
+    with FocusAdvanceMixin {
   final _formKey = GlobalKey<FormState>();
 
   final _nameController = TextEditingController();
@@ -138,8 +139,7 @@ class _CustomerMasterScreenState
   final _pureWeightFocus = FocusNode();
   final _goldWeightFocus = FocusNode();
   final _narrationFocus = FocusNode();
-
-  Timer? _fieldAdvanceTimer;
+  final _saveFocus = FocusNode();
 
   List<Map<String, dynamic>> customers = [];
   List<Map<String, dynamic>> _filteredCustomers = [];
@@ -165,13 +165,13 @@ class _CustomerMasterScreenState
 
   @override
   void dispose() {
-    _fieldAdvanceTimer?.cancel();
     _nameFocus.dispose();
     _mobileFocus.dispose();
     _cityFocus.dispose();
     _pureWeightFocus.dispose();
     _goldWeightFocus.dispose();
     _narrationFocus.dispose();
+    _saveFocus.dispose();
     _nameController.dispose();
     _mobileController.dispose();
     _cityController.dispose();
@@ -268,12 +268,93 @@ class _CustomerMasterScreenState
     FocusChain.focus(next, controller: controller);
   }
 
-  void _scheduleAdvance(FocusNode next, {Duration delay = const Duration(milliseconds: 350)}) {
-    _fieldAdvanceTimer?.cancel();
-    _fieldAdvanceTimer = Timer(delay, () {
-      if (!mounted) return;
-      _focusNext(next);
-    });
+  void _onNameChanged(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return;
+
+    final exact = _allNames
+        .any((name) => name.toLowerCase() == trimmed.toLowerCase());
+    if (exact) {
+      advanceWhenComplete(
+        value: trimmed,
+        from: _nameFocus,
+        isComplete: (_) => true,
+        to: _mobileFocus,
+        toController: _mobileController,
+      );
+      return;
+    }
+
+    advanceWhenIdle(
+      value: trimmed,
+      from: _nameFocus,
+      when: (v) => v.trim().length >= 3,
+      to: _mobileFocus,
+      toController: _mobileController,
+    );
+  }
+
+  void _onMobileChanged(String value) {
+    advanceWhenComplete(
+      value: value,
+      from: _mobileFocus,
+      isComplete: FieldComplete.mobile,
+      to: _cityFocus,
+      toController: _cityController,
+    );
+  }
+
+  void _onCityChanged(String value) {
+    advanceWhenIdle(
+      value: value,
+      from: _cityFocus,
+      when: (v) => v.trim().length >= 2,
+      to: _pureWeightFocus,
+      toController: _pureWeightController,
+    );
+  }
+
+  void _onPureWeightChanged(String value) {
+    advanceWhenComplete(
+      value: value,
+      from: _pureWeightFocus,
+      isComplete: FieldComplete.masterWeight,
+      to: _goldWeightFocus,
+      toController: _goldWeightController,
+    );
+    advanceWhenIdle(
+      value: value,
+      from: _pureWeightFocus,
+      when: (v) => RegExp(r'^\d+$').hasMatch(v.trim()),
+      to: _goldWeightFocus,
+      toController: _goldWeightController,
+    );
+  }
+
+  void _onGoldWeightChanged(String value) {
+    advanceWhenComplete(
+      value: value,
+      from: _goldWeightFocus,
+      isComplete: FieldComplete.masterWeight,
+      to: _narrationFocus,
+      toController: _narrationController,
+    );
+    advanceWhenIdle(
+      value: value,
+      from: _goldWeightFocus,
+      when: (v) => RegExp(r'^\d+$').hasMatch(v.trim()),
+      to: _narrationFocus,
+      toController: _narrationController,
+    );
+  }
+
+  void _onNarrationChanged(String value) {
+    advanceWhenIdle(
+      value: value,
+      from: _narrationFocus,
+      when: (v) => v.trim().isNotEmpty,
+      action: () => FocusChain.focus(_saveFocus),
+    );
   }
 
   void _prefillOpeningBalance(_PartySummary summary) {
@@ -925,11 +1006,7 @@ class _CustomerMasterScreenState
                     focusNode: _nameFocus,
                     onSelected: _prefillFromExistingName,
                     onFieldSubmitted: () => _focusNext(_mobileFocus),
-                    onChanged: (value) {
-                      if (value.trim().length >= 2) {
-                        _scheduleAdvance(_mobileFocus);
-                      }
-                    },
+                    onChanged: _onNameChanged,
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -949,11 +1026,7 @@ class _CustomerMasterScreenState
                     ],
                     validator:
                     _validateMobile,
-                    onChanged: (value) {
-                      if (value.length == 10) {
-                        _focusNext(_cityFocus);
-                      }
-                    },
+                    onChanged: _onMobileChanged,
                     onFieldSubmitted: () => _focusNext(_cityFocus),
                   ),
                 ),
@@ -964,11 +1037,7 @@ class _CustomerMasterScreenState
               'City',
               _cityController,
               focusNode: _cityFocus,
-              onChanged: (value) {
-                if (value.trim().length >= 2) {
-                  _scheduleAdvance(_pureWeightFocus);
-                }
-              },
+              onChanged: _onCityChanged,
               onFieldSubmitted: () => _focusNext(_pureWeightFocus),
             ),
 
@@ -984,11 +1053,7 @@ class _CustomerMasterScreenState
                       decimal: true,
                     ),
                     validator: (v) => _validateNumber(v),
-                    onChanged: (value) {
-                      if (_numberRegex.hasMatch(value.trim())) {
-                        _scheduleAdvance(_goldWeightFocus);
-                      }
-                    },
+                    onChanged: _onPureWeightChanged,
                     onFieldSubmitted: () => _focusNext(_goldWeightFocus),
                   ),
                 ),
@@ -1002,11 +1067,7 @@ class _CustomerMasterScreenState
                       decimal: true,
                     ),
                     validator: (v) => _validateNumber(v),
-                    onChanged: (value) {
-                      if (_numberRegex.hasMatch(value.trim())) {
-                        _scheduleAdvance(_narrationFocus);
-                      }
-                    },
+                    onChanged: _onGoldWeightChanged,
                     onFieldSubmitted: () => _focusNext(_narrationFocus),
                   ),
                 ),
@@ -1017,12 +1078,15 @@ class _CustomerMasterScreenState
               'Narration',
               _narrationController,
               focusNode: _narrationFocus,
+              onChanged: _onNarrationChanged,
+              onFieldSubmitted: () => FocusChain.focus(_saveFocus),
             ),
 
             SizedBox(
               width: double.infinity,
               height: 42,
               child: ElevatedButton(
+                focusNode: _saveFocus,
                 style: ElevatedButton.styleFrom(
                   backgroundColor:
                   AppColors.navy,

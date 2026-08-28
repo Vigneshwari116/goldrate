@@ -15,6 +15,7 @@ class PartySearchField extends StatefulWidget {
     this.onChanged,
     this.onFieldSubmitted,
     this.onFocus,
+    this.focusNode,
   });
 
   final String label;
@@ -25,6 +26,7 @@ class PartySearchField extends StatefulWidget {
   final ValueChanged<String>? onChanged;
   final VoidCallback? onFieldSubmitted;
   final VoidCallback? onFocus;
+  final FocusNode? focusNode;
 
   @override
   State<PartySearchField> createState() => _PartySearchFieldState();
@@ -109,7 +111,7 @@ class _PartySearchFieldState extends State<PartySearchField> {
         }
         return TextFormField(
           controller: fieldController,
-          focusNode: focusNode,
+          focusNode: widget.focusNode ?? focusNode,
           style: const TextStyle(fontSize: 14),
           textInputAction: TextInputAction.next,
           onTap: widget.onFocus,

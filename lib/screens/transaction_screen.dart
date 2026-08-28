@@ -16,6 +16,7 @@ import '../pdf/pdf_kit.dart';
 import '../models/party_suggestion.dart';
 import '../widgets/party_search_field.dart';
 import '../util/party_save_prompt.dart';
+import '../util/field_advance.dart';
 import '../util/focus_chain.dart';
 import '../theme/app_theme.dart';
 import '../theme/field_sizes.dart';
@@ -113,12 +114,14 @@ class TransactionScreen extends StatefulWidget {
   State<TransactionScreen> createState() => _TransactionScreenState();
 }
 
-class _TransactionScreenState extends State<TransactionScreen> {
+class _TransactionScreenState extends State<TransactionScreen>
+    with FocusAdvanceMixin {
   static const _itemTypes = ['GWT', 'FWT', 'KWT', 'SWT'];
   static const _paymentItemTypes = ['GWT', 'FWT', 'KWT', 'SWT', 'CASH'];
   static final RegExp _numberRegex = RegExp(r'^\d+(\.\d+)?$');
 
   final _partyController = TextEditingController();
+  final _partyFocus = FocusNode();
 
   final List<_TransactionItem> _billLines = [];
   final List<_PanelLine> _paymentLines = [];
@@ -247,19 +250,6 @@ class _TransactionScreenState extends State<TransactionScreen> {
     _paymentEntryWeight.text = '0.000';
     _paymentEntryTouch.text = '0.00';
     _paymentEntryAmount.text = '0.00';
-  }
-
-  void _onEntryWeightChanged(
-    TextEditingController weight,
-    FocusNode touchFocus,
-    TextEditingController touch,
-  ) {
-    setState(() {});
-    final trimmed = weight.text.trim();
-    final w = double.tryParse(trimmed);
-    if (w == null || w <= 0) return;
-    if (!RegExp(r'^\d+\.\d{3}$').hasMatch(trimmed)) return;
-    FocusChain.focusNextFrame(touchFocus, controller: touch);
   }
 
   _TransactionItem? _validatedBillEntry() {
@@ -400,6 +390,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
   @override
   void dispose() {
     _partyController.dispose();
+    _partyFocus.dispose();
     _billEntryWeight.dispose();
     _billEntryTouch.dispose();
     _paymentEntryWeight.dispose();
@@ -471,6 +462,40 @@ class _TransactionScreenState extends State<TransactionScreen> {
     FocusChain.focusNextFrame(
       _billEntryWeightFocus,
       controller: _billEntryWeight,
+    );
+  }
+
+  Future<void> _advanceFromParty(String value) async {
+    if (!await _ensurePartySaved()) return;
+    FocusChain.focusNextFrame(
+      _billEntryWeightFocus,
+      controller: _billEntryWeight,
+    );
+  }
+
+  void _onPartyNameChanged(String value) {
+    _onPartyTextChanged(value);
+    setState(() {});
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return;
+
+    final exact =
+        _partySuggestions.where((p) => p.isExactNameMatch(trimmed)).toList();
+    if (exact.length == 1) {
+      advanceWhenComplete(
+        value: trimmed,
+        from: _partyFocus,
+        isComplete: (_) => true,
+        action: () => _advanceFromParty(trimmed),
+      );
+      return;
+    }
+
+    advanceWhenIdle(
+      value: trimmed,
+      from: _partyFocus,
+      when: (v) => v.trim().length >= 3,
+      action: () => _advanceFromParty(trimmed),
     );
   }
 
@@ -1046,21 +1071,13 @@ class _TransactionScreenState extends State<TransactionScreen> {
                   ? 'Customer Name'
                   : 'Supplier Name',
               controller: _partyController,
+              focusNode: _partyFocus,
               parties: _partySuggestions,
               helperText: 'Search saved name, mobile, or city',
               onFocus: _refreshParties,
               onSelected: _selectParty,
-              onFieldSubmitted: () async {
-                if (!await _ensurePartySaved()) return;
-                FocusChain.focusNextFrame(
-                  _billEntryWeightFocus,
-                  controller: _billEntryWeight,
-                );
-              },
-              onChanged: (v) {
-                _onPartyTextChanged(v);
-                setState(() {});
-              },
+              onFieldSubmitted: () => _advanceFromParty(_partyController.text),
+              onChanged: _onPartyNameChanged,
             ),
           ),
           if (_showPanels) ...[
@@ -1383,7 +1400,15 @@ class _TransactionScreenState extends State<TransactionScreen> {
                 extentOffset: _paymentEntryAmount.text.length,
               ),
               onFieldSubmitted: (_) => _commitPaymentEntry(),
-              onChanged: (_) => setState(() {}),
+              onChanged: (v) {
+                setState(() {});
+                advanceWhenComplete(
+                  value: v,
+                  from: _paymentEntryAmountFocus,
+                  isComplete: FieldComplete.cash,
+                  action: _commitPaymentEntry,
+                );
+              },
             ),
           ),
           const SizedBox(width: 6),
@@ -1432,10 +1457,19 @@ class _TransactionScreenState extends State<TransactionScreen> {
                 baseOffset: 0,
                 extentOffset: _paymentEntryWeight.text.length,
               ),
-              onChanged: (_) => _onEntryWeightChanged(
-                _paymentEntryWeight,
+              onChanged: (v) {
+                setState(() {});
+                advanceWhenComplete(
+                  value: v,
+                  from: _paymentEntryWeightFocus,
+                  isComplete: FieldComplete.weight,
+                  to: _paymentEntryTouchFocus,
+                  toController: _paymentEntryTouch,
+                );
+              },
+              onFieldSubmitted: (_) => FocusChain.focusNextFrame(
                 _paymentEntryTouchFocus,
-                _paymentEntryTouch,
+                controller: _paymentEntryTouch,
               ),
             ),
           ),
@@ -1465,7 +1499,15 @@ class _TransactionScreenState extends State<TransactionScreen> {
                 extentOffset: _paymentEntryTouch.text.length,
               ),
               onFieldSubmitted: (_) => _commitPaymentEntry(),
-              onChanged: (_) => setState(() {}),
+              onChanged: (v) {
+                setState(() {});
+                advanceWhenComplete(
+                  value: v,
+                  from: _paymentEntryTouchFocus,
+                  isComplete: FieldComplete.touch,
+                  action: _commitPaymentEntry,
+                );
+              },
             ),
           ),
           const SizedBox(width: 6),
@@ -1556,8 +1598,20 @@ class _TransactionScreenState extends State<TransactionScreen> {
               baseOffset: 0,
               extentOffset: weight.text.length,
             ),
-            onChanged: (_) =>
-                _onEntryWeightChanged(weight, touchFocus, touch),
+            onChanged: (v) {
+              setState(() {});
+              advanceWhenComplete(
+                value: v,
+                from: weightFocus,
+                isComplete: FieldComplete.weight,
+                to: touchFocus,
+                toController: touch,
+              );
+            },
+            onFieldSubmitted: (_) => FocusChain.focusNextFrame(
+              touchFocus,
+              controller: touch,
+            ),
           ),
         ),
         const SizedBox(width: 6),
@@ -1586,7 +1640,15 @@ class _TransactionScreenState extends State<TransactionScreen> {
               extentOffset: touch.text.length,
             ),
             onFieldSubmitted: (_) => onTouchSubmitted(),
-            onChanged: (_) => setState(() {}),
+            onChanged: (v) {
+              setState(() {});
+              advanceWhenComplete(
+                value: v,
+                from: touchFocus,
+                isComplete: FieldComplete.touch,
+                action: onTouchSubmitted,
+              );
+            },
           ),
         ),
         const SizedBox(width: 6),

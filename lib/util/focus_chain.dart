@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 
 /// Moves keyboard focus to the next field in data-entry forms.
+///
+/// Advance focus only on explicit user actions — Enter / Next on the keyboard,
+/// picking from a dropdown or autocomplete list, or tapping another field.
+/// Do not call these helpers from [TextFormField.onChanged].
 class FocusChain {
   FocusChain._();
 

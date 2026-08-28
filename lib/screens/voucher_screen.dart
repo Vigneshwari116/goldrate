@@ -8,6 +8,7 @@ import 'package:pdf/widgets.dart' as pw;
 import '../database/database_helper.dart';
 import '../logic/gold_ledger.dart';
 import '../pdf/pdf_kit.dart';
+import '../util/field_advance.dart';
 import '../util/focus_chain.dart';
 import '../util/party_save_prompt.dart';
 import '../theme/app_theme.dart';
@@ -27,7 +28,7 @@ class VoucherScreen extends StatefulWidget {
   State<VoucherScreen> createState() => _VoucherScreenState();
 }
 
-class _VoucherScreenState extends State<VoucherScreen> {
+class _VoucherScreenState extends State<VoucherScreen> with FocusAdvanceMixin {
   static const _modes = ['CASH', 'UPI', 'GOLD'];
 
   final _partyController = TextEditingController();
@@ -90,6 +91,56 @@ class _VoucherScreenState extends State<VoucherScreen> {
 
   void _onParty([String? value]) {
     _refreshOutstanding();
+  }
+
+  Future<void> _advanceFromParty(String value) async {
+    if (!await _ensurePartySaved()) return;
+    FocusChain.focus(_modeFocus);
+  }
+
+  void _onPartyNameChanged(String value) {
+    _onParty(value);
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return;
+
+    final exact =
+        _names.any((name) => name.toLowerCase() == trimmed.toLowerCase());
+    if (exact) {
+      advanceWhenComplete(
+        value: trimmed,
+        from: _partyFocus,
+        isComplete: (_) => true,
+        action: () => _advanceFromParty(trimmed),
+      );
+      return;
+    }
+
+    advanceWhenIdle(
+      value: trimmed,
+      from: _partyFocus,
+      when: (v) => v.trim().length >= 3,
+      action: () => _advanceFromParty(trimmed),
+    );
+  }
+
+  void _onAmountChanged(String value) {
+    setState(() {});
+    advanceWhenComplete(
+      value: value,
+      from: _amountFocus,
+      isComplete: (v) => FieldComplete.voucherAmount(v, _mode),
+      to: _narrationFocus,
+      toController: _narrationController,
+    );
+  }
+
+  void _onNarrationChanged(String value) {
+    advanceWhenIdle(
+      value: value,
+      from: _narrationFocus,
+      when: (v) => v.trim().isNotEmpty,
+      action: () => FocusChain.focus(_saveFocus),
+    );
   }
 
   Iterable<String> _partyOptions(String query) {
@@ -345,11 +396,8 @@ class _VoucherScreenState extends State<VoucherScreen> {
               options: _partyOptions,
               helperText: 'Search saved name or type a new one',
               focusNode: _partyFocus,
-              onChanged: (_) => _onParty(),
-              onFieldSubmitted: () async {
-                if (!await _ensurePartySaved()) return;
-                FocusChain.focus(_modeFocus);
-              },
+              onChanged: _onPartyNameChanged,
+              onFieldSubmitted: () => _advanceFromParty(_partyController.text),
             ),
           ),
           const SizedBox(height: 8),
@@ -410,7 +458,7 @@ class _VoucherScreenState extends State<VoucherScreen> {
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
                   textInputAction: TextInputAction.next,
-                  onChanged: (_) => setState(() {}),
+                  onChanged: _onAmountChanged,
                   onSubmitted: (_) => FocusChain.focus(
                     _narrationFocus,
                     controller: _narrationController,
@@ -447,6 +495,7 @@ class _VoucherScreenState extends State<VoucherScreen> {
               controller: _narrationController,
               focusNode: _narrationFocus,
               textInputAction: TextInputAction.done,
+              onChanged: _onNarrationChanged,
               onSubmitted: (_) => FocusChain.focus(_saveFocus),
               decoration: const InputDecoration(
                 labelText: 'Narration',
