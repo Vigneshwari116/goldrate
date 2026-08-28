@@ -1470,10 +1470,10 @@ class _TransactionScreenState extends State<TransactionScreen>
                   isComplete: FieldComplete.touch,
                   action: _commitPaymentEntry,
                 );
-                advanceWhenComplete(
+                advanceWhenIdle(
                   value: v,
                   from: _paymentEntryTouchFocus,
-                  isComplete: FieldComplete.touchWholeNumber,
+                  when: FieldComplete.touchWholeIdle,
                   action: _commitPaymentEntry,
                 );
               },
@@ -1521,9 +1521,10 @@ class _TransactionScreenState extends State<TransactionScreen>
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         _compactField(
-          width: FieldSizes.typeDropdown + 8,
+          width: FieldSizes.typeDropdown,
           child: DropdownButtonFormField<String>(
             value: selectedType,
+            isExpanded: true,
             isDense: true,
             decoration: const InputDecoration(
               labelText: 'Type',
@@ -1531,7 +1532,12 @@ class _TransactionScreenState extends State<TransactionScreen>
               contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 8),
             ),
             items: _itemTypes
-                .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                .map(
+                  (t) => DropdownMenuItem(
+                    value: t,
+                    child: Text(t, overflow: TextOverflow.ellipsis),
+                  ),
+                )
                 .toList(),
             onChanged: enabled
                 ? (v) {
@@ -1617,10 +1623,10 @@ class _TransactionScreenState extends State<TransactionScreen>
                 isComplete: FieldComplete.touch,
                 action: onTouchSubmitted,
               );
-              advanceWhenComplete(
+              advanceWhenIdle(
                 value: v,
                 from: touchFocus,
-                isComplete: FieldComplete.touchWholeNumber,
+                when: FieldComplete.touchWholeIdle,
                 action: onTouchSubmitted,
               );
             },

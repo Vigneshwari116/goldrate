@@ -8,28 +8,27 @@ import 'focus_chain.dart';
 class FieldComplete {
   FieldComplete._();
 
-  static final _weight3 = RegExp(r'^\d+\.\d{3}$');
+  static final _weightDec = RegExp(r'^\d+\.\d{2,3}$');
   static final _touch2 = RegExp(r'^\d+\.\d{2}$');
   static final _mobile10 = RegExp(r'^\d{10}$');
   static final _cash2 = RegExp(r'^\d+\.\d{2}$');
 
   static bool weight(String value) {
     final t = value.trim();
-    if (!_weight3.hasMatch(t)) return false;
+    if (!_weightDec.hasMatch(t)) return false;
     return (double.tryParse(t) ?? 0) > 0;
   }
 
-  /// Touch % — only advance once two decimal places are entered (e.g. 91.60).
+  /// Touch % — advance once two decimal places are entered (e.g. 23.80).
   static bool touch(String value) {
     final t = value.trim();
-    return _touch2.hasMatch(t);
+    if (!_touch2.hasMatch(t)) return false;
+    final n = double.tryParse(t);
+    return n != null && n > 0 && n <= 100;
   }
 
-  /// Whole-number touch (e.g. 100) — complete immediately when three digits.
-  static bool touchWholeNumber(String value) {
-    final t = value.trim();
-    return RegExp(r'^\d{3}$').hasMatch(t);
-  }
+  /// Whole-number 100 without a decimal — advance only after idle pause.
+  static bool touchWholeIdle(String value) => value.trim() == '100';
 
   static bool mobile(String value) => _mobile10.hasMatch(value.trim());
 
