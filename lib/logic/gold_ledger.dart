@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 /// Cash-to-gold conversion and running party balances.
 ///
 /// Jewellery books keep customer/supplier dues in **grams**. Cash or UPI
@@ -325,6 +327,14 @@ double ledgerRowBalanceDelta(PartyLedgerRecord row, {required bool customer}) {
     if (type == 'PURCHASE') return -(row.pureGold - row.issueWeight);
     if (type == 'PAYMENT') return row.issueWeight;
   }
+  assert(() {
+    debugPrint(
+      'ledgerRowBalanceDelta: unrecognized type "$type" on '
+      '${customer ? 'customer' : 'supplier'} row ${row.billRef} '
+      '(typeLabel=${row.typeLabel}); delta treated as 0',
+    );
+    return false;
+  }());
   return 0;
 }
 

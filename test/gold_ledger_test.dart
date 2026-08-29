@@ -175,6 +175,20 @@ void main() {
     expect(ledgerRowBalanceDelta(receipt, customer: true), closeTo(-3, 0.0001));
   });
 
+  test('ledger row balance delta returns 0 for unrecognized types', () {
+    const unknown = PartyLedgerRecord(
+      date: '01-08-2026',
+      billRef: 'ADJ-1',
+      partyName: 'Ravi',
+      typeLabel: 'ADJUSTMENT(G)',
+      receiptWeight: 1,
+      issueWeight: 2,
+      pureGold: 3,
+    );
+    expect(ledgerRowBalanceDelta(unknown, customer: true), 0);
+    expect(ledgerRowBalanceDelta(unknown, customer: false), 0);
+  });
+
   test('customer name-wise uses sales as debit and payments as credit', () {
     final rows = buildPartyNameWise(
       customer: true,
