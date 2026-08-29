@@ -17,7 +17,6 @@ import 'reset_screen.dart';
 import 'stock_screen.dart';
 import 'supplier_master_screen.dart';
 import 'transaction_screen.dart';
-import 'voucher_screen.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key, this.initialPage = AppPage.home});
@@ -54,6 +53,8 @@ class _AppShellState extends State<AppShell> {
         return 'PURCHASE';
       case AppPage.receipt:
         return 'RECEIPT VOUCHER';
+      case AppPage.payment:
+        return 'PAYMENT VOUCHER';
       case AppPage.customers:
         return 'CUSTOMER MASTER';
       case AppPage.suppliers:
@@ -125,6 +126,7 @@ class _AppShellState extends State<AppShell> {
     AppPage.sales,
     AppPage.purchase,
     AppPage.receipt,
+    AppPage.payment,
     AppPage.customers,
     AppPage.suppliers,
     AppPage.rates,
@@ -163,9 +165,17 @@ class _AppShellState extends State<AppShell> {
           ),
         ),
         _KeepAlivePage(
-          child: VoucherScreen(
+          child: TransactionScreen(
+            kind: TransactionKind.receiptVoucher,
             embedded: true,
             isActive: _page == AppPage.receipt,
+          ),
+        ),
+        _KeepAlivePage(
+          child: TransactionScreen(
+            kind: TransactionKind.paymentVoucher,
+            embedded: true,
+            isActive: _page == AppPage.payment,
           ),
         ),
         _KeepAlivePage(
@@ -278,6 +288,7 @@ class _AppShellState extends State<AppShell> {
       (Icons.indeterminate_check_box, 'Sales', AppPage.sales),
       (Icons.add_box, 'Purchase', AppPage.purchase),
       (Icons.receipt_long, 'Receipt Voucher', AppPage.receipt),
+      (Icons.payments, 'Payment Voucher', AppPage.payment),
       (Icons.people, 'Customer Master', AppPage.customers),
       (Icons.assessment, 'Reports', AppPage.reports),
     ];
@@ -375,7 +386,8 @@ class _AppShellState extends State<AppShell> {
                       pages: const [
                         AppPage.sales,
                         AppPage.purchase,
-                        AppPage.receipt
+                        AppPage.receipt,
+                        AppPage.payment,
                       ],
                       children: [
                         _leaf(
@@ -390,6 +402,10 @@ class _AppShellState extends State<AppShell> {
                             icon: Icons.receipt_long,
                             label: 'Receipt Voucher',
                             page: AppPage.receipt),
+                        _leaf(
+                            icon: Icons.payments,
+                            label: 'Payment Voucher',
+                            page: AppPage.payment),
                       ],
                     ),
                     _group(

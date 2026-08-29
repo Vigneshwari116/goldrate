@@ -5,6 +5,7 @@ enum AppPage {
   sales,
   purchase,
   receipt,
+  payment,
   customers,
   suppliers,
   rates,
