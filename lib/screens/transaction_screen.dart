@@ -17,6 +17,7 @@ import '../pdf/pdf_kit.dart';
 import '../models/party_suggestion.dart';
 import '../widgets/party_search_field.dart';
 import '../util/party_save_prompt.dart';
+import '../util/party_name_match.dart';
 import '../util/field_advance.dart';
 import '../util/focus_chain.dart';
 import '../util/screen_activation.dart';
@@ -232,7 +233,13 @@ class _TransactionScreenState extends State<TransactionScreen>
   void initState() {
     super.initState();
     _load();
-    _partyController.addListener(() => _onPartyTextChanged());
+    _partyController
+      ..addListener(_onPartyControllerChanged)
+      ..addListener(() => _onPartyTextChanged());
+  }
+
+  void _onPartyControllerChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -472,7 +479,16 @@ class _TransactionScreenState extends State<TransactionScreen>
     );
   }
 
+  bool _partyHasMatches(String name) =>
+      PartySearchField.filterParties(_partySuggestions, name).isNotEmpty;
+
+  bool _partyExactMatch(String name) =>
+      _partySuggestions.any((party) => party.isExactNameMatch(name));
+
   Future<void> _advanceFromParty(String value) async {
+    final name = value.trim();
+    if (name.isEmpty) return;
+    if (_partyHasMatches(name) && !_partyExactMatch(name)) return;
     if (!await _ensurePartySaved()) return;
     FocusChain.focusNextFrame(
       _billEntryWeightFocus,
@@ -481,21 +497,23 @@ class _TransactionScreenState extends State<TransactionScreen>
   }
 
   void _onPartyNameChanged(String value) {
-    _onPartyTextChanged(value);
     if (value.trim().isNotEmpty) {
       _partyRefreshTimer?.cancel();
       _partyRefreshTimer = Timer(const Duration(milliseconds: 300), () {
         if (mounted) _refreshParties();
       });
     }
-    setState(() {});
     final trimmed = value.trim();
     if (trimmed.isEmpty || _partyFocus == null) return;
 
     advanceWhenIdle(
       value: trimmed,
       from: _partyFocus!,
-      when: (v) => v.trim().length >= 2,
+      when: (v) {
+        final t = v.trim();
+        if (t.length < 2) return false;
+        return !_partyHasMatches(t) || _partyExactMatch(t);
+      },
       action: () => _advanceFromParty(trimmed),
     );
   }
@@ -503,9 +521,8 @@ class _TransactionScreenState extends State<TransactionScreen>
   Future<bool> _ensurePartySaved() async {
     final name = _partyController.text.trim();
     if (name.isEmpty) return false;
-    final exists =
-        _partySuggestions.any((party) => party.isExactNameMatch(name));
-    if (exists) return true;
+    if (_partyExactMatch(name)) return true;
+    if (_partyHasMatches(name)) return false;
 
     final save = await confirmSaveNewParty(
       context,
@@ -1324,7 +1341,7 @@ class _TransactionScreenState extends State<TransactionScreen>
                 .map(
                   (t) => DropdownMenuItem(
                     value: t,
-                    child: Text(t, overflow: TextOverflow.ellipsis),
+                    child: Text(t),
                   ),
                 )
                 .toList(),
@@ -1426,6 +1443,13 @@ class _TransactionScreenState extends State<TransactionScreen>
                   value: v,
                   from: _paymentEntryWeightFocus,
                   isComplete: FieldComplete.weight,
+                  to: _paymentEntryTouchFocus,
+                  toController: _paymentEntryTouch,
+                );
+                advanceWhenIdle(
+                  value: v,
+                  from: _paymentEntryWeightFocus,
+                  when: FieldComplete.weightWholeIdle,
                   to: _paymentEntryTouchFocus,
                   toController: _paymentEntryTouch,
                 );
@@ -1535,7 +1559,7 @@ class _TransactionScreenState extends State<TransactionScreen>
                 .map(
                   (t) => DropdownMenuItem(
                     value: t,
-                    child: Text(t, overflow: TextOverflow.ellipsis),
+                    child: Text(t),
                   ),
                 )
                 .toList(),
@@ -1579,6 +1603,13 @@ class _TransactionScreenState extends State<TransactionScreen>
                 value: v,
                 from: weightFocus,
                 isComplete: FieldComplete.weight,
+                to: touchFocus,
+                toController: touch,
+              );
+              advanceWhenIdle(
+                value: v,
+                from: weightFocus,
+                when: FieldComplete.weightWholeIdle,
                 to: touchFocus,
                 toController: touch,
               );
@@ -1731,6 +1762,9 @@ class _TransactionScreenState extends State<TransactionScreen>
   }
 
   Widget _balanceBar() {
+    final partyGrams = _partyOutstanding?['grams'] ?? 0;
+    final s = _settlement;
+    final hasBillData = _hasBillOrPaymentData;
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
@@ -1740,16 +1774,37 @@ class _TransactionScreenState extends State<TransactionScreen>
           borderRadius: BorderRadius.circular(6),
           border: Border.all(color: AppColors.border),
         ),
-        child: Text(
-          'BALANCE  ${_balancePure.toStringAsFixed(3)} g',
-          style: const TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w800,
-            color: AppColors.navy,
-          ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Balance  ${_signedGrams(partyGrams)}',
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                color: AppColors.navy,
+              ),
+            ),
+            if (hasBillData) ...[
+              const SizedBox(height: 4),
+              Text(
+                'After this bill: ${_signedGrams(s.newGrams)}',
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.mutedBlue,
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );
+  }
+
+  String _signedGrams(double grams) {
+    final sign = grams > 0 ? '+' : grams < 0 ? '' : '';
+    return '$sign${grams.toStringAsFixed(3)} g';
   }
 
   Widget _buildHistorySection() {

@@ -13,6 +13,7 @@ import '../util/field_advance.dart';
 import '../util/focus_chain.dart';
 import '../util/screen_activation.dart';
 import '../util/party_save_prompt.dart';
+import '../util/party_name_match.dart';
 import '../theme/app_theme.dart';
 import '../theme/field_sizes.dart';
 import '../theme/responsive.dart';
@@ -135,6 +136,12 @@ class _VoucherScreenState extends State<VoucherScreen>
   }
 
   Future<void> _advanceFromParty(String value) async {
+    final name = value.trim();
+    if (name.isEmpty) return;
+    if (PartyNameMatch.hasMatches(_names, name) &&
+        !PartyNameMatch.isExactMatch(_names, name)) {
+      return;
+    }
     if (!await _ensurePartySaved()) return;
     FocusChain.focus(_modeFocus);
   }
@@ -153,7 +160,12 @@ class _VoucherScreenState extends State<VoucherScreen>
     advanceWhenIdle(
       value: trimmed,
       from: _partyFocus!,
-      when: (v) => v.trim().length >= 2,
+      when: (v) {
+        final t = v.trim();
+        if (t.length < 2) return false;
+        return !PartyNameMatch.hasMatches(_names, t) ||
+            PartyNameMatch.isExactMatch(_names, t);
+      },
       action: () => _advanceFromParty(trimmed),
     );
   }
@@ -199,9 +211,9 @@ class _VoucherScreenState extends State<VoucherScreen>
   Future<bool> _ensurePartySaved() async {
     final name = _partyController.text.trim();
     if (name.isEmpty) return false;
-    if (_names.any((n) => n.toLowerCase() == name.toLowerCase())) {
-      return true;
-    }
+    if (PartyNameMatch.isExactMatch(_names, name)) return true;
+    if (PartyNameMatch.hasMatches(_names, name)) return false;
+
     final save = await confirmSaveNewParty(
       context,
       isCustomer: _isCustomer,
@@ -432,6 +444,7 @@ class _VoucherScreenState extends State<VoucherScreen>
               helperText: 'Search saved name or type a new one',
               onFocusNodeReady: _bindPartyFocus,
               onFocus: _refreshNames,
+              onSelected: (name) => _onParty(name),
               onChanged: _onPartyNameChanged,
               onFieldSubmitted: () => _advanceFromParty(_partyController.text),
             ),

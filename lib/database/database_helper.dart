@@ -661,7 +661,11 @@ class DatabaseHelper {
     }
     final db = await database;
     final table = isCustomer ? 'customers' : 'suppliers';
-    final rows = await db.query(table, where: 'name = ?', whereArgs: [name]);
+    final rows = await db.query(
+      table,
+      where: 'LOWER(name) = ?',
+      whereArgs: [name.trim().toLowerCase()],
+    );
 
     double rupees = 0;
     double grams = 0;

@@ -97,23 +97,25 @@ class _PartySearchFieldState extends State<PartySearchField> {
                 itemCount: options.length,
                 itemBuilder: (context, index) {
                   final option = options.elementAt(index);
-                  return ListTile(
-                    dense: true,
-                    title: Text(
-                      option.name,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
+                  return partyAutocompleteOptionTile(
+                    onSelected: () => onSelected(option),
+                    child: ListTile(
+                      dense: true,
+                      title: Text(
+                        option.name,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        ),
+                      ),
+                      subtitle: Text(
+                        option.detailLine,
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          color: AppColors.mutedBlue,
+                        ),
                       ),
                     ),
-                    subtitle: Text(
-                      option.detailLine,
-                      style: const TextStyle(
-                        fontSize: 11.5,
-                        color: AppColors.mutedBlue,
-                      ),
-                    ),
-                    onTap: () => onSelected(option),
                   );
                 },
               ),

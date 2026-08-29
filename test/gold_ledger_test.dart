@@ -73,16 +73,23 @@ void main() {
           'transactionType': 'SALES',
           'partyName': 'Ravi Kumar',
           'billNo': 1,
+          'totalWt': '12.000',
           'totalPureWt': '10.000',
           'totalValue': '151000',
+          'paymentMode': 'GOLD',
+          'paymentAmount': '2.000',
           'date': '01-08-2026',
         },
         {
           'transactionType': 'SALES',
           'partyName': 'Meena',
           'billNo': 2,
+          'totalWt': '6.000',
           'totalPureWt': '5.000',
           'totalValue': '75500',
+          'paymentMode': 'CASH',
+          'paymentAmount': '0',
+          'cashToGold': '0',
           'date': '02-08-2026',
         },
       ],
@@ -104,16 +111,42 @@ void main() {
     );
     expect(rows.length, 2);
     expect(rows.first.partyName, 'Ravi Kumar');
-    expect(rows.first.type, 'SALES');
-    expect(rows.last.type, 'RECEIPT');
-    expect(
-      rows.fold<double>(0, (s, r) => s + r.weightGrams),
-      closeTo(12, 0.0001),
+    expect(rows.first.typeLabel, 'SALES(G)');
+    expect(rows.first.issueWeight, closeTo(12, 0.0001));
+    expect(rows.first.receiptWeight, closeTo(2, 0.0001));
+    expect(rows.first.pureGold, closeTo(10, 0.0001));
+    expect(rows.last.typeLabel, 'RECEIPT(C)');
+    expect(rows.last.receiptWeight, closeTo(2, 0.0001));
+  });
+
+  test('party ledger sections include opening and closing balances', () {
+    final sections = buildPartyLedgerSections(
+      customer: true,
+      transactions: [
+        {
+          'transactionType': 'SALES',
+          'partyName': 'Ravi',
+          'billNo': 1,
+          'totalWt': '12.000',
+          'totalPureWt': '10.000',
+          'totalValue': '151000',
+          'paymentMode': 'CASH',
+          'paymentAmount': '0',
+          'cashToGold': '0',
+          'date': '10-08-2026',
+        },
+      ],
+      vouchers: const [],
+      from: DateTime(2026, 8, 10),
+      to: DateTime(2026, 8, 10),
+      goldRate: 15100,
     );
-    expect(
-      rows.fold<double>(0, (s, r) => s + r.amountRupees),
-      closeTo(181200, 0.01),
-    );
+    expect(sections.length, 1);
+    expect(sections.first.openingBalance, 0);
+    expect(sections.first.closingBalance, closeTo(10, 0.0001));
+    final table = sections.first.toTableRows();
+    expect(table.first.last, '+10.000 g');
+    expect(table.last.last, '+10.000 g');
   });
 
   test('customer name-wise uses sales as debit and payments as credit', () {

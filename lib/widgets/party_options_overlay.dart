@@ -5,10 +5,8 @@ Widget partyAutocompleteOptionsView({
   required BuildContext context,
   required Widget child,
 }) {
-  return Align(
-    alignment: AlignmentDirectional.topStart,
-    widthFactor: 1.0,
-    heightFactor: 0.0,
+  return Material(
+    color: Colors.transparent,
     child: child,
   );
 }
@@ -26,5 +24,18 @@ Widget partyAutocompleteOptionsShell({
       constraints: BoxConstraints(maxHeight: maxHeight, minWidth: minWidth),
       child: child,
     ),
+  );
+}
+
+/// Selects an autocomplete option on pointer-down so taps register before
+/// the overlay closes from focus changes.
+Widget partyAutocompleteOptionTile({
+  required VoidCallback onSelected,
+  required Widget child,
+}) {
+  return Listener(
+    behavior: HitTestBehavior.opaque,
+    onPointerDown: (_) => onSelected(),
+    child: child,
   );
 }

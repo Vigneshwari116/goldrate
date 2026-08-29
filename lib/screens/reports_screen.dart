@@ -509,9 +509,7 @@ class _ReportsScreenState extends State<ReportsScreen>
     final query =
         customer ? _customerNameQuery.text : _supplierNameQuery.text;
     final goldRate = GoldLedger.goldRate(_rates);
-  // ALL names mode shows every ledger row; date chips still apply when NAME filter
-  // is active or when SHOW ALL HISTORY is not set and user narrowed dates.
-    final rows = buildPartyLedgerRecords(
+    final sections = buildPartyLedgerSections(
       customer: customer,
       transactions: _txns,
       vouchers: _vouchers,
@@ -521,23 +519,43 @@ class _ReportsScreenState extends State<ReportsScreen>
       nameQuery: byName ? query : '',
       goldRate: goldRate,
     );
-    final totalWeight =
-        rows.fold<double>(0, (sum, r) => sum + r.weightGrams);
-    final totalAmount =
-        rows.fold<double>(0, (sum, r) => sum + r.amountRupees);
+    final recordCount =
+        sections.fold<int>(0, (sum, section) => sum + section.rows.length);
+    final totalReceipt = sections.fold<double>(
+      0,
+      (sum, section) =>
+          sum + section.rows.fold(0, (s, row) => s + row.receiptWeight),
+    );
+    final totalIssue = sections.fold<double>(
+      0,
+      (sum, section) =>
+          sum + section.rows.fold(0, (s, row) => s + row.issueWeight),
+    );
+    final totalPure = sections.fold<double>(
+      0,
+      (sum, section) =>
+          sum + section.rows.fold(0, (s, row) => s + row.pureGold),
+    );
     const headers = [
       'DATE',
       'BILL NO',
       'NAME',
       'TYPE',
-      'WEIGHT',
-      'AMOUNT',
+      'R.WEIGHT',
+      'ISSUE WT',
+      'PURE GOLD',
+      'OPENING',
+      'CLOSING',
     ];
-    final table = [for (final r in rows) r.toTableCells()];
+    final table = [
+      for (final section in sections) ...section.toTableRows(),
+    ];
     final title =
         customer ? 'CUSTOMER LEDGER' : 'SUPPLIER LEDGER';
     final totalText =
-        'WEIGHT: ${totalWeight.toStringAsFixed(3)} g  |  AMOUNT: ₹${totalAmount.toStringAsFixed(2)}';
+        'R.WT: ${totalReceipt.toStringAsFixed(3)} g  |  '
+        'ISSUE: ${totalIssue.toStringAsFixed(3)} g  |  '
+        'PURE: ${totalPure.toStringAsFixed(3)} g';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -559,14 +577,14 @@ class _ReportsScreenState extends State<ReportsScreen>
         Expanded(
           child: _reportShell(
             title: title,
-            records: rows.length,
-            units: totalWeight,
-            total: totalAmount,
+            records: recordCount,
+            units: totalPure,
+            total: 0,
             totalText: totalText,
             child: _htmlTable(
               table,
               headers: headers,
-              columnFlex: const [2, 2, 3, 2, 2, 2],
+              columnFlex: const [2, 2, 3, 2, 2, 2, 2, 2, 2],
             ),
             pdfRows: table,
             headers: headers,

@@ -78,16 +78,18 @@ class _PartyAutocompleteFieldState extends State<PartyAutocompleteField> {
               itemCount: options.length,
               itemBuilder: (context, index) {
                 final option = options.elementAt(index);
-                return ListTile(
-                  dense: true,
-                  title: Text(
-                    option,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
+                return partyAutocompleteOptionTile(
+                  onSelected: () => onSelected(option),
+                  child: ListTile(
+                    dense: true,
+                    title: Text(
+                      option,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
                     ),
                   ),
-                  onTap: () => onSelected(option),
                 );
               },
             ),

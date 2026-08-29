@@ -8,41 +8,66 @@ import 'focus_chain.dart';
 class FieldComplete {
   FieldComplete._();
 
-  static final _weightDec = RegExp(r'^\d+\.\d{2,3}$');
-  static final _touch2 = RegExp(r'^\d+\.\d{2}$');
+  static final _whole = RegExp(r'^\d+$');
+  static final _oneDecimal = RegExp(r'^\d+\.\d$');
+  static final _twoDecimals = RegExp(r'^\d+\.\d{2}$');
+  static final _threeDecimals = RegExp(r'^\d+\.\d{3}$');
   static final _mobile10 = RegExp(r'^\d{10}$');
   static final _cash2 = RegExp(r'^\d+\.\d{2}$');
 
+  static bool _positive(String value) => (double.tryParse(value) ?? 0) > 0;
+
+  /// Weight — whole number, one decimal, or two decimals (e.g. 123 / 123.4 / 123.45).
   static bool weight(String value) {
     final t = value.trim();
-    if (!_weightDec.hasMatch(t)) return false;
-    return (double.tryParse(t) ?? 0) > 0;
+    if (!_whole.hasMatch(t) &&
+        !_oneDecimal.hasMatch(t) &&
+        !_twoDecimals.hasMatch(t)) {
+      return false;
+    }
+    return _positive(t);
   }
 
-  /// Touch % — advance once two decimal places are entered (e.g. 23.80).
+  /// Whole-number weight without a decimal — advance only after idle pause.
+  static bool weightWholeIdle(String value) {
+    final t = value.trim();
+    if (!_whole.hasMatch(t) || t.length < 2) return false;
+    return _positive(t);
+  }
+
+  /// Touch % — whole number or one decimal (e.g. 45 / 45.6).
   static bool touch(String value) {
     final t = value.trim();
-    if (!_touch2.hasMatch(t)) return false;
+    if (!_whole.hasMatch(t) && !_oneDecimal.hasMatch(t)) return false;
     final n = double.tryParse(t);
     return n != null && n > 0 && n <= 100;
   }
 
-  /// Whole-number 100 without a decimal — advance only after idle pause.
-  static bool touchWholeIdle(String value) => value.trim() == '100';
+  /// Whole-number touch without a decimal — advance only after idle pause.
+  static bool touchWholeIdle(String value) {
+    final t = value.trim();
+    if (!_whole.hasMatch(t) || t.length < 2) return false;
+    final n = int.tryParse(t);
+    return n != null && n > 0 && n <= 100;
+  }
 
   static bool mobile(String value) => _mobile10.hasMatch(value.trim());
 
   static bool cash(String value) {
     final t = value.trim();
     if (!_cash2.hasMatch(t)) return false;
-    return (double.tryParse(t) ?? 0) > 0;
+    return _positive(t);
   }
 
   /// Master optional weight — advance once three decimal places are entered.
-  static bool masterWeight(String value) => weight(value);
+  static bool masterWeight(String value) {
+    final t = value.trim();
+    if (!_threeDecimals.hasMatch(t)) return false;
+    return _positive(t);
+  }
 
   static bool voucherAmount(String value, String mode) {
-    if (mode == 'GOLD') return weight(value);
+    if (mode == 'GOLD') return masterWeight(value);
     return cash(value);
   }
 }
