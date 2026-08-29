@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 /// Cash-to-gold conversion and running party balances.
 ///
 /// Jewellery books keep customer/supplier dues in **grams**. Cash or UPI
@@ -224,27 +226,182 @@ class PartyLedgerRecord {
   final String date;
   final String billRef;
   final String partyName;
-  final String type;
-  final double weightGrams;
-  final double amountRupees;
+  final String typeLabel;
+  final double receiptWeight;
+  final double issueWeight;
+  final double pureGold;
+  final double? goldRate;
 
   const PartyLedgerRecord({
     required this.date,
     required this.billRef,
     required this.partyName,
-    required this.type,
-    required this.weightGrams,
-    required this.amountRupees,
+    required this.typeLabel,
+    required this.receiptWeight,
+    required this.issueWeight,
+    required this.pureGold,
+    this.goldRate,
   });
 
-  List<String> toTableCells() => [
+  String get billRefWithRate {
+    if (goldRate == null || goldRate! <= 0) return billRef;
+    return '$billRef @ ₹${goldRate!.toStringAsFixed(0)}';
+  }
+
+  List<String> toTableCells({
+    double? openingBalance,
+    double? closingBalance,
+    double? balanceWeight,
+  }) =>
+      [
         date,
-        billRef,
+        billRefWithRate,
         partyName,
-        type,
-        '${weightGrams.toStringAsFixed(3)} g',
-        '₹${amountRupees.toStringAsFixed(2)}',
+        typeLabel,
+        _formatWeight(receiptWeight),
+        _formatWeight(issueWeight),
+        _formatWeight(pureGold),
+        balanceWeight == null ? '' : _signedBalance(balanceWeight),
+        openingBalance == null ? '' : _signedBalance(openingBalance),
+        closingBalance == null ? '' : _signedBalance(closingBalance),
       ];
+}
+
+/// Ledger rows grouped by party with opening/closing balances.
+class PartyLedgerSection {
+  final String partyName;
+  final double openingBalance;
+  final double closingBalance;
+  final List<PartyLedgerRecord> rows;
+  final bool customer;
+
+  const PartyLedgerSection({
+    required this.partyName,
+    required this.openingBalance,
+    required this.closingBalance,
+    required this.rows,
+    required this.customer,
+  });
+
+  List<List<String>> toTableRows() {
+    if (rows.isEmpty) {
+      return [
+        [
+          '',
+          '',
+          partyName,
+          '—',
+          '',
+          '',
+          '',
+          _signedBalance(openingBalance),
+          _signedBalance(openingBalance),
+          _signedBalance(closingBalance),
+        ],
+      ];
+    }
+
+    var running = openingBalance;
+    final out = <List<String>>[];
+    for (var i = 0; i < rows.length; i++) {
+      running += ledgerRowBalanceDelta(rows[i], customer: customer);
+      out.add(
+        rows[i].toTableCells(
+          openingBalance: i == 0 ? openingBalance : null,
+          closingBalance: i == rows.length - 1 ? closingBalance : null,
+          balanceWeight: running,
+        ),
+      );
+    }
+    return out;
+  }
+}
+
+/// Net gold-balance change for one ledger row (running balance per line).
+double ledgerRowBalanceDelta(PartyLedgerRecord row, {required bool customer}) {
+  final type = row.typeLabel.split('(').first;
+  if (customer) {
+    if (type == 'SALES') return row.pureGold - row.receiptWeight;
+    if (type == 'RECEIPT') return -row.receiptWeight;
+  } else {
+    if (type == 'PURCHASE') return -(row.pureGold - row.issueWeight);
+    if (type == 'PAYMENT') return row.issueWeight;
+  }
+  assert(() {
+    debugPrint(
+      'ledgerRowBalanceDelta: unrecognized type "$type" on '
+      '${customer ? 'customer' : 'supplier'} row ${row.billRef} '
+      '(typeLabel=${row.typeLabel}); delta treated as 0',
+    );
+    return false;
+  }());
+  return 0;
+}
+
+String _formatWeight(double grams) =>
+    grams.abs() < 0.0005 ? '' : grams.toStringAsFixed(3);
+
+String _signedBalance(double grams) {
+  final sign = grams > 0 ? '+' : grams < 0 ? '' : '';
+  return '$sign${grams.toStringAsFixed(3)} g';
+}
+
+double? goldRateOnRow(Map<String, dynamic> row) {
+  final rate = double.tryParse((row['goldRateUsed'] ?? '').toString());
+  if (rate != null && rate > 0) return rate;
+  return null;
+}
+
+String transactionTypeLabel(String type, String? paymentMode) {
+  final mode = paymentModeLabel(paymentMode);
+  final suffix = mode == 'GOLD' ? 'G' : 'C';
+  return '$type($suffix)';
+}
+
+({double receipt, double issue, double pure}) billLedgerWeights(
+  Map<String, dynamic> bill, {
+  required bool isSales,
+}) {
+  final totalWt = double.tryParse((bill['totalWt'] ?? '').toString()) ?? 0;
+  final totalPure =
+      double.tryParse((bill['totalPureWt'] ?? '').toString()) ?? 0;
+  final paymentMode = (bill['paymentMode'] ?? '').toString().toUpperCase();
+  final paymentAmt =
+      double.tryParse((bill['paymentAmount'] ?? '').toString()) ?? 0;
+  final cashToGold =
+      double.tryParse((bill['cashToGold'] ?? '').toString()) ?? 0;
+
+  var receipt = 0.0;
+  var issue = 0.0;
+
+  if (isSales) {
+    issue = totalWt;
+    if (paymentMode == 'GOLD') {
+      receipt = paymentAmt;
+    } else if (cashToGold > 0) {
+      receipt = cashToGold;
+    }
+  } else {
+    receipt = totalWt;
+    if (paymentMode == 'GOLD') {
+      issue = paymentAmt;
+    } else if (cashToGold > 0) {
+      issue = cashToGold;
+    }
+  }
+
+  return (receipt: receipt, issue: issue, pure: totalPure);
+}
+
+({double receipt, double issue, double pure}) voucherLedgerWeights(
+  Map<String, dynamic> voucher, {
+  required bool customer,
+}) {
+  final paid = goldPaidOnRow(voucher);
+  if (customer) {
+    return (receipt: paid, issue: 0.0, pure: paid);
+  }
+  return (receipt: 0.0, issue: paid, pure: paid);
 }
 
 bool inAppDateRange({
@@ -300,27 +457,29 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
     )) {
       continue;
     }
-    final grams =
-        double.tryParse((bill['totalPureWt'] ?? '').toString()) ?? 0;
-    final amount =
-        double.tryParse((bill['totalValue'] ?? '').toString()) ?? 0;
+    final weights = billLedgerWeights(bill, isSales: type == 'SALES');
     if (customer && type == 'SALES') {
       records.add(PartyLedgerRecord(
         date: bill['date']?.toString() ?? '',
         billRef: 'SAL-${bill['billNo']}',
         partyName: name,
-        type: 'SALES',
-        weightGrams: grams,
-        amountRupees: amount,
+        typeLabel: transactionTypeLabel('SALES', bill['paymentMode']?.toString()),
+        receiptWeight: weights.receipt,
+        issueWeight: weights.issue,
+        pureGold: weights.pure,
+        goldRate: goldRateOnRow(bill),
       ));
     } else if (!customer && type == 'PURCHASE') {
       records.add(PartyLedgerRecord(
         date: bill['date']?.toString() ?? '',
         billRef: 'PUR-${bill['billNo']}',
         partyName: name,
-        type: 'PURCHASE',
-        weightGrams: grams,
-        amountRupees: amount,
+        typeLabel:
+            transactionTypeLabel('PURCHASE', bill['paymentMode']?.toString()),
+        receiptWeight: weights.receipt,
+        issueWeight: weights.issue,
+        pureGold: weights.pure,
+        goldRate: goldRateOnRow(bill),
       ));
     }
   }
@@ -344,13 +503,16 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
       continue;
     }
     final vType = (v['voucherType'] ?? '').toString();
+    final weights = voucherLedgerWeights(v, customer: customer);
     records.add(PartyLedgerRecord(
       date: v['date']?.toString() ?? '',
       billRef: '$vType-${v['voucherNo']}',
       partyName: name,
-      type: vType,
-      weightGrams: goldPaidOnRow(v),
-      amountRupees: voucherAmountRupees(v, goldRate),
+      typeLabel: transactionTypeLabel(vType, v['paymentMode']?.toString()),
+      receiptWeight: weights.receipt,
+      issueWeight: weights.issue,
+      pureGold: weights.pure,
+      goldRate: goldRateOnRow(v),
     ));
   }
 
@@ -364,6 +526,59 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
     return cmp != 0 ? cmp : a.billRef.compareTo(b.billRef);
   });
   return records;
+}
+
+/// Groups ledger rows by party with opening/closing gold balances.
+List<PartyLedgerSection> buildPartyLedgerSections({
+  required bool customer,
+  required List<Map<String, dynamic>> transactions,
+  required List<Map<String, dynamic>> vouchers,
+  DateTime? from,
+  DateTime? to,
+  bool allHistory = false,
+  String nameQuery = '',
+  double goldRate = 0,
+}) {
+  final records = buildPartyLedgerRecords(
+    customer: customer,
+    transactions: transactions,
+    vouchers: vouchers,
+    from: from,
+    to: to,
+    allHistory: allHistory,
+    nameQuery: nameQuery,
+    goldRate: goldRate,
+  );
+
+  final names = records.map((r) => r.partyName).toSet().toList()..sort();
+  final balances = {
+    for (final row in buildPartyNameWise(
+      customer: customer,
+      knownNames: names,
+      transactions: transactions,
+      vouchers: vouchers,
+      from: from,
+      to: to,
+      allHistory: allHistory,
+    ))
+      row.name: row,
+  };
+
+  final grouped = <String, List<PartyLedgerRecord>>{};
+  for (final record in records) {
+    grouped.putIfAbsent(record.partyName, () => []).add(record);
+  }
+
+  return [
+    for (final name in names)
+      PartyLedgerSection(
+        partyName: name,
+        openingBalance: balances[name]?.opening ?? 0,
+        closingBalance: balances[name]?.closing ?? 0,
+        rows: grouped[name] ?? const [],
+        customer: customer,
+      ),
+  ];
 }
 
 /// One row of a customer/supplier name-wise gold statement (grams).

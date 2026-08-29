@@ -329,7 +329,7 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
     advanceWhenIdle(
       value: value,
       from: _pureWeightFocus,
-      when: (v) => RegExp(r'^\d+$').hasMatch(v.trim()),
+      when: (v) => RegExp(r'^\d{2,}$').hasMatch(v.trim()),
       to: _goldWeightFocus,
       toController: _goldWeightController,
     );
@@ -346,7 +346,7 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
     advanceWhenIdle(
       value: value,
       from: _goldWeightFocus,
-      when: (v) => RegExp(r'^\d+$').hasMatch(v.trim()),
+      when: (v) => RegExp(r'^\d{2,}$').hasMatch(v.trim()),
       to: _narrationFocus,
       toController: _narrationController,
     );

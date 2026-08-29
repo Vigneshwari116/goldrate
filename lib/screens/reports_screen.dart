@@ -15,6 +15,8 @@ enum _ReportTab {
   billWise,
   salesReport,
   purchaseReport,
+  receiptVoucherReport,
+  paymentVoucherReport,
   customerLedger,
   supplierLedger,
 }
@@ -267,6 +269,8 @@ class _ReportsScreenState extends State<ReportsScreen>
             tab(_ReportTab.billWise, 'BILL WISE ABSTRACT'),
             tab(_ReportTab.salesReport, 'SALES'),
             tab(_ReportTab.purchaseReport, 'PURCHASE'),
+            tab(_ReportTab.receiptVoucherReport, 'RECEIPT VOUCHER'),
+            tab(_ReportTab.paymentVoucherReport, 'PAYMENT VOUCHER'),
             tab(_ReportTab.customerLedger, 'CUSTOMER LEDGER'),
             tab(_ReportTab.supplierLedger, 'SUPPLIER LEDGER'),
           ],
@@ -352,6 +356,16 @@ class _ReportsScreenState extends State<ReportsScreen>
           purchasesOnly: true,
           title: 'PURCHASE REPORT',
         );
+      case _ReportTab.receiptVoucherReport:
+        return _voucherAbstract(
+          voucherType: 'RECEIPT',
+          title: 'RECEIPT VOUCHER REPORT',
+        );
+      case _ReportTab.paymentVoucherReport:
+        return _voucherAbstract(
+          voucherType: 'PAYMENT',
+          title: 'PAYMENT VOUCHER REPORT',
+        );
       case _ReportTab.customerLedger:
         return _partyLedgerRecords(customer: true);
       case _ReportTab.supplierLedger:
@@ -398,6 +412,67 @@ class _ReportsScreenState extends State<ReportsScreen>
         ['Purchase bills', '${t.purchaseBills}', '', '', '₹${t.purchaseAmount.toStringAsFixed(2)}'],
         ['Purchase credit', '', '${t.purchaseCreditGrams.toStringAsFixed(3)} g', '', '₹${t.purchaseCreditAmount.toStringAsFixed(2)}'],
       ],
+    );
+  }
+
+  Widget _voucherAbstract({
+    required String voucherType,
+    required String title,
+  }) {
+    final goldRate = GoldLedger.goldRate(_rates);
+    var rows = _filteredVouchers
+        .where((r) => (r['voucherType'] ?? '').toString() == voucherType)
+        .toList();
+    rows = [...rows]..sort((a, b) {
+        final an = a['voucherNo'] as int? ?? 0;
+        final bn = b['voucherNo'] as int? ?? 0;
+        return an.compareTo(bn);
+      });
+
+    double total = 0;
+    double units = 0;
+    final table = <List<String>>[];
+    for (final voucher in rows) {
+      final amount =
+          double.tryParse((voucher['amount'] ?? '').toString()) ?? 0;
+      final gold = goldPaidOnRow(voucher);
+      total += voucherAmountRupees(voucher, goldRate);
+      units += gold;
+      final voucherNo = '$voucherType-${voucher['voucherNo']}';
+      final name = '${voucher['partyName'] ?? ''}';
+      final mode = paymentModeLabel(voucher['paymentMode']?.toString());
+      table.add([
+        voucherNo,
+        name,
+        voucher['date']?.toString() ?? '',
+        mode,
+        '${gold.toStringAsFixed(3)} g',
+        mode == 'GOLD'
+            ? '${amount.toStringAsFixed(3)} g'
+            : 'Rs.${amount.toStringAsFixed(2)}',
+      ]);
+    }
+
+    const headers = [
+      'VOUCHER NO',
+      'NAME',
+      'DATE',
+      'MODE',
+      'GOLD',
+      'AMOUNT',
+    ];
+    return _reportShell(
+      title: title,
+      records: rows.length,
+      units: units,
+      total: total,
+      child: _htmlTable(
+        table,
+        headers: headers,
+        columnFlex: const [2, 3, 2, 2, 2, 2],
+      ),
+      pdfRows: table,
+      headers: headers,
     );
   }
 
@@ -475,6 +550,7 @@ class _ReportsScreenState extends State<ReportsScreen>
     required TextEditingController query,
     required ValueChanged<bool> onModeChanged,
     required String nameHint,
+    double goldRate = 0,
   }) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
@@ -485,6 +561,23 @@ class _ReportsScreenState extends State<ReportsScreen>
         children: [
           _chip('ALL', () => onModeChanged(false), active: !byName),
           _chip('NAME', () => onModeChanged(true), active: byName),
+          if (goldRate > 0)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.headerBand,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Text(
+                'G.P RATE: ₹${goldRate.toStringAsFixed(2)}/g',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.navy,
+                ),
+              ),
+            ),
           if (byName)
             SizedBox(
               width: 220,
@@ -509,9 +602,7 @@ class _ReportsScreenState extends State<ReportsScreen>
     final query =
         customer ? _customerNameQuery.text : _supplierNameQuery.text;
     final goldRate = GoldLedger.goldRate(_rates);
-  // ALL names mode shows every ledger row; date chips still apply when NAME filter
-  // is active or when SHOW ALL HISTORY is not set and user narrowed dates.
-    final rows = buildPartyLedgerRecords(
+    final sections = buildPartyLedgerSections(
       customer: customer,
       transactions: _txns,
       vouchers: _vouchers,
@@ -521,23 +612,48 @@ class _ReportsScreenState extends State<ReportsScreen>
       nameQuery: byName ? query : '',
       goldRate: goldRate,
     );
-    final totalWeight =
-        rows.fold<double>(0, (sum, r) => sum + r.weightGrams);
-    final totalAmount =
-        rows.fold<double>(0, (sum, r) => sum + r.amountRupees);
+    final recordCount =
+        sections.fold<int>(0, (sum, section) => sum + section.rows.length);
+    final totalReceipt = sections.fold<double>(
+      0,
+      (sum, section) =>
+          sum + section.rows.fold(0, (s, row) => s + row.receiptWeight),
+    );
+    final totalIssue = sections.fold<double>(
+      0,
+      (sum, section) =>
+          sum + section.rows.fold(0, (s, row) => s + row.issueWeight),
+    );
+    final totalPure = sections.fold<double>(
+      0,
+      (sum, section) =>
+          sum + section.rows.fold(0, (s, row) => s + row.pureGold),
+    );
     const headers = [
       'DATE',
       'BILL NO',
       'NAME',
       'TYPE',
-      'WEIGHT',
-      'AMOUNT',
+      'R.WEIGHT',
+      'ISSUE WT',
+      'PURE GOLD',
+      'BAL. WT',
+      'OPENING',
+      'CLOSING',
     ];
-    final table = [for (final r in rows) r.toTableCells()];
+    final table = [
+      for (final section in sections) ...section.toTableRows(),
+    ];
     final title =
         customer ? 'CUSTOMER LEDGER' : 'SUPPLIER LEDGER';
+    final rateLabel = goldRate > 0
+        ? 'G.P RATE: ₹${goldRate.toStringAsFixed(2)}/g  |  '
+        : '';
     final totalText =
-        'WEIGHT: ${totalWeight.toStringAsFixed(3)} g  |  AMOUNT: ₹${totalAmount.toStringAsFixed(2)}';
+        '${rateLabel}'
+        'R.WT: ${totalReceipt.toStringAsFixed(3)} g  |  '
+        'ISSUE: ${totalIssue.toStringAsFixed(3)} g  |  '
+        'PURE: ${totalPure.toStringAsFixed(3)} g';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -546,6 +662,7 @@ class _ReportsScreenState extends State<ReportsScreen>
           byName: byName,
           query: customer ? _customerNameQuery : _supplierNameQuery,
           nameHint: customer ? 'Customer name' : 'Supplier name',
+          goldRate: goldRate,
           onModeChanged: (nameMode) => setState(() {
             if (customer) {
               _customerLedgerByName = nameMode;
@@ -559,14 +676,14 @@ class _ReportsScreenState extends State<ReportsScreen>
         Expanded(
           child: _reportShell(
             title: title,
-            records: rows.length,
-            units: totalWeight,
-            total: totalAmount,
+            records: recordCount,
+            units: totalPure,
+            total: 0,
             totalText: totalText,
             child: _htmlTable(
               table,
               headers: headers,
-              columnFlex: const [2, 2, 3, 2, 2, 2],
+              columnFlex: const [2, 3, 3, 2, 2, 2, 2, 2, 2, 2],
             ),
             pdfRows: table,
             headers: headers,
