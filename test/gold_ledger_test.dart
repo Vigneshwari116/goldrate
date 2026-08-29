@@ -119,7 +119,7 @@ void main() {
     expect(rows.last.receiptWeight, closeTo(2, 0.0001));
   });
 
-  test('party ledger sections include opening and closing balances', () {
+  test('party ledger sections include opening, running, and closing balances', () {
     final sections = buildPartyLedgerSections(
       customer: true,
       transactions: [
@@ -133,6 +133,7 @@ void main() {
           'paymentMode': 'CASH',
           'paymentAmount': '0',
           'cashToGold': '0',
+          'goldRateUsed': '15100',
           'date': '10-08-2026',
         },
       ],
@@ -145,8 +146,33 @@ void main() {
     expect(sections.first.openingBalance, 0);
     expect(sections.first.closingBalance, closeTo(10, 0.0001));
     final table = sections.first.toTableRows();
-    expect(table.first.last, '+10.000 g');
-    expect(table.last.last, '+10.000 g');
+    expect(table.first[1], 'SAL-1 @ ₹15100');
+    expect(table.first[7], '+10.000 g');
+    expect(table.first[8], '0.000 g');
+    expect(table.last[9], '+10.000 g');
+  });
+
+  test('ledger row balance delta for customer sales and receipts', () {
+    const sale = PartyLedgerRecord(
+      date: '01-08-2026',
+      billRef: 'SAL-1',
+      partyName: 'Ravi',
+      typeLabel: 'SALES(C)',
+      receiptWeight: 2,
+      issueWeight: 12,
+      pureGold: 10,
+    );
+    const receipt = PartyLedgerRecord(
+      date: '02-08-2026',
+      billRef: 'RECEIPT-1',
+      partyName: 'Ravi',
+      typeLabel: 'RECEIPT(G)',
+      receiptWeight: 3,
+      issueWeight: 0,
+      pureGold: 3,
+    );
+    expect(ledgerRowBalanceDelta(sale, customer: true), closeTo(8, 0.0001));
+    expect(ledgerRowBalanceDelta(receipt, customer: true), closeTo(-3, 0.0001));
   });
 
   test('customer name-wise uses sales as debit and payments as credit', () {

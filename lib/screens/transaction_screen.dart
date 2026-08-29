@@ -1096,6 +1096,10 @@ class _TransactionScreenState extends State<TransactionScreen>
               onChanged: _onPartyNameChanged,
             ),
           ),
+          if (_partyController.text.trim().isNotEmpty) ...[
+            const SizedBox(height: 8),
+            _currentBalanceStrip(),
+          ],
           if (_showPanels) ...[
             const SizedBox(height: 12),
             LayoutBuilder(
@@ -1120,8 +1124,10 @@ class _TransactionScreenState extends State<TransactionScreen>
                 );
               },
             ),
-            const SizedBox(height: 10),
-            _balanceBar(),
+            if (_hasBillOrPaymentData) ...[
+              const SizedBox(height: 10),
+              _projectedBalanceBar(),
+            ],
           ],
           const SizedBox(height: 10),
           SizedBox(
@@ -1761,10 +1767,8 @@ class _TransactionScreenState extends State<TransactionScreen>
     );
   }
 
-  Widget _balanceBar() {
+  Widget _currentBalanceStrip() {
     final partyGrams = _partyOutstanding?['grams'] ?? 0;
-    final s = _settlement;
-    final hasBillData = _hasBillOrPaymentData;
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
@@ -1774,29 +1778,36 @@ class _TransactionScreenState extends State<TransactionScreen>
           borderRadius: BorderRadius.circular(6),
           border: Border.all(color: AppColors.border),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Balance  ${_signedGrams(partyGrams)}',
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-                color: AppColors.navy,
-              ),
-            ),
-            if (hasBillData) ...[
-              const SizedBox(height: 4),
-              Text(
-                'After this bill: ${_signedGrams(s.newGrams)}',
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.mutedBlue,
-                ),
-              ),
-            ],
-          ],
+        child: Text(
+          'Balance  ${_signedGrams(partyGrams)}',
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+            color: AppColors.navy,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _projectedBalanceBar() {
+    final s = _settlement;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppColors.headerBand,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Text(
+          'After this bill: ${_signedGrams(s.newGrams)}',
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+            color: AppColors.navy,
+          ),
         ),
       ),
     );

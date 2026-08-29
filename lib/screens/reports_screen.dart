@@ -475,6 +475,7 @@ class _ReportsScreenState extends State<ReportsScreen>
     required TextEditingController query,
     required ValueChanged<bool> onModeChanged,
     required String nameHint,
+    double goldRate = 0,
   }) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
@@ -485,6 +486,23 @@ class _ReportsScreenState extends State<ReportsScreen>
         children: [
           _chip('ALL', () => onModeChanged(false), active: !byName),
           _chip('NAME', () => onModeChanged(true), active: byName),
+          if (goldRate > 0)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.headerBand,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Text(
+                'G.P RATE: ₹${goldRate.toStringAsFixed(2)}/g',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.navy,
+                ),
+              ),
+            ),
           if (byName)
             SizedBox(
               width: 220,
@@ -544,6 +562,7 @@ class _ReportsScreenState extends State<ReportsScreen>
       'R.WEIGHT',
       'ISSUE WT',
       'PURE GOLD',
+      'BAL. WT',
       'OPENING',
       'CLOSING',
     ];
@@ -552,7 +571,11 @@ class _ReportsScreenState extends State<ReportsScreen>
     ];
     final title =
         customer ? 'CUSTOMER LEDGER' : 'SUPPLIER LEDGER';
+    final rateLabel = goldRate > 0
+        ? 'G.P RATE: ₹${goldRate.toStringAsFixed(2)}/g  |  '
+        : '';
     final totalText =
+        '${rateLabel}'
         'R.WT: ${totalReceipt.toStringAsFixed(3)} g  |  '
         'ISSUE: ${totalIssue.toStringAsFixed(3)} g  |  '
         'PURE: ${totalPure.toStringAsFixed(3)} g';
@@ -564,6 +587,7 @@ class _ReportsScreenState extends State<ReportsScreen>
           byName: byName,
           query: customer ? _customerNameQuery : _supplierNameQuery,
           nameHint: customer ? 'Customer name' : 'Supplier name',
+          goldRate: goldRate,
           onModeChanged: (nameMode) => setState(() {
             if (customer) {
               _customerLedgerByName = nameMode;
@@ -584,7 +608,7 @@ class _ReportsScreenState extends State<ReportsScreen>
             child: _htmlTable(
               table,
               headers: headers,
-              columnFlex: const [2, 2, 3, 2, 2, 2, 2, 2, 2],
+              columnFlex: const [2, 3, 3, 2, 2, 2, 2, 2, 2, 2],
             ),
             pdfRows: table,
             headers: headers,

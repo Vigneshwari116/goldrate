@@ -228,6 +228,7 @@ class PartyLedgerRecord {
   final double receiptWeight;
   final double issueWeight;
   final double pureGold;
+  final double? goldRate;
 
   const PartyLedgerRecord({
     required this.date,
@@ -237,20 +238,28 @@ class PartyLedgerRecord {
     required this.receiptWeight,
     required this.issueWeight,
     required this.pureGold,
+    this.goldRate,
   });
+
+  String get billRefWithRate {
+    if (goldRate == null || goldRate! <= 0) return billRef;
+    return '$billRef @ ₹${goldRate!.toStringAsFixed(0)}';
+  }
 
   List<String> toTableCells({
     double? openingBalance,
     double? closingBalance,
+    double? balanceWeight,
   }) =>
       [
         date,
-        billRef,
+        billRefWithRate,
         partyName,
         typeLabel,
         _formatWeight(receiptWeight),
         _formatWeight(issueWeight),
         _formatWeight(pureGold),
+        balanceWeight == null ? '' : _signedBalance(balanceWeight),
         openingBalance == null ? '' : _signedBalance(openingBalance),
         closingBalance == null ? '' : _signedBalance(closingBalance),
       ];
@@ -262,12 +271,14 @@ class PartyLedgerSection {
   final double openingBalance;
   final double closingBalance;
   final List<PartyLedgerRecord> rows;
+  final bool customer;
 
   const PartyLedgerSection({
     required this.partyName,
     required this.openingBalance,
     required this.closingBalance,
     required this.rows,
+    required this.customer,
   });
 
   List<List<String>> toTableRows() {
@@ -282,18 +293,39 @@ class PartyLedgerSection {
           '',
           '',
           _signedBalance(openingBalance),
+          _signedBalance(openingBalance),
           _signedBalance(closingBalance),
         ],
       ];
     }
-    return [
-      for (var i = 0; i < rows.length; i++)
+
+    var running = openingBalance;
+    final out = <List<String>>[];
+    for (var i = 0; i < rows.length; i++) {
+      running += ledgerRowBalanceDelta(rows[i], customer: customer);
+      out.add(
         rows[i].toTableCells(
           openingBalance: i == 0 ? openingBalance : null,
           closingBalance: i == rows.length - 1 ? closingBalance : null,
+          balanceWeight: running,
         ),
-    ];
+      );
+    }
+    return out;
   }
+}
+
+/// Net gold-balance change for one ledger row (running balance per line).
+double ledgerRowBalanceDelta(PartyLedgerRecord row, {required bool customer}) {
+  final type = row.typeLabel.split('(').first;
+  if (customer) {
+    if (type == 'SALES') return row.pureGold - row.receiptWeight;
+    if (type == 'RECEIPT') return -row.receiptWeight;
+  } else {
+    if (type == 'PURCHASE') return -(row.pureGold - row.issueWeight);
+    if (type == 'PAYMENT') return row.issueWeight;
+  }
+  return 0;
 }
 
 String _formatWeight(double grams) =>
@@ -302,6 +334,12 @@ String _formatWeight(double grams) =>
 String _signedBalance(double grams) {
   final sign = grams > 0 ? '+' : grams < 0 ? '' : '';
   return '$sign${grams.toStringAsFixed(3)} g';
+}
+
+double? goldRateOnRow(Map<String, dynamic> row) {
+  final rate = double.tryParse((row['goldRateUsed'] ?? '').toString());
+  if (rate != null && rate > 0) return rate;
+  return null;
 }
 
 String transactionTypeLabel(String type, String? paymentMode) {
@@ -419,6 +457,7 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
         receiptWeight: weights.receipt,
         issueWeight: weights.issue,
         pureGold: weights.pure,
+        goldRate: goldRateOnRow(bill),
       ));
     } else if (!customer && type == 'PURCHASE') {
       records.add(PartyLedgerRecord(
@@ -430,6 +469,7 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
         receiptWeight: weights.receipt,
         issueWeight: weights.issue,
         pureGold: weights.pure,
+        goldRate: goldRateOnRow(bill),
       ));
     }
   }
@@ -462,6 +502,7 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
       receiptWeight: weights.receipt,
       issueWeight: weights.issue,
       pureGold: weights.pure,
+      goldRate: goldRateOnRow(v),
     ));
   }
 
@@ -525,6 +566,7 @@ List<PartyLedgerSection> buildPartyLedgerSections({
         openingBalance: balances[name]?.opening ?? 0,
         closingBalance: balances[name]?.closing ?? 0,
         rows: grouped[name] ?? const [],
+        customer: customer,
       ),
   ];
 }

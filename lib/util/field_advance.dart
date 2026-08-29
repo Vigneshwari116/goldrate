@@ -17,14 +17,11 @@ class FieldComplete {
 
   static bool _positive(String value) => (double.tryParse(value) ?? 0) > 0;
 
-  /// Weight — whole number, one decimal, or two decimals (e.g. 123 / 123.4 / 123.45).
+  /// Weight — advance immediately only when a decimal is entered
+  /// (e.g. 123.4 / 123.45). Whole numbers use [weightWholeIdle].
   static bool weight(String value) {
     final t = value.trim();
-    if (!_whole.hasMatch(t) &&
-        !_oneDecimal.hasMatch(t) &&
-        !_twoDecimals.hasMatch(t)) {
-      return false;
-    }
+    if (!_oneDecimal.hasMatch(t) && !_twoDecimals.hasMatch(t)) return false;
     return _positive(t);
   }
 
@@ -35,10 +32,11 @@ class FieldComplete {
     return _positive(t);
   }
 
-  /// Touch % — whole number or one decimal (e.g. 45 / 45.6).
+  /// Touch % — advance immediately only with one decimal (e.g. 45.6).
+  /// Whole numbers use [touchWholeIdle].
   static bool touch(String value) {
     final t = value.trim();
-    if (!_whole.hasMatch(t) && !_oneDecimal.hasMatch(t)) return false;
+    if (!_oneDecimal.hasMatch(t)) return false;
     final n = double.tryParse(t);
     return n != null && n > 0 && n <= 100;
   }

@@ -244,6 +244,25 @@ class _VoucherScreenState extends State<VoucherScreen>
     return '$sign${grams.toStringAsFixed(3)} g';
   }
 
+  Widget _projectedBalanceBar(double grams) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.headerBand,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Text(
+        'After this voucher: ${_signedGrams(grams)}',
+        style: const TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.w800,
+          color: AppColors.navy,
+        ),
+      ),
+    );
+  }
+
   Future<void> _save() async {
     final name = _partyController.text.trim();
     final amount = double.tryParse(_amountController.text.trim()) ?? 0;
@@ -526,17 +545,6 @@ class _VoucherScreenState extends State<VoucherScreen>
               ),
             ],
           ),
-          if ((double.tryParse(_amountController.text.trim()) ?? 0) > 0) ...[
-            const SizedBox(height: 8),
-            Text(
-              'After this voucher: ${_signedGrams(s.newGrams)}',
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: AppColors.mutedBlue,
-              ),
-            ),
-          ],
           const SizedBox(height: 10),
           SizedBox(
             width: FieldSizes.name,
@@ -554,6 +562,10 @@ class _VoucherScreenState extends State<VoucherScreen>
               ),
             ),
           ),
+          if ((double.tryParse(_amountController.text.trim()) ?? 0) > 0) ...[
+            const SizedBox(height: 10),
+            _projectedBalanceBar(s.newGrams),
+          ],
           const SizedBox(height: 14),
           SizedBox(
             width: 220,
