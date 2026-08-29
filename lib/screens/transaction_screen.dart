@@ -26,7 +26,7 @@ import '../theme/field_sizes.dart';
 import '../theme/responsive.dart';
 import '../widgets/material_tile_card.dart';
 
-enum TransactionKind { purchase, sales }
+enum TransactionKind { purchase, sales, receiptVoucher, paymentVoucher }
 
 const Map<String, String> kItemTypeToRateName = {
   'GWT': 'G.P RATE',
@@ -159,17 +159,51 @@ class _TransactionScreenState extends State<TransactionScreen>
 
   /// Purchase looks up Suppliers (stock coming in from them); Sales
   /// looks up Customers (stock going out to them).
-  bool get _isCustomerParty => !_isPurchase;
+  bool get _isReceiptVoucher => widget.kind == TransactionKind.receiptVoucher;
 
-  bool get _isPurchase => widget.kind == TransactionKind.purchase;
+  bool get _isPaymentVoucher => widget.kind == TransactionKind.paymentVoucher;
+
+  bool get _isVoucher => _isReceiptVoucher || _isPaymentVoucher;
+
+  bool get _hideIssuePanel => _isReceiptVoucher;
+
+  bool get _hideReceiptPanel => _isPaymentVoucher;
+
+  bool get _isCustomerParty =>
+      widget.kind == TransactionKind.sales || _isReceiptVoucher;
+
+  bool get _isPurchase =>
+      widget.kind == TransactionKind.purchase || _isPaymentVoucher;
 
   static final _rupeeFmt = NumberFormat('#,##0.00', 'en_IN');
 
   String _rupee(double amount) => _rupeeFmt.format(amount);
 
-  String get _transactionType => _isPurchase ? 'PURCHASE' : 'SALES';
+  String get _transactionType {
+    if (_isReceiptVoucher) return 'RECEIPT';
+    if (_isPaymentVoucher) return 'PAYMENT';
+    return _isPurchase ? 'PURCHASE' : 'SALES';
+  }
 
-  String get _title => _isPurchase ? 'PURCHASE' : 'SALES';
+  String get _title {
+    if (_isReceiptVoucher) return 'RECEIPT VOUCHER';
+    if (_isPaymentVoucher) return 'PAYMENT VOUCHER';
+    return _isPurchase ? 'PURCHASE' : 'SALES';
+  }
+
+  String get _numberLabel => _isVoucher ? 'VOUCHER NO' : 'BILL NO';
+
+  String get _saveButtonLabel {
+    if (_isReceiptVoucher) return 'SAVE RECEIPT';
+    if (_isPaymentVoucher) return 'SAVE PAYMENT';
+    return _isPurchase ? 'SAVE PURCHASE' : 'SAVE SALE';
+  }
+
+  String get _historyTitle {
+    if (_isReceiptVoucher) return 'RECEIPTS';
+    if (_isPaymentVoucher) return 'PAYMENTS';
+    return _isPurchase ? 'PURCHASE' : 'SALES';
+  }
 
   bool get _showPanels =>
       _partyController.text.trim().isNotEmpty || _hasBillOrPaymentData;
@@ -217,15 +251,24 @@ class _TransactionScreenState extends State<TransactionScreen>
       : _paymentTotalPure;
 
   SettlementResult get _settlement {
+    final billGrams = _isVoucher ? 0.0 : _totalPureWt;
+    final billRupees = _isVoucher ? 0.0 : _totalValue;
+    final billSign = _isReceiptVoucher
+        ? 1
+        : _isPaymentVoucher
+            ? -1
+            : _isPurchase
+                ? -1
+                : 1;
     return settleLedger(
       oldGrams: _partyOutstanding?['grams'] ?? 0,
       oldRupees: _partyOutstanding?['rupees'] ?? 0,
-      billGrams: _totalPureWt,
-      billRupees: _totalValue,
+      billGrams: billGrams,
+      billRupees: billRupees,
       paymentMode: _paymentIsCashOnly ? 'CASH' : 'GOLD',
       paymentAmount: _paymentAmount,
       ratePerGram: _goldRate,
-      billSign: _isPurchase ? -1 : 1,
+      billSign: billSign,
     );
   }
 
@@ -420,17 +463,19 @@ class _TransactionScreenState extends State<TransactionScreen>
   }
 
   Future<void> _load() async {
-    final billNo =
-    await DatabaseHelper.instance.getNextBillNo(_transactionType);
-    final history =
-    await DatabaseHelper.instance.getTransactions(_transactionType);
+    final nextNo = _isVoucher
+        ? await DatabaseHelper.instance.getNextVoucherNo(_transactionType)
+        : await DatabaseHelper.instance.getNextBillNo(_transactionType);
+    final history = _isVoucher
+        ? await DatabaseHelper.instance.getVouchers(voucherType: _transactionType)
+        : await DatabaseHelper.instance.getTransactions(_transactionType);
     final rates = await DatabaseHelper.instance.getRatesMap();
     final partyRows = _isCustomerParty
         ? await DatabaseHelper.instance.getCustomers()
         : await DatabaseHelper.instance.getSuppliers();
     if (!mounted) return;
     setState(() {
-      _nextBillNo = billNo;
+      _nextBillNo = nextNo;
       _history = history;
       _rates = rates;
       _partySuggestions = PartySuggestion.fromLedgerRows(
@@ -470,13 +515,39 @@ class _TransactionScreenState extends State<TransactionScreen>
     });
   }
 
-  void _selectParty(PartySuggestion party) {
-    _partyController.text = party.name;
-    _onPartyTextChanged(party.name);
+  void _focusPaymentEntry() {
+    if (_paymentEntryType == 'CASH') {
+      FocusChain.focusNextFrame(
+        _paymentEntryAmountFocus,
+        controller: _paymentEntryAmount,
+      );
+    } else {
+      FocusChain.focusNextFrame(
+        _paymentEntryWeightFocus,
+        controller: _paymentEntryWeight,
+      );
+    }
+  }
+
+  void _focusFirstPanelField() {
+    if (_hideIssuePanel) {
+      _focusPaymentEntry();
+      return;
+    }
+    if (_isPurchase) {
+      _focusPaymentEntry();
+      return;
+    }
     FocusChain.focusNextFrame(
       _billEntryWeightFocus,
       controller: _billEntryWeight,
     );
+  }
+
+  void _selectParty(PartySuggestion party) {
+    _partyController.text = party.name;
+    _onPartyTextChanged(party.name);
+    _focusFirstPanelField();
   }
 
   bool _partyHasMatches(String name) =>
@@ -490,10 +561,7 @@ class _TransactionScreenState extends State<TransactionScreen>
     if (name.isEmpty) return;
     if (_partyHasMatches(name) && !_partyExactMatch(name)) return;
     if (!await _ensurePartySaved()) return;
-    FocusChain.focusNextFrame(
-      _billEntryWeightFocus,
-      controller: _billEntryWeight,
-    );
+    _focusFirstPanelField();
   }
 
   void _onPartyNameChanged(String value) {
@@ -575,6 +643,20 @@ class _TransactionScreenState extends State<TransactionScreen>
       return;
     }
     if (!await _ensurePartySaved()) return;
+    if (_isVoucher) {
+      if (_paymentLines.isEmpty) {
+        _showMessage(_isReceiptVoucher
+            ? 'Enter at least one receipt amount'
+            : 'Enter at least one payment amount');
+        return;
+      }
+      if (_paymentLines.any((line) => line.isCash) && _goldRate <= 0) {
+        _showMessage("Set G.P RATE on Master so cash can convert to gold");
+        return;
+      }
+      await _saveVoucher();
+      return;
+    }
     if (_billItems.isEmpty) {
       _showMessage(_isPurchase
           ? "Enter at least one receipt weight (gold received)"
@@ -640,6 +722,80 @@ class _TransactionScreenState extends State<TransactionScreen>
     await _shareEstimate(savedRow);
   }
 
+  Future<void> _saveVoucher() async {
+    setState(() => _saving = true);
+
+    final date = DateFormat("dd-MM-yyyy").format(DateTime.now());
+    final time = DateFormat("hh:mm a").format(DateTime.now());
+    final s = _settlement;
+    final paymentMode = _paymentIsCashOnly ? 'CASH' : 'GOLD';
+    final partyName = _partyController.text.trim();
+    final type = _transactionType;
+
+    await DatabaseHelper.instance.insertVoucher({
+      'voucherType': type,
+      'voucherNo': _nextBillNo,
+      'partyName': partyName,
+      'isCustomer': _isCustomerParty ? 1 : 0,
+      'paymentMode': paymentMode,
+      'amount': _paymentAmount.toStringAsFixed(_paymentIsCashOnly ? 2 : 3),
+      'amountUnit': paymentMode == 'GOLD' ? 'GRAMS' : 'RUPEES',
+      'cashToGold': s.cashToGoldGrams.toStringAsFixed(3),
+      'goldRateUsed': s.ratePerGram.toStringAsFixed(2),
+      'oldGrams': s.oldGrams.toStringAsFixed(3),
+      'oldRupees': s.oldRupees.toStringAsFixed(2),
+      'newGrams': s.newGrams.toStringAsFixed(3),
+      'newRupees': s.newRupees.toStringAsFixed(2),
+      'narration': '',
+      'date': date,
+      'time': time,
+    });
+
+    final deltaG = s.newGrams - s.oldGrams;
+    final entry = {
+      'name': partyName,
+      'mobile': '',
+      'city': '',
+      'cr': deltaG < 0 ? deltaG.abs().toStringAsFixed(3) : '0',
+      'dr': deltaG > 0 ? deltaG.abs().toStringAsFixed(3) : '0',
+      'narration':
+          'Voucher $type #$_nextBillNo · ${s.paymentLabel}. Old ${s.oldGrams.toStringAsFixed(3)}g → New ${s.newGrams.toStringAsFixed(3)}g',
+      'balanceUnit': 'GRAMS',
+      'billRef': '$type-$_nextBillNo',
+      'date': date,
+      'time': time,
+    };
+    if (_isCustomerParty) {
+      await DatabaseHelper.instance.insertCustomer({
+        ...entry,
+        'drGross': '',
+        'drNet': '',
+      });
+    } else {
+      await DatabaseHelper.instance.insertSupplier({
+        ...entry,
+        'gross': '',
+        'net': '',
+      });
+    }
+
+    if (!mounted) return;
+    setState(() => _saving = false);
+
+    final voucherNoSaved = _nextBillNo;
+    _clearForm();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Voucher #$type-$voucherNoSaved saved. Balance ${_signedGrams(s.newGrams)}',
+        ),
+      ),
+    );
+
+    await _load();
+  }
+
   /// Posts this bill's balance to the matching party's ledger table —
   /// Purchase bills post to Suppliers, Sales bills post to Customers.
   /// A positive balance (party still owes the shop) goes in the DR
@@ -684,12 +840,14 @@ class _TransactionScreenState extends State<TransactionScreen>
     }
   }
 
-  Future<void> _confirmDelete(int id) async {
+  Future<void> _confirmDelete(Map<String, dynamic> row) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Delete Bill"),
-        content: const Text("Are you sure you want to delete this record?"),
+        title: Text(_isVoucher ? 'Delete Voucher' : 'Delete Bill'),
+        content: Text(_isVoucher
+            ? 'Are you sure you want to delete this voucher?'
+            : 'Are you sure you want to delete this record?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -704,7 +862,11 @@ class _TransactionScreenState extends State<TransactionScreen>
     );
 
     if (confirmed == true) {
-      await DatabaseHelper.instance.deleteTransaction(id);
+      if (_isVoucher) {
+        await DatabaseHelper.instance.deleteVoucher(row['id'] as int);
+      } else {
+        await DatabaseHelper.instance.deleteTransaction(row['id'] as int);
+      }
       _load();
     }
   }
@@ -1058,9 +1220,9 @@ class _TransactionScreenState extends State<TransactionScreen>
         children: [
           Row(
             children: [
-              const Text(
-                "BILL NO",
-                style: TextStyle(
+              Text(
+                _numberLabel,
+                style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                     color: AppColors.mutedBlue),
@@ -1096,7 +1258,8 @@ class _TransactionScreenState extends State<TransactionScreen>
               onChanged: _onPartyNameChanged,
             ),
           ),
-          if (_partyController.text.trim().isNotEmpty) ...[
+          if (_partyController.text.trim().isNotEmpty &&
+              _partyOutstanding != null) ...[
             const SizedBox(height: 8),
             _currentBalanceStrip(),
           ],
@@ -1104,22 +1267,25 @@ class _TransactionScreenState extends State<TransactionScreen>
             const SizedBox(height: 12),
             LayoutBuilder(
               builder: (context, constraints) {
-                final stacked = constraints.maxWidth < 720;
+                final singlePanel = _hideIssuePanel || _hideReceiptPanel;
+                final stacked = constraints.maxWidth < 720 || singlePanel;
                 if (stacked) {
                   return Column(
                     children: [
-                      _leftPanel(),
-                      const SizedBox(height: 10),
-                      _rightPanel(),
+                      if (!_hideIssuePanel) _issuePanel(),
+                      if (!_hideIssuePanel && !_hideReceiptPanel)
+                        const SizedBox(height: 10),
+                      if (!_hideReceiptPanel) _receiptPanel(),
                     ],
                   );
                 }
                 return Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(child: _leftPanel()),
-                    const SizedBox(width: 10),
-                    Expanded(child: _rightPanel()),
+                    if (!_hideIssuePanel) Expanded(child: _issuePanel()),
+                    if (!_hideIssuePanel && !_hideReceiptPanel)
+                      const SizedBox(width: 10),
+                    if (!_hideReceiptPanel) Expanded(child: _receiptPanel()),
                   ],
                 );
               },
@@ -1149,7 +1315,7 @@ class _TransactionScreenState extends State<TransactionScreen>
                   strokeWidth: 2,
                 ),
               )
-                  : Text(_isPurchase ? "SAVE PURCHASE" : "SAVE SALE"),
+                  : Text(_saveButtonLabel),
             ),
           ),
         ],
@@ -1693,11 +1859,21 @@ class _TransactionScreenState extends State<TransactionScreen>
     );
   }
 
-  Widget _leftPanel() =>
-      _isPurchase ? _paymentPanel(title: 'ISSUE', prefix: 'I') : _billPanel(title: 'ISSUE', prefix: 'I');
+  Widget _issuePanel() {
+    // Issue is always on the left — same physical position as Sales.
+    // Purchase puts cash/payment lines in the Issue panel.
+    if (_isPurchase) {
+      return _paymentPanel(title: 'ISSUE', prefix: 'I');
+    }
+    return _billPanel(title: 'ISSUE', prefix: 'I');
+  }
 
-  Widget _rightPanel() =>
-      _isPurchase ? _billPanel(title: 'RECEIPT', prefix: 'R') : _paymentPanel(title: 'RECEIPT', prefix: 'R');
+  Widget _receiptPanel() {
+    if (_isPurchase) {
+      return _billPanel(title: 'RECEIPT', prefix: 'R');
+    }
+    return _paymentPanel(title: 'RECEIPT', prefix: 'R');
+  }
 
   Widget _billPanel({required String title, required String prefix}) {
     return _panelShell(
@@ -1779,7 +1955,7 @@ class _TransactionScreenState extends State<TransactionScreen>
           border: Border.all(color: AppColors.border),
         ),
         child: Text(
-          'Balance  ${_signedGrams(partyGrams)}',
+          'Old Balance  ${_signedGrams(partyGrams)}',
           style: const TextStyle(
             fontSize: 15,
             fontWeight: FontWeight.w800,
@@ -1802,7 +1978,7 @@ class _TransactionScreenState extends State<TransactionScreen>
           border: Border.all(color: AppColors.border),
         ),
         child: Text(
-          'After this bill: ${_signedGrams(s.newGrams)}',
+          '${_isVoucher ? 'After this voucher' : 'After this bill'}: ${_signedGrams(s.newGrams)}',
           style: const TextStyle(
             fontSize: 15,
             fontWeight: FontWeight.w800,
@@ -1825,7 +2001,7 @@ class _TransactionScreenState extends State<TransactionScreen>
         Container(
           padding: const EdgeInsets.symmetric(vertical: 6),
           child: Text(
-            "${_isPurchase ? 'PURCHASE' : 'SALES'} HISTORY (${_history.length})",
+            "${_historyTitle} (${_history.length})",
             textAlign: TextAlign.center,
             style: const TextStyle(
               fontWeight: FontWeight.w600,
@@ -1836,12 +2012,12 @@ class _TransactionScreenState extends State<TransactionScreen>
           ),
         ),
         if (_history.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 24),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 24),
             child: Center(
               child: Text(
-                "No bills yet",
-                style: TextStyle(fontSize: 13, color: Colors.black54),
+                _isVoucher ? 'No vouchers yet' : 'No bills yet',
+                style: const TextStyle(fontSize: 13, color: Colors.black54),
               ),
             ),
           )
@@ -1851,6 +2027,9 @@ class _TransactionScreenState extends State<TransactionScreen>
               children: List.generate(_history.length, (index) {
                 final row = _history[index];
                 final isLast = index == _history.length - 1;
+                final rowNo = _isVoucher
+                    ? '${row['voucherNo']}'
+                    : '${row['billNo']}';
 
                 return Container(
                   decoration: BoxDecoration(
@@ -1862,12 +2041,12 @@ class _TransactionScreenState extends State<TransactionScreen>
                   ),
                   child: ListTile(
                     dense: true,
-                    onTap: () => _showBillDetails(row),
+                    onTap: _isVoucher ? null : () => _showBillDetails(row),
                     leading: CircleAvatar(
                       radius: 14,
                       backgroundColor: AppColors.headerBand,
                       child: Text(
-                        "${row['billNo']}",
+                        rowNo,
                         style: const TextStyle(
                             fontSize: 10, color: AppColors.navy),
                       ),
@@ -1879,9 +2058,13 @@ class _TransactionScreenState extends State<TransactionScreen>
                       overflow: TextOverflow.ellipsis,
                     ),
                     subtitle: Text(
-                      '#${row['billNo']}  ·  '
-                          '₹${row['totalValue'] ?? '-'}  ·  '
-                          '${row['totalPureWt'] ?? '-'} g',
+                      _isVoucher
+                          ? '${row['voucherType']}-#$rowNo  ·  '
+                              '${row['paymentMode']} ${row['amount']}  ·  '
+                              '${row['date']}'
+                          : '#$rowNo  ·  '
+                              '₹${row['totalValue'] ?? '-'}  ·  '
+                              '${row['totalPureWt'] ?? '-'} g',
                       style: const TextStyle(
                           fontSize: 10.5, color: Colors.black54),
                       overflow: TextOverflow.ellipsis,
@@ -1891,7 +2074,7 @@ class _TransactionScreenState extends State<TransactionScreen>
                         : IconButton(
                             icon: const Icon(Icons.delete,
                                 color: Colors.redAccent, size: 16),
-                            onPressed: () => _confirmDelete(row['id'] as int),
+                            onPressed: () => _confirmDelete(row),
                             padding: EdgeInsets.zero,
                             constraints: const BoxConstraints(),
                           ),

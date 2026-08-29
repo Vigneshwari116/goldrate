@@ -15,6 +15,8 @@ enum _ReportTab {
   billWise,
   salesReport,
   purchaseReport,
+  receiptVoucherReport,
+  paymentVoucherReport,
   customerLedger,
   supplierLedger,
 }
@@ -267,6 +269,8 @@ class _ReportsScreenState extends State<ReportsScreen>
             tab(_ReportTab.billWise, 'BILL WISE ABSTRACT'),
             tab(_ReportTab.salesReport, 'SALES'),
             tab(_ReportTab.purchaseReport, 'PURCHASE'),
+            tab(_ReportTab.receiptVoucherReport, 'RECEIPT VOUCHER'),
+            tab(_ReportTab.paymentVoucherReport, 'PAYMENT VOUCHER'),
             tab(_ReportTab.customerLedger, 'CUSTOMER LEDGER'),
             tab(_ReportTab.supplierLedger, 'SUPPLIER LEDGER'),
           ],
@@ -352,6 +356,16 @@ class _ReportsScreenState extends State<ReportsScreen>
           purchasesOnly: true,
           title: 'PURCHASE REPORT',
         );
+      case _ReportTab.receiptVoucherReport:
+        return _voucherAbstract(
+          voucherType: 'RECEIPT',
+          title: 'RECEIPT VOUCHER REPORT',
+        );
+      case _ReportTab.paymentVoucherReport:
+        return _voucherAbstract(
+          voucherType: 'PAYMENT',
+          title: 'PAYMENT VOUCHER REPORT',
+        );
       case _ReportTab.customerLedger:
         return _partyLedgerRecords(customer: true);
       case _ReportTab.supplierLedger:
@@ -398,6 +412,67 @@ class _ReportsScreenState extends State<ReportsScreen>
         ['Purchase bills', '${t.purchaseBills}', '', '', '₹${t.purchaseAmount.toStringAsFixed(2)}'],
         ['Purchase credit', '', '${t.purchaseCreditGrams.toStringAsFixed(3)} g', '', '₹${t.purchaseCreditAmount.toStringAsFixed(2)}'],
       ],
+    );
+  }
+
+  Widget _voucherAbstract({
+    required String voucherType,
+    required String title,
+  }) {
+    final goldRate = GoldLedger.goldRate(_rates);
+    var rows = _filteredVouchers
+        .where((r) => (r['voucherType'] ?? '').toString() == voucherType)
+        .toList();
+    rows = [...rows]..sort((a, b) {
+        final an = a['voucherNo'] as int? ?? 0;
+        final bn = b['voucherNo'] as int? ?? 0;
+        return an.compareTo(bn);
+      });
+
+    double total = 0;
+    double units = 0;
+    final table = <List<String>>[];
+    for (final voucher in rows) {
+      final amount =
+          double.tryParse((voucher['amount'] ?? '').toString()) ?? 0;
+      final gold = goldPaidOnRow(voucher);
+      total += voucherAmountRupees(voucher, goldRate);
+      units += gold;
+      final voucherNo = '$voucherType-${voucher['voucherNo']}';
+      final name = '${voucher['partyName'] ?? ''}';
+      final mode = paymentModeLabel(voucher['paymentMode']?.toString());
+      table.add([
+        voucherNo,
+        name,
+        voucher['date']?.toString() ?? '',
+        mode,
+        '${gold.toStringAsFixed(3)} g',
+        mode == 'GOLD'
+            ? '${amount.toStringAsFixed(3)} g'
+            : 'Rs.${amount.toStringAsFixed(2)}',
+      ]);
+    }
+
+    const headers = [
+      'VOUCHER NO',
+      'NAME',
+      'DATE',
+      'MODE',
+      'GOLD',
+      'AMOUNT',
+    ];
+    return _reportShell(
+      title: title,
+      records: rows.length,
+      units: units,
+      total: total,
+      child: _htmlTable(
+        table,
+        headers: headers,
+        columnFlex: const [2, 3, 2, 2, 2, 2],
+      ),
+      pdfRows: table,
+      headers: headers,
     );
   }
 
