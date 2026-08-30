@@ -1,4 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+
+import 'focus_chain.dart';
 
 /// Detects when a field value is fully entered (no Enter key needed).
 class FieldComplete {
@@ -66,10 +70,13 @@ class FieldComplete {
   }
 }
 
-/// Auto-advance focus on explicit submit/blur only (see onFieldSubmitted handlers).
+/// Auto-advance focus when a field is complete or after typing pauses.
 mixin FocusAdvanceMixin<T extends StatefulWidget> on State<T> {
+  Timer? _focusAdvanceIdle;
+
   @override
   void dispose() {
+    _focusAdvanceIdle?.cancel();
     super.dispose();
   }
 
@@ -81,8 +88,20 @@ mixin FocusAdvanceMixin<T extends StatefulWidget> on State<T> {
     TextEditingController? toController,
     VoidCallback? action,
   }) {
-    // Focus advances only on explicit submit/blur (onFieldSubmitted /
-    // onEditingComplete), not while the user is still typing.
+    if (!from.hasFocus) return;
+    if (!isComplete(value)) return;
+    _focusAdvanceIdle?.cancel();
+    final completedValue = value;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (!from.hasFocus) return;
+      if (!isComplete(completedValue)) return;
+      if (action != null) {
+        action();
+      } else if (to != null) {
+        FocusChain.focus(to, controller: toController);
+      }
+    });
   }
 
   void advanceWhenIdle({
@@ -94,6 +113,18 @@ mixin FocusAdvanceMixin<T extends StatefulWidget> on State<T> {
     Duration delay = const Duration(milliseconds: 700),
     bool Function(String value)? when,
   }) {
-    // See advanceWhenComplete — no mid-type auto-advance.
+    _focusAdvanceIdle?.cancel();
+    final ready = when ?? (v) => v.trim().length >= 2;
+    if (!ready(value)) return;
+    final idleValue = value;
+    _focusAdvanceIdle = Timer(delay, () {
+      if (!mounted || !from.hasFocus) return;
+      if (!ready(idleValue)) return;
+      if (action != null) {
+        action();
+      } else if (to != null) {
+        FocusChain.focusNextFrame(to, controller: toController);
+      }
+    });
   }
 }
