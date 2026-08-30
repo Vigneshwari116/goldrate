@@ -9,6 +9,7 @@ import '../pdf/pdf_kit.dart';
 import '../theme/app_theme.dart';
 import '../util/platform_detect.dart';
 import '../util/screen_activation.dart';
+import '../widgets/party_options_overlay.dart';
 
 enum _ReportTab {
   dailySales,
@@ -48,6 +49,8 @@ class _ReportsScreenState extends State<ReportsScreen>
   List<Map<String, dynamic>> _txns = [];
   List<Map<String, dynamic>> _vouchers = [];
   Map<String, double> _rates = {};
+  List<String> _customerNames = [];
+  List<String> _supplierNames = [];
 
   bool _customerLedgerByName = false;
   bool _supplierLedgerByName = false;
@@ -93,11 +96,25 @@ class _ReportsScreenState extends State<ReportsScreen>
     final txns = await DatabaseHelper.instance.getAllTransactions();
     final vouchers = await DatabaseHelper.instance.getVouchers();
     final rates = await DatabaseHelper.instance.getRatesMap();
+    final customers = await DatabaseHelper.instance.getCustomers();
+    final suppliers = await DatabaseHelper.instance.getSuppliers();
     if (!mounted) return;
     setState(() {
       _txns = txns;
       _vouchers = vouchers;
       _rates = rates;
+      _customerNames = customers
+          .map((r) => (r['name'] ?? '').toString().trim())
+          .where((n) => n.isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort();
+      _supplierNames = suppliers
+          .map((r) => (r['name'] ?? '').toString().trim())
+          .where((n) => n.isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort();
       _loading = false;
     });
   }
@@ -550,8 +567,17 @@ class _ReportsScreenState extends State<ReportsScreen>
     required TextEditingController query,
     required ValueChanged<bool> onModeChanged,
     required String nameHint,
+    required List<String> partyNames,
     double goldRate = 0,
   }) {
+    Iterable<String> nameOptions(String text) {
+      final lower = text.trim().toLowerCase();
+      if (lower.isEmpty) return const Iterable.empty();
+      return partyNames
+          .where((name) => name.toLowerCase().contains(lower))
+          .take(12);
+    }
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
       child: Wrap(
@@ -580,16 +606,68 @@ class _ReportsScreenState extends State<ReportsScreen>
             ),
           if (byName)
             SizedBox(
-              width: 220,
-              child: TextField(
-                controller: query,
-                decoration: InputDecoration(
-                  isDense: true,
-                  hintText: nameHint,
-                  border: const OutlineInputBorder(),
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                ),
+              width: 260,
+              child: Autocomplete<String>(
+                optionsViewOpenDirection: OptionsViewOpenDirection.down,
+                initialValue: TextEditingValue(text: query.text),
+                optionsBuilder: (value) => nameOptions(value.text),
+                onSelected: (selection) {
+                  query.text = selection;
+                  setState(() {});
+                },
+                optionsViewBuilder: (context, onSelected, options) {
+                  if (options.isEmpty) return const SizedBox.shrink();
+                  return partyAutocompleteOptionsView(
+                    context: context,
+                    child: partyAutocompleteOptionsShell(
+                      child: ListView.builder(
+                        padding: EdgeInsets.zero,
+                        shrinkWrap: true,
+                        itemCount: options.length,
+                        itemBuilder: (context, index) {
+                          final option = options.elementAt(index);
+                          return partyAutocompleteOptionTile(
+                            onSelected: () => onSelected(option),
+                            child: ListTile(
+                              dense: true,
+                              title: Text(
+                                option,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  );
+                },
+                fieldViewBuilder:
+                    (context, fieldController, focusNode, onAutocompleteSubmit) {
+                  if (fieldController.text != query.text) {
+                    fieldController.text = query.text;
+                  }
+                  return TextField(
+                    controller: fieldController,
+                    focusNode: focusNode,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      hintText: nameHint,
+                      border: const OutlineInputBorder(),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 10,
+                      ),
+                    ),
+                    onChanged: (value) {
+                      query.text = value;
+                      setState(() {});
+                    },
+                    onSubmitted: (_) => onAutocompleteSubmit(),
+                  );
+                },
               ),
             ),
         ],
@@ -608,7 +686,7 @@ class _ReportsScreenState extends State<ReportsScreen>
       vouchers: _vouchers,
       from: _from,
       to: _to,
-      allHistory: _allHistory || !byName,
+      allHistory: _allHistory,
       nameQuery: byName ? query : '',
       goldRate: goldRate,
     );
@@ -637,12 +715,32 @@ class _ReportsScreenState extends State<ReportsScreen>
       'R.WEIGHT',
       'ISSUE WT',
       'PURE GOLD',
-      'BAL. WT',
-      'OPENING',
-      'CLOSING',
+      'NARRATION',
     ];
-    final table = [
-      for (final section in sections) ...section.toTableRows(),
+    final pdfRows = [
+      for (final section in sections) ...[
+        [
+          '',
+          '',
+          section.partyName,
+          'OPENING',
+          '',
+          '',
+          '',
+          _signedLedgerBalance(section.openingBalance),
+        ],
+        ...section.toTableRows(),
+        [
+          '',
+          '',
+          section.partyName,
+          'CLOSING',
+          '',
+          '',
+          '',
+          _signedLedgerBalance(section.closingBalance),
+        ],
+      ],
     ];
     final title =
         customer ? 'CUSTOMER LEDGER' : 'SUPPLIER LEDGER';
@@ -662,6 +760,7 @@ class _ReportsScreenState extends State<ReportsScreen>
           byName: byName,
           query: customer ? _customerNameQuery : _supplierNameQuery,
           nameHint: customer ? 'Customer name' : 'Supplier name',
+          partyNames: customer ? _customerNames : _supplierNames,
           goldRate: goldRate,
           onModeChanged: (nameMode) => setState(() {
             if (customer) {
@@ -680,16 +779,104 @@ class _ReportsScreenState extends State<ReportsScreen>
             units: totalPure,
             total: 0,
             totalText: totalText,
-            child: _htmlTable(
-              table,
+            child: _partyLedgerSectionsView(
+              sections,
               headers: headers,
-              columnFlex: const [2, 3, 3, 2, 2, 2, 2, 2, 2, 2],
             ),
-            pdfRows: table,
+            pdfRows: pdfRows,
             headers: headers,
           ),
         ),
       ],
+    );
+  }
+
+  String _signedLedgerBalance(double grams) {
+    final sign = grams > 0 ? '+' : grams < 0 ? '' : '';
+    return '$sign${grams.toStringAsFixed(3)} g';
+  }
+
+  Widget _partyLedgerSectionsView(
+    List<PartyLedgerSection> sections, {
+    required List<String> headers,
+  }) {
+    if (sections.isEmpty) {
+      return const Center(child: Text('No records in this filter'));
+    }
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      children: [
+        for (final section in sections) ...[
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(top: 8, bottom: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.headerBand,
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Text(
+              section.partyName,
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 13,
+                color: AppColors.navy,
+              ),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: AppColors.border)),
+              color: Colors.white,
+            ),
+            child: Text(
+              'Opening Balance: ${_signedLedgerBalance(section.openingBalance)}',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          _ledgerSectionTable(section, headers: headers),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              border: Border.all(color: AppColors.border),
+              color: Colors.white,
+            ),
+            child: Text(
+              'Closing Balance: ${_signedLedgerBalance(section.closingBalance)}',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _ledgerSectionTable(
+    PartyLedgerSection section, {
+    required List<String> headers,
+  }) {
+    final rows = section.toTableRows();
+    if (rows.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(8),
+        child: Text('No transactions in this period',
+            style: TextStyle(fontSize: 12, color: Colors.black54)),
+      );
+    }
+    return _htmlTable(
+      rows,
+      headers: headers,
+      columnFlex: const [2, 1, 3, 2, 2, 2, 2, 3],
+      includeOuterPadding: false,
     );
   }
 
@@ -702,7 +889,8 @@ class _ReportsScreenState extends State<ReportsScreen>
         'AMOUNT',
       ],
       bool evenFlex = false,
-      List<int>? columnFlex}) {
+      List<int>? columnFlex,
+      bool includeOuterPadding = true}) {
     if (rows.isEmpty) {
       return const Center(child: Text('No records in this filter'));
     }
@@ -712,7 +900,11 @@ class _ReportsScreenState extends State<ReportsScreen>
       return i == 1 ? 4 : 2;
     }
     return ListView(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      padding: includeOuterPadding
+          ? const EdgeInsets.fromLTRB(12, 0, 12, 12)
+          : EdgeInsets.zero,
+      shrinkWrap: !includeOuterPadding,
+      physics: includeOuterPadding ? null : const NeverScrollableScrollPhysics(),
       children: [
         Container(
           color: AppColors.tableHeader,

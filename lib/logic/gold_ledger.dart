@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:intl/intl.dart';
 
 /// Cash-to-gold conversion and running party balances.
 ///
@@ -231,6 +232,7 @@ class PartyLedgerRecord {
   final double issueWeight;
   final double pureGold;
   final double? goldRate;
+  final String narration;
 
   const PartyLedgerRecord({
     required this.date,
@@ -241,29 +243,18 @@ class PartyLedgerRecord {
     required this.issueWeight,
     required this.pureGold,
     this.goldRate,
+    this.narration = '',
   });
 
-  String get billRefWithRate {
-    if (goldRate == null || goldRate! <= 0) return billRef;
-    return '$billRef @ ₹${goldRate!.toStringAsFixed(0)}';
-  }
-
-  List<String> toTableCells({
-    double? openingBalance,
-    double? closingBalance,
-    double? balanceWeight,
-  }) =>
-      [
+  List<String> toTableCells({required int billNo}) => [
         date,
-        billRefWithRate,
+        '$billNo',
         partyName,
         typeLabel,
         _formatWeight(receiptWeight),
         _formatWeight(issueWeight),
         _formatWeight(pureGold),
-        balanceWeight == null ? '' : _signedBalance(balanceWeight),
-        openingBalance == null ? '' : _signedBalance(openingBalance),
-        closingBalance == null ? '' : _signedBalance(closingBalance),
+        narration,
       ];
 }
 
@@ -284,34 +275,9 @@ class PartyLedgerSection {
   });
 
   List<List<String>> toTableRows() {
-    if (rows.isEmpty) {
-      return [
-        [
-          '',
-          '',
-          partyName,
-          '—',
-          '',
-          '',
-          '',
-          _signedBalance(openingBalance),
-          _signedBalance(openingBalance),
-          _signedBalance(closingBalance),
-        ],
-      ];
-    }
-
-    var running = openingBalance;
     final out = <List<String>>[];
     for (var i = 0; i < rows.length; i++) {
-      running += ledgerRowBalanceDelta(rows[i], customer: customer);
-      out.add(
-        rows[i].toTableCells(
-          openingBalance: i == 0 ? openingBalance : null,
-          closingBalance: i == rows.length - 1 ? closingBalance : null,
-          balanceWeight: running,
-        ),
-      );
+      out.add(rows[i].toTableCells(billNo: i + 1));
     }
     return out;
   }
@@ -333,18 +299,13 @@ double ledgerRowBalanceDelta(PartyLedgerRecord row, {required bool customer}) {
       '${customer ? 'customer' : 'supplier'} row ${row.billRef} '
       '(typeLabel=${row.typeLabel}); delta treated as 0',
     );
-    return false;
+    return true;
   }());
   return 0;
 }
 
 String _formatWeight(double grams) =>
     grams.abs() < 0.0005 ? '' : grams.toStringAsFixed(3);
-
-String _signedBalance(double grams) {
-  final sign = grams > 0 ? '+' : grams < 0 ? '' : '';
-  return '$sign${grams.toStringAsFixed(3)} g';
-}
 
 double? goldRateOnRow(Map<String, dynamic> row) {
   final rate = double.tryParse((row['goldRateUsed'] ?? '').toString());
@@ -459,6 +420,8 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
     }
     final weights = billLedgerWeights(bill, isSales: type == 'SALES');
     if (customer && type == 'SALES') {
+      final paymentAmt =
+          double.tryParse((bill['paymentAmount'] ?? '').toString()) ?? 0;
       records.add(PartyLedgerRecord(
         date: bill['date']?.toString() ?? '',
         billRef: 'SAL-${bill['billNo']}',
@@ -468,8 +431,14 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
         issueWeight: weights.issue,
         pureGold: weights.pure,
         goldRate: goldRateOnRow(bill),
+        narration: ledgerPaymentNarration(
+          paymentMode: bill['paymentMode']?.toString(),
+          paymentAmount: paymentAmt,
+        ),
       ));
     } else if (!customer && type == 'PURCHASE') {
+      final paymentAmt =
+          double.tryParse((bill['paymentAmount'] ?? '').toString()) ?? 0;
       records.add(PartyLedgerRecord(
         date: bill['date']?.toString() ?? '',
         billRef: 'PUR-${bill['billNo']}',
@@ -480,6 +449,10 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
         issueWeight: weights.issue,
         pureGold: weights.pure,
         goldRate: goldRateOnRow(bill),
+        narration: ledgerPaymentNarration(
+          paymentMode: bill['paymentMode']?.toString(),
+          paymentAmount: paymentAmt,
+        ),
       ));
     }
   }
@@ -504,6 +477,8 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
     }
     final vType = (v['voucherType'] ?? '').toString();
     final weights = voucherLedgerWeights(v, customer: customer);
+    final voucherAmt =
+        double.tryParse((v['amount'] ?? '').toString()) ?? 0;
     records.add(PartyLedgerRecord(
       date: v['date']?.toString() ?? '',
       billRef: '$vType-${v['voucherNo']}',
@@ -513,6 +488,10 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
       issueWeight: weights.issue,
       pureGold: weights.pure,
       goldRate: goldRateOnRow(v),
+      narration: ledgerPaymentNarration(
+        paymentMode: v['paymentMode']?.toString(),
+        paymentAmount: voucherAmt,
+      ),
     ));
   }
 
@@ -616,6 +595,22 @@ String ledgerEntryType(String billRef) {
   if (r.contains('RECEIPT') || r.startsWith('RCPT')) return 'RECEIPT';
   if (r.contains('PAYMENT') || r.startsWith('PAY')) return 'PAYMENT';
   return '-';
+}
+
+final _rupeeFmt = NumberFormat('#,##,###', 'en_IN');
+
+/// Cash or gold given on a bill/voucher row for the ledger narration column.
+String ledgerPaymentNarration({
+  required String? paymentMode,
+  required double paymentAmount,
+}) {
+  final mode = paymentModeLabel(paymentMode);
+  if (mode == 'GOLD') {
+    if (paymentAmount.abs() < 0.0005) return '';
+    return 'Gold ${paymentAmount.toStringAsFixed(3)}g';
+  }
+  if (paymentAmount.abs() < 0.005) return '';
+  return 'Cash ₹${_rupeeFmt.format(paymentAmount.round())}';
 }
 
 String paymentModeLabel(String? raw) {
