@@ -119,7 +119,7 @@ void main() {
     expect(rows.last.receiptWeight, closeTo(2, 0.0001));
   });
 
-  test('party ledger sections include opening, running, and closing balances', () {
+  test('party ledger sections include opening and closing balances', () {
     final sections = buildPartyLedgerSections(
       customer: true,
       transactions: [
@@ -146,10 +146,25 @@ void main() {
     expect(sections.first.openingBalance, 0);
     expect(sections.first.closingBalance, closeTo(10, 0.0001));
     final table = sections.first.toTableRows();
-    expect(table.first[1], 'SAL-1 @ ₹15100');
-    expect(table.first[7], '+10.000 g');
-    expect(table.first[8], '0.000 g');
-    expect(table.last[9], '+10.000 g');
+    expect(table.first[1], '1');
+    expect(table.first[2], 'Ravi');
+    expect(table.first[6], '10.000');
+    expect(table.first[7], '');
+  });
+
+  test('ledger payment narration shows cash or gold given', () {
+    expect(
+      ledgerPaymentNarration(paymentMode: 'GOLD', paymentAmount: 0.759),
+      'Gold 0.759g',
+    );
+    expect(
+      ledgerPaymentNarration(paymentMode: 'CASH', paymentAmount: 12000),
+      'Cash ₹12,000',
+    );
+    expect(
+      ledgerPaymentNarration(paymentMode: 'CASH', paymentAmount: 0),
+      '',
+    );
   });
 
   test('ledger row balance delta for customer sales and receipts', () {
@@ -287,7 +302,7 @@ void main() {
     expect(totals.salesAmount, 1000);
   });
 
-  test('party ledger ALL names mode includes all history by default', () {
+  test('party ledger respects date range when allHistory is false', () {
     final rows = buildPartyLedgerRecords(
       customer: true,
       transactions: [
@@ -303,10 +318,9 @@ void main() {
       vouchers: const [],
       from: DateTime(2026, 8, 28),
       to: DateTime(2026, 8, 28),
-      allHistory: true,
+      allHistory: false,
       goldRate: 15100,
     );
-    expect(rows.length, 1);
-    expect(rows.first.partyName, 'Ravi');
+    expect(rows, isEmpty);
   });
 }

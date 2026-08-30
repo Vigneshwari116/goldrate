@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
+import '../util/field_advance.dart';
+import '../util/focus_chain.dart';
 import '../util/session_prefs.dart';
 import 'app_shell.dart';
 
@@ -11,17 +13,42 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginScreenState extends State<LoginScreen> with FocusAdvanceMixin {
   final TextEditingController usernameController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
+  final _usernameFocus = FocusNode();
+  final _passwordFocus = FocusNode();
+  final _loginFocus = FocusNode();
 
   bool isLoading = false;
 
   @override
   void dispose() {
+    _usernameFocus.dispose();
+    _passwordFocus.dispose();
+    _loginFocus.dispose();
     usernameController.dispose();
     passwordController.dispose();
     super.dispose();
+  }
+
+  void _onUsernameChanged(String value) {
+    advanceWhenIdle(
+      value: value,
+      from: _usernameFocus,
+      when: (v) => v.trim().length >= 2,
+      to: _passwordFocus,
+      toController: passwordController,
+    );
+  }
+
+  void _onPasswordChanged(String value) {
+    advanceWhenIdle(
+      value: value,
+      from: _passwordFocus,
+      when: (v) => v.trim().isNotEmpty,
+      to: _loginFocus,
+    );
   }
 
   Future<void> login() async {
@@ -91,7 +118,14 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 32),
                 TextField(
                   controller: usernameController,
+                  focusNode: _usernameFocus,
                   style: const TextStyle(fontSize: 14),
+                  textInputAction: TextInputAction.next,
+                  onChanged: _onUsernameChanged,
+                  onSubmitted: (_) => FocusChain.focus(
+                    _passwordFocus,
+                    controller: passwordController,
+                  ),
                   decoration: const InputDecoration(
                     labelText: "Username",
                   ),
@@ -99,8 +133,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 14),
                 TextField(
                   controller: passwordController,
+                  focusNode: _passwordFocus,
                   obscureText: true,
                   style: const TextStyle(fontSize: 14),
+                  textInputAction: TextInputAction.done,
+                  onChanged: _onPasswordChanged,
                   decoration: const InputDecoration(
                     labelText: "Password",
                   ),
@@ -111,6 +148,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   width: double.infinity,
                   height: 44,
                   child: ElevatedButton(
+                    focusNode: _loginFocus,
                     onPressed: isLoading ? null : login,
                     child: isLoading
                         ? const SizedBox(

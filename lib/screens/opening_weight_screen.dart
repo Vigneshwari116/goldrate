@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../util/focus_chain.dart';
+import '../util/field_advance.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
@@ -15,7 +16,8 @@ class OpeningWeightScreen extends StatefulWidget {
   State<OpeningWeightScreen> createState() => _OpeningWeightScreenState();
 }
 
-class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
+class _OpeningWeightScreenState extends State<OpeningWeightScreen>
+    with FocusAdvanceMixin {
   final _formKey = GlobalKey<FormState>();
 
   final _gPureController = TextEditingController(text: '0.000');
@@ -29,6 +31,7 @@ class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
   final _kachaFocus = FocusNode();
   final _silverFocus = FocusNode();
   final _cashFocus = FocusNode();
+  final _saveFocus = FocusNode();
 
   static final RegExp _numberRegex = RegExp(r'^\d+(\.\d+)?$');
 
@@ -49,6 +52,7 @@ class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
     _kachaFocus.dispose();
     _silverFocus.dispose();
     _cashFocus.dispose();
+    _saveFocus.dispose();
     _gPureController.dispose();
     _fineController.dispose();
     _kachaController.dispose();
@@ -130,11 +134,49 @@ class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
     }
   }
 
+  void _onWeightChanged(
+    String value,
+    FocusNode from,
+    FocusNode to,
+    TextEditingController toController,
+  ) {
+    advanceWhenComplete(
+      value: value,
+      from: from,
+      isComplete: FieldComplete.masterWeight,
+      to: to,
+      toController: toController,
+    );
+    advanceWhenIdle(
+      value: value,
+      from: from,
+      when: FieldComplete.weightWholeIdle,
+      to: to,
+      toController: toController,
+    );
+  }
+
+  void _onCashChanged(String value) {
+    advanceWhenComplete(
+      value: value,
+      from: _cashFocus,
+      isComplete: FieldComplete.cash,
+      to: _saveFocus,
+    );
+    advanceWhenIdle(
+      value: value,
+      from: _cashFocus,
+      when: FieldComplete.weightWholeIdle,
+      to: _saveFocus,
+    );
+  }
+
   Widget _field(
       String label,
       TextEditingController controller, {
         FocusNode? focusNode,
         VoidCallback? onFieldSubmitted,
+        ValueChanged<String>? onChanged,
         String? Function(String?)? validator,
       }) {
     return Padding(
@@ -147,6 +189,7 @@ class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
         textInputAction: TextInputAction.next,
         validator: validator ?? _validateWeight,
         onFieldSubmitted: (_) => onFieldSubmitted?.call(),
+        onChanged: onChanged,
         decoration: InputDecoration(label: Text(label)),
       ),
     );
@@ -253,26 +296,52 @@ class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
                         const SizedBox(height: 12),
                         _field("G.Pure Wt", _gPureController,
                             focusNode: _gPureFocus,
+                            onChanged: (v) => _onWeightChanged(
+                                  v,
+                                  _gPureFocus,
+                                  _fineFocus,
+                                  _fineController,
+                                ),
                             onFieldSubmitted: () => FocusChain.focus(
                                 _fineFocus, controller: _fineController)),
                         _field("Fine Wt", _fineController,
                             focusNode: _fineFocus,
+                            onChanged: (v) => _onWeightChanged(
+                                  v,
+                                  _fineFocus,
+                                  _kachaFocus,
+                                  _kachaController,
+                                ),
                             onFieldSubmitted: () => FocusChain.focus(
                                 _kachaFocus, controller: _kachaController)),
                         _field("Kacha Wt", _kachaController,
                             focusNode: _kachaFocus,
+                            onChanged: (v) => _onWeightChanged(
+                                  v,
+                                  _kachaFocus,
+                                  _silverFocus,
+                                  _silverController,
+                                ),
                             onFieldSubmitted: () => FocusChain.focus(
                                 _silverFocus, controller: _silverController)),
                         _field("Silver Wt", _silverController,
                             focusNode: _silverFocus,
+                            onChanged: (v) => _onWeightChanged(
+                                  v,
+                                  _silverFocus,
+                                  _cashFocus,
+                                  _cashController,
+                                ),
                             onFieldSubmitted: () => FocusChain.focus(
                                 _cashFocus, controller: _cashController)),
                         _field("Cash", _cashController,
-                            focusNode: _cashFocus),
+                            focusNode: _cashFocus,
+                            onChanged: _onCashChanged),
                         SizedBox(
                           width: double.infinity,
                           height: 42,
                           child: ElevatedButton(
+                            focusNode: _saveFocus,
                             onPressed: _saving ? null : _confirmAndSave,
                             child: _saving
                                 ? const SizedBox(

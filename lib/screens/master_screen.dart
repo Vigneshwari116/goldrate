@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../util/focus_chain.dart';
+import '../util/field_advance.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
@@ -18,7 +19,7 @@ class MasterScreen extends StatefulWidget {
   State<MasterScreen> createState() => _MasterScreenState();
 }
 
-class _MasterScreenState extends State<MasterScreen> {
+class _MasterScreenState extends State<MasterScreen> with FocusAdvanceMixin {
   List<Map<String, dynamic>> rates = [];
   final Map<int, TextEditingController> _controllers = {};
   final Map<int, FocusNode> _focusNodes = {};
@@ -32,6 +33,27 @@ class _MasterScreenState extends State<MasterScreen> {
   void initState() {
     super.initState();
     loadRates();
+  }
+
+  void _onRateChanged(String value, int index) {
+    if (index + 1 >= rates.length) return;
+    final nextId = rates[index + 1]['id'] as int;
+    final nextFocus = _focusNodes[nextId]!;
+    final nextController = _controllers[nextId]!;
+    advanceWhenComplete(
+      value: value,
+      from: _focusNodes[rates[index]['id'] as int]!,
+      isComplete: FieldComplete.cash,
+      to: nextFocus,
+      toController: nextController,
+    );
+    advanceWhenIdle(
+      value: value,
+      from: _focusNodes[rates[index]['id'] as int]!,
+      when: FieldComplete.weightWholeIdle,
+      to: nextFocus,
+      toController: nextController,
+    );
   }
 
   @override
@@ -193,6 +215,8 @@ class _MasterScreenState extends State<MasterScreen> {
                                       keyboardType: const TextInputType
                                           .numberWithOptions(decimal: true),
                                       textInputAction: TextInputAction.next,
+                                      onChanged: (value) =>
+                                          _onRateChanged(value, index),
                                       onSubmitted: (_) {
                                         if (index + 1 < rates.length) {
                                           final nextId =

@@ -94,6 +94,7 @@ mixin FocusAdvanceMixin<T extends StatefulWidget> on State<T> {
     final completedValue = value;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      if (!from.hasFocus) return;
       if (!isComplete(completedValue)) return;
       if (action != null) {
         action();
@@ -115,8 +116,10 @@ mixin FocusAdvanceMixin<T extends StatefulWidget> on State<T> {
     _focusAdvanceIdle?.cancel();
     final ready = when ?? (v) => v.trim().length >= 2;
     if (!ready(value)) return;
+    final idleValue = value;
     _focusAdvanceIdle = Timer(delay, () {
       if (!mounted || !from.hasFocus) return;
+      if (!ready(idleValue)) return;
       if (action != null) {
         action();
       } else if (to != null) {

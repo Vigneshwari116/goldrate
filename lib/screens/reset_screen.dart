@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
+import '../util/field_advance.dart';
 
 /// Clears sales, purchase, and voucher records plus in-memory form state.
 class ResetScreen extends StatefulWidget {
@@ -18,18 +19,34 @@ class ResetScreen extends StatefulWidget {
   State<ResetScreen> createState() => _ResetScreenState();
 }
 
-class _ResetScreenState extends State<ResetScreen> {
+class _ResetScreenState extends State<ResetScreen> with FocusAdvanceMixin {
   static const _unlockCode = 'ramsai';
 
   final _codeController = TextEditingController();
+  final _codeFocus = FocusNode();
+  final _resetFocus = FocusNode();
   bool _resetting = false;
 
   bool get _showResetButton => _codeController.text == _unlockCode;
 
   @override
   void dispose() {
+    _codeFocus.dispose();
+    _resetFocus.dispose();
     _codeController.dispose();
     super.dispose();
+  }
+
+  void _onCodeChanged(String value) {
+    setState(() {});
+    if (value == _unlockCode) {
+      advanceWhenIdle(
+        value: value,
+        from: _codeFocus,
+        when: (v) => v == _unlockCode,
+        to: _resetFocus,
+      );
+    }
   }
 
   Future<void> _runReset() async {
@@ -100,16 +117,18 @@ class _ResetScreenState extends State<ResetScreen> {
           const SizedBox(height: 20),
           TextField(
             controller: _codeController,
+            focusNode: _codeFocus,
             decoration: const InputDecoration(
               labelText: 'Enter code to enable reset',
             ),
-            onChanged: (_) => setState(() {}),
+            onChanged: _onCodeChanged,
           ),
           if (_showResetButton) ...[
             const SizedBox(height: 16),
             SizedBox(
               height: 42,
               child: OutlinedButton.icon(
+                focusNode: _resetFocus,
                 style: OutlinedButton.styleFrom(
                   foregroundColor: Colors.red,
                   side: const BorderSide(color: Colors.red),
