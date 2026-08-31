@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
-import '../util/field_advance.dart';
 import '../util/focus_chain.dart';
 import '../util/session_prefs.dart';
 import 'app_shell.dart';
@@ -13,7 +12,7 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> with FocusAdvanceMixin {
+class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController usernameController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
   final _usernameFocus = FocusNode();
@@ -30,25 +29,6 @@ class _LoginScreenState extends State<LoginScreen> with FocusAdvanceMixin {
     usernameController.dispose();
     passwordController.dispose();
     super.dispose();
-  }
-
-  void _onUsernameChanged(String value) {
-    advanceWhenIdle(
-      value: value,
-      from: _usernameFocus,
-      when: (v) => v.trim().length >= 2,
-      to: _passwordFocus,
-      toController: passwordController,
-    );
-  }
-
-  void _onPasswordChanged(String value) {
-    advanceWhenIdle(
-      value: value,
-      from: _passwordFocus,
-      when: (v) => v.trim().isNotEmpty,
-      to: _loginFocus,
-    );
   }
 
   Future<void> login() async {
@@ -121,7 +101,6 @@ class _LoginScreenState extends State<LoginScreen> with FocusAdvanceMixin {
                   focusNode: _usernameFocus,
                   style: const TextStyle(fontSize: 14),
                   textInputAction: TextInputAction.next,
-                  onChanged: _onUsernameChanged,
                   onSubmitted: (_) => FocusChain.focus(
                     _passwordFocus,
                     controller: passwordController,
@@ -137,7 +116,6 @@ class _LoginScreenState extends State<LoginScreen> with FocusAdvanceMixin {
                   obscureText: true,
                   style: const TextStyle(fontSize: 14),
                   textInputAction: TextInputAction.done,
-                  onChanged: _onPasswordChanged,
                   decoration: const InputDecoration(
                     labelText: "Password",
                   ),

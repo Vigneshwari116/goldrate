@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
-import '../util/field_advance.dart';
+import '../util/focus_chain.dart';
 
 /// Clears sales, purchase, and voucher records plus in-memory form state.
 class ResetScreen extends StatefulWidget {
@@ -19,7 +19,7 @@ class ResetScreen extends StatefulWidget {
   State<ResetScreen> createState() => _ResetScreenState();
 }
 
-class _ResetScreenState extends State<ResetScreen> with FocusAdvanceMixin {
+class _ResetScreenState extends State<ResetScreen> {
   static const _unlockCode = 'ramsai';
 
   final _codeController = TextEditingController();
@@ -39,14 +39,6 @@ class _ResetScreenState extends State<ResetScreen> with FocusAdvanceMixin {
 
   void _onCodeChanged(String value) {
     setState(() {});
-    if (value == _unlockCode) {
-      advanceWhenIdle(
-        value: value,
-        from: _codeFocus,
-        when: (v) => v == _unlockCode,
-        to: _resetFocus,
-      );
-    }
   }
 
   Future<void> _runReset() async {
@@ -118,10 +110,16 @@ class _ResetScreenState extends State<ResetScreen> with FocusAdvanceMixin {
           TextField(
             controller: _codeController,
             focusNode: _codeFocus,
+            textInputAction: TextInputAction.done,
             decoration: const InputDecoration(
               labelText: 'Enter code to enable reset',
             ),
             onChanged: _onCodeChanged,
+            onSubmitted: (_) {
+              if (_showResetButton) {
+                FocusChain.focus(_resetFocus);
+              }
+            },
           ),
           if (_showResetButton) ...[
             const SizedBox(height: 16),

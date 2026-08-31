@@ -17,8 +17,6 @@ import '../pdf/pdf_kit.dart';
 import '../models/party_suggestion.dart';
 import '../widgets/party_search_field.dart';
 import '../util/party_save_prompt.dart';
-import '../util/party_name_match.dart';
-import '../util/field_advance.dart';
 import '../util/focus_chain.dart';
 import '../util/screen_activation.dart';
 import '../theme/app_theme.dart';
@@ -120,7 +118,7 @@ class TransactionScreen extends StatefulWidget {
 }
 
 class _TransactionScreenState extends State<TransactionScreen>
-    with FocusAdvanceMixin, ScreenActivationMixin<TransactionScreen> {
+    with ScreenActivationMixin<TransactionScreen> {
   static const _itemTypes = ['GWT', 'FWT', 'KWT', 'SWT'];
   static const _paymentItemTypes = ['GWT', 'FWT', 'KWT', 'SWT', 'CASH'];
   static final RegExp _numberRegex = RegExp(r'^\d+(\.\d+)?$');
@@ -573,17 +571,6 @@ class _TransactionScreenState extends State<TransactionScreen>
     }
     final trimmed = value.trim();
     if (trimmed.isEmpty || _partyFocus == null) return;
-
-    advanceWhenIdle(
-      value: trimmed,
-      from: _partyFocus!,
-      when: (v) {
-        final t = v.trim();
-        if (t.length < 2) return false;
-        return !_partyHasMatches(t) || _partyExactMatch(t);
-      },
-      action: () => _advanceFromParty(trimmed),
-    );
   }
 
   Future<bool> _ensurePartySaved() async {
@@ -1552,15 +1539,7 @@ class _TransactionScreenState extends State<TransactionScreen>
                 extentOffset: _paymentEntryAmount.text.length,
               ),
               onFieldSubmitted: (_) => _commitPaymentEntry(),
-              onChanged: (v) {
-                setState(() {});
-                advanceWhenComplete(
-                  value: v,
-                  from: _paymentEntryAmountFocus,
-                  isComplete: FieldComplete.cash,
-                  action: _commitPaymentEntry,
-                );
-              },
+              onChanged: (_) => setState(() {}),
             ),
           ),
           const SizedBox(width: 6),
@@ -1609,23 +1588,7 @@ class _TransactionScreenState extends State<TransactionScreen>
                 baseOffset: 0,
                 extentOffset: _paymentEntryWeight.text.length,
               ),
-              onChanged: (v) {
-                setState(() {});
-                advanceWhenComplete(
-                  value: v,
-                  from: _paymentEntryWeightFocus,
-                  isComplete: FieldComplete.weight,
-                  to: _paymentEntryTouchFocus,
-                  toController: _paymentEntryTouch,
-                );
-                advanceWhenIdle(
-                  value: v,
-                  from: _paymentEntryWeightFocus,
-                  when: FieldComplete.weightWholeIdle,
-                  to: _paymentEntryTouchFocus,
-                  toController: _paymentEntryTouch,
-                );
-              },
+              onChanged: (_) => setState(() {}),
               onFieldSubmitted: (_) => FocusChain.focusNextFrame(
                 _paymentEntryTouchFocus,
                 controller: _paymentEntryTouch,
@@ -1658,21 +1621,7 @@ class _TransactionScreenState extends State<TransactionScreen>
                 extentOffset: _paymentEntryTouch.text.length,
               ),
               onFieldSubmitted: (_) => _commitPaymentEntry(),
-              onChanged: (v) {
-                setState(() {});
-                advanceWhenComplete(
-                  value: v,
-                  from: _paymentEntryTouchFocus,
-                  isComplete: FieldComplete.touch,
-                  action: _commitPaymentEntry,
-                );
-                advanceWhenIdle(
-                  value: v,
-                  from: _paymentEntryTouchFocus,
-                  when: FieldComplete.touchWholeIdle,
-                  action: _commitPaymentEntry,
-                );
-              },
+              onChanged: (_) => setState(() {}),
             ),
           ),
           const SizedBox(width: 6),
@@ -1769,23 +1718,7 @@ class _TransactionScreenState extends State<TransactionScreen>
               baseOffset: 0,
               extentOffset: weight.text.length,
             ),
-            onChanged: (v) {
-              setState(() {});
-              advanceWhenComplete(
-                value: v,
-                from: weightFocus,
-                isComplete: FieldComplete.weight,
-                to: touchFocus,
-                toController: touch,
-              );
-              advanceWhenIdle(
-                value: v,
-                from: weightFocus,
-                when: FieldComplete.weightWholeIdle,
-                to: touchFocus,
-                toController: touch,
-              );
-            },
+            onChanged: (_) => setState(() {}),
             onFieldSubmitted: (_) => FocusChain.focusNextFrame(
               touchFocus,
               controller: touch,
@@ -1818,21 +1751,7 @@ class _TransactionScreenState extends State<TransactionScreen>
               extentOffset: touch.text.length,
             ),
             onFieldSubmitted: (_) => onTouchSubmitted(),
-            onChanged: (v) {
-              setState(() {});
-              advanceWhenComplete(
-                value: v,
-                from: touchFocus,
-                isComplete: FieldComplete.touch,
-                action: onTouchSubmitted,
-              );
-              advanceWhenIdle(
-                value: v,
-                from: touchFocus,
-                when: FieldComplete.touchWholeIdle,
-                action: onTouchSubmitted,
-              );
-            },
+            onChanged: (_) => setState(() {}),
           ),
         ),
         const SizedBox(width: 6),
