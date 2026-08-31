@@ -284,14 +284,17 @@ class PartyLedgerSection {
 }
 
 /// Net gold-balance change for one ledger row (running balance per line).
+/// All weights are pure grams: delta = pure issue − pure receipt.
 double ledgerRowBalanceDelta(PartyLedgerRecord row, {required bool customer}) {
   final type = row.typeLabel.split('(').first;
   if (customer) {
-    if (type == 'SALES') return row.pureGold - row.receiptWeight;
-    if (type == 'RECEIPT') return -row.receiptWeight;
+    if (type == 'SALES' || type == 'RECEIPT') {
+      return row.issueWeight - row.receiptWeight;
+    }
   } else {
-    if (type == 'PURCHASE') return -(row.pureGold - row.issueWeight);
-    if (type == 'PAYMENT') return row.issueWeight;
+    if (type == 'PURCHASE' || type == 'PAYMENT') {
+      return row.issueWeight - row.receiptWeight;
+    }
   }
   assert(() {
     debugPrint(
@@ -319,13 +322,36 @@ String transactionTypeLabel(String type, String? paymentMode) {
   return '$type($suffix)';
 }
 
+double _billPureWeight(Map<String, dynamic> bill) {
+  final stored =
+      double.tryParse((bill['totalPureWt'] ?? '').toString());
+  if (stored != null && stored > 0) return stored;
+
+  final items = bill['items'];
+  if (items is List) {
+    var sum = 0.0;
+    for (final raw in items) {
+      if (raw is! Map) continue;
+      final item = Map<String, dynamic>.from(raw);
+      final pure = double.tryParse((item['pureWt'] ?? '').toString());
+      if (pure != null) {
+        sum += pure;
+      } else {
+        final w = double.tryParse((item['weight'] ?? '').toString()) ?? 0;
+        final t = double.tryParse((item['touch'] ?? '').toString()) ?? 0;
+        sum += w * t / 100;
+      }
+    }
+    return sum;
+  }
+  return stored ?? 0;
+}
+
 ({double receipt, double issue, double pure}) billLedgerWeights(
   Map<String, dynamic> bill, {
   required bool isSales,
 }) {
-  final totalWt = double.tryParse((bill['totalWt'] ?? '').toString()) ?? 0;
-  final totalPure =
-      double.tryParse((bill['totalPureWt'] ?? '').toString()) ?? 0;
+  final totalPure = _billPureWeight(bill);
   final paymentMode = (bill['paymentMode'] ?? '').toString().toUpperCase();
   final paymentAmt =
       double.tryParse((bill['paymentAmount'] ?? '').toString()) ?? 0;
@@ -336,14 +362,14 @@ String transactionTypeLabel(String type, String? paymentMode) {
   var issue = 0.0;
 
   if (isSales) {
-    issue = totalWt;
+    issue = totalPure;
     if (paymentMode == 'GOLD') {
       receipt = paymentAmt;
     } else if (cashToGold > 0) {
       receipt = cashToGold;
     }
   } else {
-    receipt = totalWt;
+    receipt = totalPure;
     if (paymentMode == 'GOLD') {
       issue = paymentAmt;
     } else if (cashToGold > 0) {
