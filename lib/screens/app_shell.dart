@@ -264,20 +264,20 @@ class _AppShellState extends State<AppShell> {
     required AppPage page,
   }) {
     final selected = _page == page;
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        onTap: () => _go(page),
-        child: Container(
-          width: 56,
-          height: 44,
-          color: selected ? AppColors.drawerActive : Colors.transparent,
-          child: Icon(
-            icon,
-            color: selected ? Colors.white : Colors.white70,
-            size: 22,
-          ),
-        ),
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: () => _go(page),
+      icon: Icon(
+        icon,
+        color: selected ? Colors.white : Colors.white70,
+        size: 22,
+      ),
+      style: IconButton.styleFrom(
+        backgroundColor:
+            selected ? AppColors.drawerActive : Colors.transparent,
+        fixedSize: const Size(56, 44),
+        shape: const RoundedRectangleBorder(),
+        padding: EdgeInsets.zero,
       ),
     );
   }
@@ -313,15 +313,13 @@ class _AppShellState extends State<AppShell> {
                   ],
                 ),
               ),
-              Tooltip(
-                message: 'Logout',
-                child: InkWell(
-                  onTap: _logout,
-                  child: const SizedBox(
-                    width: 56,
-                    height: 44,
-                    child: Icon(Icons.logout, color: Color(0xFFFF8A80), size: 22),
-                  ),
+              IconButton(
+                tooltip: 'Logout',
+                onPressed: _logout,
+                icon: const Icon(Icons.logout, color: Color(0xFFFF8A80), size: 22),
+                style: IconButton.styleFrom(
+                  fixedSize: const Size(56, 44),
+                  padding: EdgeInsets.zero,
                 ),
               ),
               const SizedBox(height: 8),
