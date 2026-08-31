@@ -9,7 +9,6 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../database/database_helper.dart';
-import '../util/field_advance.dart';
 import '../util/focus_chain.dart';
 import '../util/screen_activation.dart';
 import '../theme/app_theme.dart';
@@ -123,7 +122,7 @@ class SupplierMasterScreen extends StatefulWidget {
 }
 
 class _SupplierMasterScreenState extends State<SupplierMasterScreen>
-    with FocusAdvanceMixin, ScreenActivationMixin<SupplierMasterScreen> {
+    with ScreenActivationMixin<SupplierMasterScreen> {
   final _formKey = GlobalKey<FormState>();
 
   final _nameController = TextEditingController();
@@ -313,82 +312,6 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen>
 
   void _bindNameFocus(FocusNode node) {
     _nameFocus = node;
-  }
-
-  void _onNameChanged(String value) {
-    final trimmed = value.trim();
-    if (trimmed.isEmpty || _nameFocus == null) return;
-
-    advanceWhenIdle(
-      value: trimmed,
-      from: _nameFocus!,
-      when: (v) => v.trim().length >= 2,
-      to: _mobileFocus,
-      toController: _mobileController,
-    );
-  }
-
-  void _onMobileChanged(String value) {
-    advanceWhenComplete(
-      value: value,
-      from: _mobileFocus,
-      isComplete: FieldComplete.mobile,
-      to: _cityFocus,
-      toController: _cityController,
-    );
-  }
-
-  void _onCityChanged(String value) {
-    advanceWhenIdle(
-      value: value,
-      from: _cityFocus,
-      when: (v) => v.trim().length >= 2,
-      to: _pureWeightFocus,
-      toController: _pureWeightController,
-    );
-  }
-
-  void _onPureWeightChanged(String value) {
-    advanceWhenComplete(
-      value: value,
-      from: _pureWeightFocus,
-      isComplete: FieldComplete.masterWeight,
-      to: _goldWeightFocus,
-      toController: _goldWeightController,
-    );
-    advanceWhenIdle(
-      value: value,
-      from: _pureWeightFocus,
-      when: (v) => RegExp(r'^\d{2,}$').hasMatch(v.trim()),
-      to: _goldWeightFocus,
-      toController: _goldWeightController,
-    );
-  }
-
-  void _onGoldWeightChanged(String value) {
-    advanceWhenComplete(
-      value: value,
-      from: _goldWeightFocus,
-      isComplete: FieldComplete.masterWeight,
-      to: _narrationFocus,
-      toController: _narrationController,
-    );
-    advanceWhenIdle(
-      value: value,
-      from: _goldWeightFocus,
-      when: (v) => RegExp(r'^\d{2,}$').hasMatch(v.trim()),
-      to: _narrationFocus,
-      toController: _narrationController,
-    );
-  }
-
-  void _onNarrationChanged(String value) {
-    advanceWhenIdle(
-      value: value,
-      from: _narrationFocus,
-      when: (v) => v.trim().isNotEmpty,
-      action: () => FocusChain.focus(_saveFocus),
-    );
   }
 
   void _prefillOpeningBalance(_PartySummary summary) {
@@ -1219,7 +1142,6 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen>
                     onFocusNodeReady: _bindNameFocus,
                     onSelected: _prefillFromExistingName,
                     onFieldSubmitted: () => _focusNext(_mobileFocus),
-                    onChanged: _onNameChanged,
                     onFocus: loadSuppliers,
                   ),
                 ),
@@ -1242,7 +1164,6 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen>
                     ],
                     validator:
                     _validateMobile,
-                    onChanged: _onMobileChanged,
                     onFieldSubmitted: () => _focusNext(_cityFocus),
                   ),
                 ),
@@ -1253,7 +1174,6 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen>
               'City',
               _cityController,
               focusNode: _cityFocus,
-              onChanged: _onCityChanged,
               onFieldSubmitted: () => _focusNext(_pureWeightFocus),
             ),
 
@@ -1274,7 +1194,6 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen>
                     validator:
                         (v) =>
                         _validateNumber(v),
-                    onChanged: _onPureWeightChanged,
                     onFieldSubmitted: () => _focusNext(_goldWeightFocus),
                   ),
                 ),
@@ -1294,7 +1213,6 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen>
                     validator:
                         (v) =>
                         _validateNumber(v),
-                    onChanged: _onGoldWeightChanged,
                     onFieldSubmitted: () => _focusNext(_narrationFocus),
                   ),
                 ),
@@ -1305,7 +1223,6 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen>
               'Narration',
               _narrationController,
               focusNode: _narrationFocus,
-              onChanged: _onNarrationChanged,
               onFieldSubmitted: () => FocusChain.focus(_saveFocus),
             ),
 

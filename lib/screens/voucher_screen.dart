@@ -9,7 +9,6 @@ import 'package:pdf/widgets.dart' as pw;
 import '../database/database_helper.dart';
 import '../logic/gold_ledger.dart';
 import '../pdf/pdf_kit.dart';
-import '../util/field_advance.dart';
 import '../util/focus_chain.dart';
 import '../util/screen_activation.dart';
 import '../util/party_save_prompt.dart';
@@ -37,7 +36,7 @@ class VoucherScreen extends StatefulWidget {
 }
 
 class _VoucherScreenState extends State<VoucherScreen>
-    with FocusAdvanceMixin, ScreenActivationMixin<VoucherScreen> {
+    with ScreenActivationMixin<VoucherScreen> {
   static const _modes = ['CASH', 'UPI', 'GOLD'];
 
   final _partyController = TextEditingController();
@@ -156,38 +155,10 @@ class _VoucherScreenState extends State<VoucherScreen>
     }
     final trimmed = value.trim();
     if (trimmed.isEmpty || _partyFocus == null) return;
-
-    advanceWhenIdle(
-      value: trimmed,
-      from: _partyFocus!,
-      when: (v) {
-        final t = v.trim();
-        if (t.length < 2) return false;
-        return !PartyNameMatch.hasMatches(_names, t) ||
-            PartyNameMatch.isExactMatch(_names, t);
-      },
-      action: () => _advanceFromParty(trimmed),
-    );
   }
 
   void _onAmountChanged(String value) {
     setState(() {});
-    advanceWhenComplete(
-      value: value,
-      from: _amountFocus,
-      isComplete: (v) => FieldComplete.voucherAmount(v, _mode),
-      to: _narrationFocus,
-      toController: _narrationController,
-    );
-  }
-
-  void _onNarrationChanged(String value) {
-    advanceWhenIdle(
-      value: value,
-      from: _narrationFocus,
-      when: (v) => v.trim().isNotEmpty,
-      action: () => FocusChain.focus(_saveFocus),
-    );
   }
 
   Iterable<String> _partyOptions(String query) {
@@ -552,7 +523,6 @@ class _VoucherScreenState extends State<VoucherScreen>
               controller: _narrationController,
               focusNode: _narrationFocus,
               textInputAction: TextInputAction.done,
-              onChanged: _onNarrationChanged,
               onSubmitted: (_) => FocusChain.focus(_saveFocus),
               decoration: const InputDecoration(
                 labelText: 'Narration',

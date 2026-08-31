@@ -112,7 +112,7 @@ void main() {
     expect(rows.length, 2);
     expect(rows.first.partyName, 'Ravi Kumar');
     expect(rows.first.typeLabel, 'SALES(G)');
-    expect(rows.first.issueWeight, closeTo(12, 0.0001));
+    expect(rows.first.issueWeight, closeTo(10, 0.0001));
     expect(rows.first.receiptWeight, closeTo(2, 0.0001));
     expect(rows.first.pureGold, closeTo(10, 0.0001));
     expect(rows.last.typeLabel, 'RECEIPT(C)');
@@ -174,7 +174,7 @@ void main() {
       partyName: 'Ravi',
       typeLabel: 'SALES(C)',
       receiptWeight: 2,
-      issueWeight: 12,
+      issueWeight: 10,
       pureGold: 10,
     );
     const receipt = PartyLedgerRecord(
@@ -188,6 +188,29 @@ void main() {
     );
     expect(ledgerRowBalanceDelta(sale, customer: true), closeTo(8, 0.0001));
     expect(ledgerRowBalanceDelta(receipt, customer: true), closeTo(-3, 0.0001));
+  });
+
+  test('ledger row balance delta for supplier purchases and payments', () {
+    const purchase = PartyLedgerRecord(
+      date: '01-08-2026',
+      billRef: 'PUR-1',
+      partyName: 'Meena',
+      typeLabel: 'PURCHASE(G)',
+      receiptWeight: 10,
+      issueWeight: 2,
+      pureGold: 10,
+    );
+    const payment = PartyLedgerRecord(
+      date: '02-08-2026',
+      billRef: 'PAYMENT-1',
+      partyName: 'Meena',
+      typeLabel: 'PAYMENT(C)',
+      receiptWeight: 0,
+      issueWeight: 3,
+      pureGold: 3,
+    );
+    expect(ledgerRowBalanceDelta(purchase, customer: false), closeTo(-8, 0.0001));
+    expect(ledgerRowBalanceDelta(payment, customer: false), closeTo(3, 0.0001));
   });
 
   test('ledger row balance delta returns 0 for unrecognized types', () {
