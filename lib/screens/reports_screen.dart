@@ -687,8 +687,6 @@ class _ReportsScreenState extends State<ReportsScreen>
     );
   }
 
-  String _signedLedgerBalance(double grams) => signedLedgerBalance(grams);
-
   Widget _partyLedgerSectionsView(
     List<PartyLedgerSection> sections, {
     required List<String> headers,
