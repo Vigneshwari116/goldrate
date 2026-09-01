@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grate_app/logic/gold_ledger.dart';
 
@@ -146,10 +148,105 @@ void main() {
     expect(sections.first.openingBalance, 0);
     expect(sections.first.closingBalance, closeTo(10, 0.0001));
     final table = sections.first.toTableRows();
-    expect(table.first[1], '1');
+    expect(table.first[0], 'SAL-1');
     expect(table.first[2], 'Ravi');
-    expect(table.first[6], '10.000');
+    expect(table.first[5], '10.000');
     expect(table.first[7], '');
+  });
+
+  test('master opening balance from customer master appears in ledger', () {
+    final sections = buildPartyLedgerSections(
+      customer: true,
+      transactions: const [],
+      vouchers: const [],
+      masterRows: [
+        {
+          'name': 'Priya',
+          'cr': '0',
+          'dr': '5.500',
+          'balanceUnit': 'GRAMS',
+          'billRef': '',
+        },
+      ],
+      from: DateTime(2026, 8, 10),
+      to: DateTime(2026, 8, 10),
+      nameQuery: 'Priya',
+      goldRate: 15100,
+    );
+    expect(sections.length, 1);
+    expect(sections.first.partyName, 'Priya');
+    expect(sections.first.openingBalance, closeTo(5.5, 0.0001));
+    expect(sections.first.closingBalance, closeTo(5.5, 0.0001));
+    expect(sections.first.rows, isEmpty);
+  });
+
+  test('customer name filter shows master opening without transactions', () {
+    final sections = buildPartyLedgerSections(
+      customer: true,
+      transactions: const [],
+      vouchers: const [],
+      masterRows: [
+        {
+          'name': 'Anita',
+          'cr': '0',
+          'dr': '3.000',
+          'balanceUnit': 'GRAMS',
+          'billRef': '',
+        },
+      ],
+      from: DateTime(2026, 8, 1),
+      to: DateTime(2026, 8, 31),
+      nameQuery: 'anita',
+      goldRate: 15100,
+    );
+    expect(sections.length, 1);
+    expect(sections.first.openingBalance, closeTo(3, 0.0001));
+  });
+
+  test('date range carries forward closing as next opening', () {
+    final rows = buildPartyNameWise(
+      customer: true,
+      knownNames: ['Ravi'],
+      transactions: [
+        {
+          'transactionType': 'SALES',
+          'partyName': 'Ravi',
+          'totalPureWt': '10.000',
+          'paymentMode': 'CASH',
+          'paymentAmount': '0',
+          'cashToGold': '0',
+          'date': '05-08-2026',
+        },
+        {
+          'transactionType': 'SALES',
+          'partyName': 'Ravi',
+          'totalPureWt': '2.000',
+          'paymentMode': 'CASH',
+          'paymentAmount': '0',
+          'cashToGold': '0',
+          'date': '15-08-2026',
+        },
+      ],
+      vouchers: const [],
+      masterOpening: {'Ravi': 1.0},
+      from: DateTime(2026, 8, 10),
+      to: DateTime(2026, 8, 20),
+    );
+    expect(rows.first.opening, closeTo(11, 0.0001));
+    expect(rows.first.debit, closeTo(2, 0.0001));
+    expect(rows.first.closing, closeTo(13, 0.0001));
+  });
+
+  test('bill particulars lists item types from bill lines', () {
+    expect(
+      billParticulars({
+        'items': jsonEncode([
+          {'type': 'GWT', 'weight': 10},
+          {'type': 'FWT', 'weight': 2},
+        ]),
+      }),
+      'GWT/FWT',
+    );
   });
 
   test('ledger payment narration shows cash or gold given', () {

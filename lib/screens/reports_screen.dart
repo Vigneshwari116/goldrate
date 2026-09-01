@@ -48,6 +48,8 @@ class _ReportsScreenState extends State<ReportsScreen>
 
   List<Map<String, dynamic>> _txns = [];
   List<Map<String, dynamic>> _vouchers = [];
+  List<Map<String, dynamic>> _customers = [];
+  List<Map<String, dynamic>> _suppliers = [];
   Map<String, double> _rates = {};
   List<String> _customerNames = [];
   List<String> _supplierNames = [];
@@ -102,6 +104,8 @@ class _ReportsScreenState extends State<ReportsScreen>
     setState(() {
       _txns = txns;
       _vouchers = vouchers;
+      _customers = customers;
+      _suppliers = suppliers;
       _rates = rates;
       _customerNames = customers
           .map((r) => (r['name'] ?? '').toString().trim())
@@ -143,46 +147,6 @@ class _ReportsScreenState extends State<ReportsScreen>
 
   List<Map<String, dynamic>> get _filteredVouchers =>
       _vouchers.where((r) => _inRange(r['date']?.toString())).toList();
-
-  DailyTotals get _totals {
-    var totals = const DailyTotals();
-    for (final row in _filteredTxns) {
-      final grams = double.tryParse((row['totalPureWt'] ?? '').toString()) ?? 0;
-      final amount = double.tryParse((row['totalValue'] ?? '').toString()) ?? 0;
-      final oldG = double.tryParse((row['oldGrams'] ?? '').toString()) ?? 0;
-      final newG = double.tryParse((row['newGrams'] ?? '').toString()) ?? 0;
-      final unpaidG = (newG - oldG).abs();
-      final unpaidAmt =
-          (double.tryParse((row['totalValue'] ?? '').toString()) ?? 0) -
-              (double.tryParse((row['paymentAmount'] ?? '').toString()) ?? 0);
-      if (row['transactionType'] == 'SALES') {
-        totals = totals.addSale(
-          grams: grams,
-          amount: amount,
-          unpaidGrams: unpaidG,
-          unpaidAmount: unpaidAmt > 0 ? unpaidAmt : 0,
-        );
-      } else if (row['transactionType'] == 'PURCHASE') {
-        totals = totals.addPurchase(
-          grams: grams,
-          amount: amount,
-          unpaidGrams: unpaidG,
-          unpaidAmount: unpaidAmt > 0 ? unpaidAmt : 0,
-        );
-      }
-    }
-    for (final v in _filteredVouchers) {
-      final mode = (v['paymentMode'] ?? '').toString();
-      final amt = double.tryParse((v['amount'] ?? '').toString()) ?? 0;
-      final gold = double.tryParse((v['cashToGold'] ?? '').toString()) ??
-          (mode == 'GOLD' ? amt : 0);
-      totals = totals.addReceipt(
-        cash: mode == 'GOLD' ? 0 : amt,
-        gold: gold,
-      );
-    }
-    return totals;
-  }
 
   Future<void> _pickSingleDate() async {
     final picked = await showDatePicker(
@@ -391,44 +355,10 @@ class _ReportsScreenState extends State<ReportsScreen>
   }
 
   Widget _dailyCard() {
-    final t = _totals;
-    return _reportShell(
-      title: 'DAILY SALES / PURCHASE AUTO TOTALS',
-      records: t.salesBills + t.purchaseBills + t.receiptVouchers,
-      units: t.salesGrams + t.purchaseGrams,
-      total: t.salesAmount,
-      child: ListView(
-        padding: const EdgeInsets.all(12),
-        children: [
-          _stat('Sales bills (auto)', '${t.salesBills}'),
-          _stat('Sales GWT / pure', '${t.salesGrams.toStringAsFixed(3)} g'),
-          _stat('Sales amount', '₹${t.salesAmount.toStringAsFixed(2)}'),
-          _stat('Sales credit (unpaid)',
-              '${t.salesCreditGrams.toStringAsFixed(3)} g  ·  ₹${t.salesCreditAmount.toStringAsFixed(2)}'),
-          const Divider(),
-          _stat('Purchase bills (auto)', '${t.purchaseBills}'),
-          _stat('Purchase GWT / pure', '${t.purchaseGrams.toStringAsFixed(3)} g'),
-          _stat('Purchase amount', '₹${t.purchaseAmount.toStringAsFixed(2)}'),
-          _stat('Purchase credit (unpaid)',
-              '${t.purchaseCreditGrams.toStringAsFixed(3)} g  ·  ₹${t.purchaseCreditAmount.toStringAsFixed(2)}'),
-          const Divider(),
-          _stat('Receipts / payments', '${t.receiptVouchers}'),
-          _stat('Receipt cash', '₹${t.receiptsCash.toStringAsFixed(2)}'),
-          _stat('Receipt gold (incl. cash converted)',
-              '${t.receiptsGold.toStringAsFixed(3)} g'),
-          const SizedBox(height: 12),
-          const Text(
-            'These figures fill themselves from saved sales, purchase and receipt vouchers. Nothing is typed on this screen.',
-            style: TextStyle(fontSize: 12, color: Colors.black54),
-          ),
-        ],
-      ),
-      pdfRows: [
-        ['Sales bills', '${t.salesBills}', '', '', '₹${t.salesAmount.toStringAsFixed(2)}'],
-        ['Sales credit', '', '${t.salesCreditGrams.toStringAsFixed(3)} g', '', '₹${t.salesCreditAmount.toStringAsFixed(2)}'],
-        ['Purchase bills', '${t.purchaseBills}', '', '', '₹${t.purchaseAmount.toStringAsFixed(2)}'],
-        ['Purchase credit', '', '${t.purchaseCreditGrams.toStringAsFixed(3)} g', '', '₹${t.purchaseCreditAmount.toStringAsFixed(2)}'],
-      ],
+    return _billAbstract(
+      salesOnly: true,
+      title: 'DAILY SALES REPORT',
+      ledgerStyle: true,
     );
   }
 
@@ -493,22 +423,11 @@ class _ReportsScreenState extends State<ReportsScreen>
     );
   }
 
-  Widget _stat(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          Expanded(child: Text(label, style: const TextStyle(fontSize: 13))),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
-        ],
-      ),
-    );
-  }
-
   Widget _billAbstract({
     required bool salesOnly,
     bool purchasesOnly = false,
     String title = 'BILL WISE ABSTRACT',
+    bool ledgerStyle = false,
   }) {
     var rows = _filteredTxns;
     if (salesOnly) {
@@ -523,41 +442,66 @@ class _ReportsScreenState extends State<ReportsScreen>
         return an.compareTo(bn);
       });
 
-    double total = 0;
-    double units = 0;
+    double totalWeight = 0;
     final table = <List<String>>[];
     for (final bill in rows) {
-      total += double.tryParse((bill['totalValue'] ?? '').toString()) ?? 0;
-      units += double.tryParse((bill['totalPureWt'] ?? '').toString()) ?? 0;
+      final weight =
+          double.tryParse((bill['totalPureWt'] ?? '').toString()) ?? 0;
+      totalWeight += weight;
       final billNo =
           '${bill['transactionType'] == 'PURCHASE' ? 'PUR' : 'SAL'}-${bill['billNo']}';
       final name = '${bill['partyName'] ?? ''}';
       final mode = paymentModeLabel(bill['paymentMode']?.toString());
+      final particular = billParticulars(bill);
       table.add([
         billNo,
-        name,
         bill['date']?.toString() ?? '',
+        name,
+        particular,
         mode,
-        '${bill['totalPureWt']} g',
-        'Rs.${bill['totalValue']}',
+        weight.toStringAsFixed(3),
       ]);
     }
 
     const headers = [
       'BILL NO',
-      'NAME',
       'DATE',
+      'NAME',
+      'PARTICULAR',
       'MODE',
       'WEIGHT',
-      'AMOUNT',
     ];
+
+    final footerRow = [
+      '',
+      '',
+      '',
+      'total',
+      '',
+      totalWeight.toStringAsFixed(3),
+    ];
+    final pdfRows = [...table, footerRow];
+
     return _reportShell(
       title: title,
       records: rows.length,
-      units: units,
-      total: total,
-      child: _htmlTable(table, headers: headers, columnFlex: const [2, 3, 2, 2, 2, 2]),
-      pdfRows: table,
+      units: totalWeight,
+      total: 0,
+      totalText: 'TOTAL: ${totalWeight.toStringAsFixed(3)} g',
+      child: ledgerStyle
+          ? _ledgerStyleBillTable(
+              table,
+              headers: headers,
+              columnFlex: const [2, 2, 3, 2, 2, 2],
+              totalWeight: totalWeight,
+            )
+          : _billTableWithFooter(
+              table,
+              headers: headers,
+              columnFlex: const [2, 2, 3, 2, 2, 2],
+              totalWeight: totalWeight,
+            ),
+      pdfRows: pdfRows,
       headers: headers,
     );
   }
@@ -568,7 +512,6 @@ class _ReportsScreenState extends State<ReportsScreen>
     required ValueChanged<bool> onModeChanged,
     required String nameHint,
     required List<String> partyNames,
-    double goldRate = 0,
   }) {
     Iterable<String> nameOptions(String text) {
       final lower = text.trim().toLowerCase();
@@ -587,23 +530,6 @@ class _ReportsScreenState extends State<ReportsScreen>
         children: [
           _chip('ALL', () => onModeChanged(false), active: !byName),
           _chip('NAME', () => onModeChanged(true), active: byName),
-          if (goldRate > 0)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              decoration: BoxDecoration(
-                color: AppColors.headerBand,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: Text(
-                'G.P RATE: ₹${goldRate.toStringAsFixed(2)}/g',
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.navy,
-                ),
-              ),
-            ),
           if (byName)
             SizedBox(
               width: 260,
@@ -680,10 +606,12 @@ class _ReportsScreenState extends State<ReportsScreen>
     final query =
         customer ? _customerNameQuery.text : _supplierNameQuery.text;
     final goldRate = GoldLedger.goldRate(_rates);
+    final masterRows = customer ? _customers : _suppliers;
     final sections = buildPartyLedgerSections(
       customer: customer,
       transactions: _txns,
       vouchers: _vouchers,
+      masterRows: masterRows,
       from: _from,
       to: _to,
       allHistory: _allHistory,
@@ -692,29 +620,19 @@ class _ReportsScreenState extends State<ReportsScreen>
     );
     final recordCount =
         sections.fold<int>(0, (sum, section) => sum + section.rows.length);
-    final totalReceipt = sections.fold<double>(
-      0,
-      (sum, section) =>
-          sum + section.rows.fold(0, (s, row) => s + row.receiptWeight),
-    );
-    final totalIssue = sections.fold<double>(
-      0,
-      (sum, section) =>
-          sum + section.rows.fold(0, (s, row) => s + row.issueWeight),
-    );
     final totalPure = sections.fold<double>(
       0,
       (sum, section) =>
           sum + section.rows.fold(0, (s, row) => s + row.pureGold),
     );
     const headers = [
-      'DATE',
       'BILL NO',
+      'DATE',
       'NAME',
       'TYPE',
+      'PARTICULAR',
       'R.WEIGHT',
       'ISSUE WT',
-      'PURE GOLD',
       'NARRATION',
     ];
     final pdfRows = [
@@ -723,22 +641,22 @@ class _ReportsScreenState extends State<ReportsScreen>
           '',
           '',
           section.partyName,
-          'OPENING',
+          '',
+          'opening balance',
           '',
           '',
-          '',
-          _signedLedgerBalance(section.openingBalance),
+          signedLedgerBalance(section.openingBalance),
         ],
         ...section.toTableRows(),
         [
           '',
           '',
-          section.partyName,
-          'CLOSING',
           '',
           '',
-          '',
-          _signedLedgerBalance(section.closingBalance),
+          'total',
+          section.totalReceipt.toStringAsFixed(3),
+          section.totalIssue.toStringAsFixed(3),
+          'closing balance: ${signedLedgerBalance(section.closingBalance)}',
         ],
       ],
     ];
@@ -748,10 +666,7 @@ class _ReportsScreenState extends State<ReportsScreen>
         ? 'G.P RATE: ₹${goldRate.toStringAsFixed(2)}/g  |  '
         : '';
     final totalText =
-        '${rateLabel}'
-        'R.WT: ${totalReceipt.toStringAsFixed(3)} g  |  '
-        'ISSUE: ${totalIssue.toStringAsFixed(3)} g  |  '
-        'PURE: ${totalPure.toStringAsFixed(3)} g';
+        '${rateLabel}PURE: ${totalPure.toStringAsFixed(3)} g';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -761,7 +676,6 @@ class _ReportsScreenState extends State<ReportsScreen>
           query: customer ? _customerNameQuery : _supplierNameQuery,
           nameHint: customer ? 'Customer name' : 'Supplier name',
           partyNames: customer ? _customerNames : _supplierNames,
-          goldRate: goldRate,
           onModeChanged: (nameMode) => setState(() {
             if (customer) {
               _customerLedgerByName = nameMode;
@@ -791,10 +705,7 @@ class _ReportsScreenState extends State<ReportsScreen>
     );
   }
 
-  String _signedLedgerBalance(double grams) {
-    final sign = grams > 0 ? '+' : grams < 0 ? '' : '';
-    return '$sign${grams.toStringAsFixed(3)} g';
-  }
+  String _signedLedgerBalance(double grams) => signedLedgerBalance(grams);
 
   Widget _partyLedgerSectionsView(
     List<PartyLedgerSection> sections, {
@@ -825,36 +736,7 @@ class _ReportsScreenState extends State<ReportsScreen>
               ),
             ),
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: AppColors.border)),
-              color: Colors.white,
-            ),
-            child: Text(
-              'Opening Balance: ${_signedLedgerBalance(section.openingBalance)}',
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
           _ledgerSectionTable(section, headers: headers),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            margin: const EdgeInsets.only(bottom: 12),
-            decoration: BoxDecoration(
-              border: Border.all(color: AppColors.border),
-              color: Colors.white,
-            ),
-            child: Text(
-              'Closing Balance: ${_signedLedgerBalance(section.closingBalance)}',
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
         ],
       ],
     );
@@ -865,18 +747,86 @@ class _ReportsScreenState extends State<ReportsScreen>
     required List<String> headers,
   }) {
     final rows = section.toTableRows();
-    if (rows.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(8),
-        child: Text('No transactions in this period',
-            style: TextStyle(fontSize: 12, color: Colors.black54)),
-      );
-    }
+    final openingRow = [
+      '',
+      '',
+      section.partyName,
+      '',
+      'opening balance',
+      '',
+      '',
+      signedLedgerBalance(section.openingBalance),
+    ];
+    final footerRow = [
+      '',
+      '',
+      '',
+      '',
+      'total',
+      section.totalReceipt.toStringAsFixed(3),
+      section.totalIssue.toStringAsFixed(3),
+      'closing balance: ${signedLedgerBalance(section.closingBalance)}',
+    ];
     return _htmlTable(
       rows,
       headers: headers,
-      columnFlex: const [2, 1, 3, 2, 2, 2, 2, 3],
+      columnFlex: const [2, 2, 3, 2, 2, 2, 2, 3],
       includeOuterPadding: false,
+      openingRow: openingRow,
+      footerRow: footerRow,
+    );
+  }
+
+  Widget _billTableWithFooter(
+    List<List<String>> rows, {
+    required List<String> headers,
+    required List<int> columnFlex,
+    required double totalWeight,
+  }) {
+    final footerRow = [
+      '',
+      '',
+      '',
+      'total',
+      '',
+      totalWeight.toStringAsFixed(3),
+    ];
+    return _htmlTable(
+      rows,
+      headers: headers,
+      columnFlex: columnFlex,
+      footerRow: footerRow,
+    );
+  }
+
+  Widget _ledgerStyleBillTable(
+    List<List<String>> rows, {
+    required List<String> headers,
+    required List<int> columnFlex,
+    required double totalWeight,
+  }) {
+    const openingRow = [
+      '',
+      '',
+      '',
+      'opening balance',
+      '',
+      '',
+    ];
+    final footerRow = [
+      '',
+      '',
+      '',
+      'total',
+      '',
+      totalWeight.toStringAsFixed(3),
+    ];
+    return _htmlTable(
+      rows,
+      headers: headers,
+      columnFlex: columnFlex,
+      openingRow: openingRow,
+      footerRow: footerRow,
     );
   }
 
@@ -890,8 +840,10 @@ class _ReportsScreenState extends State<ReportsScreen>
       ],
       bool evenFlex = false,
       List<int>? columnFlex,
-      bool includeOuterPadding = true}) {
-    if (rows.isEmpty) {
+      bool includeOuterPadding = true,
+      List<String>? openingRow,
+      List<String>? footerRow}) {
+    if (rows.isEmpty && openingRow == null && footerRow == null) {
       return const Center(child: Text('No records in this filter'));
     }
     int flexFor(int i) {
@@ -899,6 +851,33 @@ class _ReportsScreenState extends State<ReportsScreen>
       if (evenFlex) return 2;
       return i == 1 ? 4 : 2;
     }
+
+    Widget rowWidget(List<String> row, {bool bold = false}) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: AppColors.border)),
+          color: Colors.white,
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (var i = 0; i < headers.length; i++)
+              Expanded(
+                flex: flexFor(i),
+                child: Text(
+                  i < row.length ? row[i] : '',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: bold ? FontWeight.w700 : FontWeight.normal,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      );
+    }
+
     return ListView(
       padding: includeOuterPadding
           ? const EdgeInsets.fromLTRB(12, 0, 12, 12)
@@ -921,24 +900,9 @@ class _ReportsScreenState extends State<ReportsScreen>
             ],
           ),
         ),
-        for (final row in rows)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: AppColors.border)),
-              color: Colors.white,
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (var i = 0; i < row.length; i++)
-                  Expanded(
-                    flex: flexFor(i),
-                    child: Text(row[i], style: const TextStyle(fontSize: 12)),
-                  ),
-              ],
-            ),
-          ),
+        if (openingRow != null) rowWidget(openingRow, bold: true),
+        for (final row in rows) rowWidget(row),
+        if (footerRow != null) rowWidget(footerRow, bold: true),
       ],
     );
   }

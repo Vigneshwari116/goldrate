@@ -366,16 +366,12 @@ class _AppShellState extends State<AppShell> {
                     _group(
                       icon: Icons.inventory_2,
                       label: 'INVENTORY',
-                      pages: const [AppPage.openingWeight, AppPage.stock],
+                      pages: const [AppPage.openingWeight],
                       children: [
                         _leaf(
                             icon: Icons.scale,
                             label: 'Opening Weight',
                             page: AppPage.openingWeight),
-                        _leaf(
-                            icon: Icons.inventory_2,
-                            label: 'Stock',
-                            page: AppPage.stock),
                       ],
                     ),
                     _group(
@@ -535,7 +531,11 @@ class _HomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final shell = context.findAncestorStateOfType<_AppShellState>();
-    return HomeScreen(onOpen: shell?._go ?? (_) {});
+    return HomeScreen(
+      onOpen: shell?._go ?? (_) {},
+      embedded: true,
+      isActive: shell?._page == AppPage.home,
+    );
   }
 }
 
