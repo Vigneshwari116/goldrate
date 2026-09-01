@@ -366,12 +366,16 @@ class _AppShellState extends State<AppShell> {
                     _group(
                       icon: Icons.inventory_2,
                       label: 'INVENTORY',
-                      pages: const [AppPage.openingWeight],
+                      pages: const [AppPage.openingWeight, AppPage.stock],
                       children: [
                         _leaf(
                             icon: Icons.scale,
                             label: 'Opening Weight',
                             page: AppPage.openingWeight),
+                        _leaf(
+                            icon: Icons.inventory_2,
+                            label: 'Stock',
+                            page: AppPage.stock),
                       ],
                     ),
                     _group(

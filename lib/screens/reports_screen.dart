@@ -358,7 +358,6 @@ class _ReportsScreenState extends State<ReportsScreen>
     return _billAbstract(
       salesOnly: true,
       title: 'DAILY SALES REPORT',
-      ledgerStyle: true,
     );
   }
 
@@ -427,7 +426,6 @@ class _ReportsScreenState extends State<ReportsScreen>
     required bool salesOnly,
     bool purchasesOnly = false,
     String title = 'BILL WISE ABSTRACT',
-    bool ledgerStyle = false,
   }) {
     var rows = _filteredTxns;
     if (salesOnly) {
@@ -442,14 +440,17 @@ class _ReportsScreenState extends State<ReportsScreen>
         return an.compareTo(bn);
       });
 
-    double totalWeight = 0;
+    double totalReceipt = 0;
+    double totalIssue = 0;
     final table = <List<String>>[];
     for (final bill in rows) {
-      final weight =
-          double.tryParse((bill['totalPureWt'] ?? '').toString()) ?? 0;
-      totalWeight += weight;
+      final type = (bill['transactionType'] ?? '').toString();
+      final isSales = type == 'SALES';
+      final weights = billLedgerWeights(bill, isSales: isSales);
+      totalReceipt += weights.receipt;
+      totalIssue += weights.issue;
       final billNo =
-          '${bill['transactionType'] == 'PURCHASE' ? 'PUR' : 'SAL'}-${bill['billNo']}';
+          '${isSales ? 'SAL' : 'PUR'}-${bill['billNo']}';
       final name = '${bill['partyName'] ?? ''}';
       final mode = paymentModeLabel(bill['paymentMode']?.toString());
       final particular = billParticulars(bill);
@@ -459,7 +460,8 @@ class _ReportsScreenState extends State<ReportsScreen>
         name,
         particular,
         mode,
-        weight.toStringAsFixed(3),
+        weights.receipt > 0 ? weights.receipt.toStringAsFixed(3) : '',
+        weights.issue > 0 ? weights.issue.toStringAsFixed(3) : '',
       ]);
     }
 
@@ -469,7 +471,8 @@ class _ReportsScreenState extends State<ReportsScreen>
       'NAME',
       'PARTICULAR',
       'MODE',
-      'WEIGHT',
+      'R.WEIGHT',
+      'ISSUE WT',
     ];
 
     final footerRow = [
@@ -478,29 +481,26 @@ class _ReportsScreenState extends State<ReportsScreen>
       '',
       'total',
       '',
-      totalWeight.toStringAsFixed(3),
+      totalReceipt.toStringAsFixed(3),
+      totalIssue.toStringAsFixed(3),
     ];
     final pdfRows = [...table, footerRow];
+    final totalPure = totalReceipt + totalIssue;
 
     return _reportShell(
       title: title,
       records: rows.length,
-      units: totalWeight,
+      units: totalPure,
       total: 0,
-      totalText: 'TOTAL: ${totalWeight.toStringAsFixed(3)} g',
-      child: ledgerStyle
-          ? _ledgerStyleBillTable(
-              table,
-              headers: headers,
-              columnFlex: const [2, 2, 3, 2, 2, 2],
-              totalWeight: totalWeight,
-            )
-          : _billTableWithFooter(
-              table,
-              headers: headers,
-              columnFlex: const [2, 2, 3, 2, 2, 2],
-              totalWeight: totalWeight,
-            ),
+      totalText:
+          'R.WT: ${totalReceipt.toStringAsFixed(3)} g  |  ISSUE: ${totalIssue.toStringAsFixed(3)} g',
+      child: _billTableWithFooter(
+        table,
+        headers: headers,
+        columnFlex: const [2, 2, 3, 2, 2, 2, 2],
+        totalReceipt: totalReceipt,
+        totalIssue: totalIssue,
+      ),
       pdfRows: pdfRows,
       headers: headers,
     );
@@ -741,7 +741,8 @@ class _ReportsScreenState extends State<ReportsScreen>
     List<List<String>> rows, {
     required List<String> headers,
     required List<int> columnFlex,
-    required double totalWeight,
+    required double totalReceipt,
+    required double totalIssue,
   }) {
     final footerRow = [
       '',
@@ -749,43 +750,13 @@ class _ReportsScreenState extends State<ReportsScreen>
       '',
       'total',
       '',
-      totalWeight.toStringAsFixed(3),
+      totalReceipt.toStringAsFixed(3),
+      totalIssue.toStringAsFixed(3),
     ];
     return _htmlTable(
       rows,
       headers: headers,
       columnFlex: columnFlex,
-      footerRow: footerRow,
-    );
-  }
-
-  Widget _ledgerStyleBillTable(
-    List<List<String>> rows, {
-    required List<String> headers,
-    required List<int> columnFlex,
-    required double totalWeight,
-  }) {
-    const openingRow = [
-      '',
-      '',
-      '',
-      'opening balance',
-      '',
-      '',
-    ];
-    final footerRow = [
-      '',
-      '',
-      '',
-      'total',
-      '',
-      totalWeight.toStringAsFixed(3),
-    ];
-    return _htmlTable(
-      rows,
-      headers: headers,
-      columnFlex: columnFlex,
-      openingRow: openingRow,
       footerRow: footerRow,
     );
   }

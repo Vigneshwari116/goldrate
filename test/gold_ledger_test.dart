@@ -193,6 +193,43 @@ void main() {
     );
   });
 
+  test('gold weight from customer master counts as opening balance', () {
+    final balances = buildMasterOpeningBalances([
+      {
+        'name': 'ab',
+        'cr': '0',
+        'dr': '0',
+        'drGross': '23.000',
+        'balanceUnit': 'GRAMS',
+        'billRef': '',
+      },
+    ]);
+    expect(balances['ab'], closeTo(23, 0.0001));
+
+    final sections = buildPartyLedgerSections(
+      customer: true,
+      transactions: const [],
+      vouchers: const [],
+      masterRows: [
+        {
+          'name': 'ab',
+          'cr': '0',
+          'dr': '0',
+          'drGross': '23.000',
+          'balanceUnit': 'GRAMS',
+          'billRef': '',
+        },
+      ],
+      from: DateTime(2026, 9, 1),
+      to: DateTime(2026, 9, 30),
+      nameQuery: 'ab',
+      goldRate: 16000,
+    );
+    expect(sections.length, 1);
+    expect(sections.first.openingBalance, closeTo(23, 0.0001));
+    expect(sections.first.openingTableRow()[7], '+23.000 g');
+  });
+
   test('customer name filter shows master opening without transactions', () {
     final sections = buildPartyLedgerSections(
       customer: true,

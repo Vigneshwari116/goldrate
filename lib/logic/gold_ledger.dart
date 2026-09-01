@@ -372,6 +372,7 @@ List<dynamic> _decodeItemsJson(String raw) {
 }
 
 /// Net opening balance in grams from master rows with no bill reference.
+/// Uses pure weight (dr/cr) when set; otherwise falls back to gold/gross weight.
 Map<String, double> buildMasterOpeningBalances(
   List<Map<String, dynamic>> masterRows,
 ) {
@@ -385,7 +386,14 @@ Map<String, double> buildMasterOpeningBalances(
     if (unit != 'GRAMS') continue;
     final cr = double.tryParse((row['cr'] ?? '0').toString()) ?? 0;
     final dr = double.tryParse((row['dr'] ?? '0').toString()) ?? 0;
-    acc[name] = (acc[name] ?? 0) + (dr - cr);
+    var grams = dr - cr;
+    if (grams.abs() < 0.0005) {
+      final gross =
+          double.tryParse((row['drGross'] ?? row['gross'] ?? '0').toString()) ??
+              0;
+      grams = gross;
+    }
+    acc[name] = (acc[name] ?? 0) + grams;
   }
   return acc;
 }
