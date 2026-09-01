@@ -282,6 +282,30 @@ class PartyLedgerSection {
     return [for (final row in rows) row.toTableCells()];
   }
 
+  /// Opening balance row placed directly under the ledger table header.
+  List<String> openingTableRow() => [
+        '',
+        '',
+        partyName,
+        '',
+        'opening balance',
+        '',
+        '',
+        signedLedgerBalance(openingBalance),
+      ];
+
+  /// Total / closing balance row at the bottom of the ledger table.
+  List<String> footerTableRow() => [
+        '',
+        '',
+        '',
+        '',
+        'total',
+        totalReceipt.toStringAsFixed(3),
+        totalIssue.toStringAsFixed(3),
+        'closing balance: ${signedLedgerBalance(closingBalance)}',
+      ];
+
   double get totalReceipt =>
       rows.fold(0.0, (sum, row) => sum + row.receiptWeight);
 

@@ -150,8 +150,16 @@ void main() {
     final table = sections.first.toTableRows();
     expect(table.first[0], 'SAL-1');
     expect(table.first[2], 'Ravi');
-    expect(table.first[5], '10.000');
+    expect(table.first[5], ''); // R.WEIGHT (receipt) — unpaid cash sale
+    expect(table.first[6], '10.000'); // Issue weight
     expect(table.first[7], '');
+    expect(sections.first.openingTableRow()[4], 'opening balance');
+    expect(sections.first.openingTableRow()[7], '0.000 g');
+    expect(sections.first.footerTableRow()[4], 'total');
+    expect(
+      sections.first.footerTableRow()[7],
+      'closing balance: +10.000 g',
+    );
   });
 
   test('master opening balance from customer master appears in ledger', () {
@@ -178,6 +186,11 @@ void main() {
     expect(sections.first.openingBalance, closeTo(5.5, 0.0001));
     expect(sections.first.closingBalance, closeTo(5.5, 0.0001));
     expect(sections.first.rows, isEmpty);
+    expect(sections.first.openingTableRow()[7], '+5.500 g');
+    expect(
+      sections.first.footerTableRow()[7],
+      'closing balance: +5.500 g',
+    );
   });
 
   test('customer name filter shows master opening without transactions', () {

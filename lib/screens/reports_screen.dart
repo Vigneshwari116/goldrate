@@ -637,27 +637,9 @@ class _ReportsScreenState extends State<ReportsScreen>
     ];
     final pdfRows = [
       for (final section in sections) ...[
-        [
-          '',
-          '',
-          section.partyName,
-          '',
-          'opening balance',
-          '',
-          '',
-          signedLedgerBalance(section.openingBalance),
-        ],
+        section.openingTableRow(),
         ...section.toTableRows(),
-        [
-          '',
-          '',
-          '',
-          '',
-          'total',
-          section.totalReceipt.toStringAsFixed(3),
-          section.totalIssue.toStringAsFixed(3),
-          'closing balance: ${signedLedgerBalance(section.closingBalance)}',
-        ],
+        section.footerTableRow(),
       ],
     ];
     final title =
@@ -747,33 +729,13 @@ class _ReportsScreenState extends State<ReportsScreen>
     required List<String> headers,
   }) {
     final rows = section.toTableRows();
-    final openingRow = [
-      '',
-      '',
-      section.partyName,
-      '',
-      'opening balance',
-      '',
-      '',
-      signedLedgerBalance(section.openingBalance),
-    ];
-    final footerRow = [
-      '',
-      '',
-      '',
-      '',
-      'total',
-      section.totalReceipt.toStringAsFixed(3),
-      section.totalIssue.toStringAsFixed(3),
-      'closing balance: ${signedLedgerBalance(section.closingBalance)}',
-    ];
     return _htmlTable(
       rows,
       headers: headers,
       columnFlex: const [2, 2, 3, 2, 2, 2, 2, 3],
       includeOuterPadding: false,
-      openingRow: openingRow,
-      footerRow: footerRow,
+      openingRow: section.openingTableRow(),
+      footerRow: section.footerTableRow(),
     );
   }
 
