@@ -5,11 +5,13 @@ import 'package:pdf/widgets.dart' as pw;
 
 import '../database/database_helper.dart';
 import '../logic/gold_ledger.dart';
+import '../logic/stock_ledger.dart';
 import '../pdf/pdf_kit.dart';
 import '../theme/app_theme.dart';
 import '../util/platform_detect.dart';
 import '../util/screen_activation.dart';
 import '../widgets/party_options_overlay.dart';
+import '../widgets/stock_summary_card.dart';
 
 enum _ReportTab {
   dailySales,
@@ -47,6 +49,7 @@ class _ReportsScreenState extends State<ReportsScreen>
   bool _loading = true;
 
   List<Map<String, dynamic>> _txns = [];
+  Map<String, dynamic>? _openingWeight;
   List<Map<String, dynamic>> _vouchers = [];
   List<Map<String, dynamic>> _customers = [];
   List<Map<String, dynamic>> _suppliers = [];
@@ -96,6 +99,7 @@ class _ReportsScreenState extends State<ReportsScreen>
 
   Future<void> _load() async {
     final txns = await DatabaseHelper.instance.getAllTransactions();
+    final openingWeight = await DatabaseHelper.instance.getOpeningWeight();
     final vouchers = await DatabaseHelper.instance.getVouchers();
     final rates = await DatabaseHelper.instance.getRatesMap();
     final customers = await DatabaseHelper.instance.getCustomers();
@@ -103,6 +107,7 @@ class _ReportsScreenState extends State<ReportsScreen>
     if (!mounted) return;
     setState(() {
       _txns = txns;
+      _openingWeight = openingWeight;
       _vouchers = vouchers;
       _customers = customers;
       _suppliers = suppliers;
@@ -355,9 +360,33 @@ class _ReportsScreenState extends State<ReportsScreen>
   }
 
   Widget _dailyCard() {
-    return _billAbstract(
-      salesOnly: true,
-      title: 'DAILY SALES REPORT',
+    final summary = buildStockLedgerSummary(
+      transactions: _txns,
+      openingWeight: _openingWeight,
+      from: _from,
+      to: _to,
+      allHistory: _allHistory,
+      dateFormat: _fmt,
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Flexible(flex: 3, child: _stockSummaryCard(summary)),
+        Flexible(
+          flex: 4,
+          child: _billAbstract(
+            salesOnly: true,
+            title: 'DAILY SALES REPORT',
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _stockSummaryCard(StockLedgerSummary summary) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      child: StockSummaryCard(summary: summary),
     );
   }
 
