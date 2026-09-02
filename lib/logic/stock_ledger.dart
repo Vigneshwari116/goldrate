@@ -41,6 +41,15 @@ Map<String, double> _emptyWeights() => {
       for (final t in kStockWeightTypes) t: 0.0,
     };
 
+/// Maps the one-time [opening_weight] baseline onto GWT/FWT/KWT/SWT.
+///
+/// Client-confirmed: values in `gPureWt`, `fineWt`, `kachaWt`, and `silverWt`
+/// are **gross/raw weight** despite the "Pure" in `gPureWt`'s column name — no
+/// touch conversion is applied here or on the Opening Weight entry screen.
+///
+/// TODO(pre-existing): [DatabaseHelper.getCurrentStock] and `/api/stock/current`
+/// apply `item.pureWt` against these same opening columns (gross baseline vs
+/// pure movements). Fix separately — out of scope for the stock summary PR.
 Map<String, double> openingBaselineFromRow(Map<String, dynamic>? opening) {
   if (opening == null) return _emptyWeights();
   return {
@@ -197,9 +206,12 @@ StockLedgerSummary buildStockLedgerSummary({
   );
 }
 
-/// Formats a gross weight for the stock table (blank when zero).
-String formatStockWeight(double value) {
-  if (value == 0) return '';
+/// Formats a gross weight for the stock table.
+///
+/// [blankWhenZero] is `true` for Opening/Closing rows (blank cell). Use
+/// `false` for Purchase/Issue transaction rows (shows `0.000` per mockup).
+String formatStockWeight(double value, {bool blankWhenZero = true}) {
+  if (value == 0) return blankWhenZero ? '' : '0.000';
   final fixed = value.toStringAsFixed(3);
   if (!fixed.contains('.')) return fixed;
   return fixed.replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');

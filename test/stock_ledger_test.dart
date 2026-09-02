@@ -188,6 +188,7 @@ void main() {
 
   test('formatStockWeight trims trailing zeros', () {
     expect(formatStockWeight(0), '');
+    expect(formatStockWeight(0, blankWhenZero: false), '0.000');
     expect(formatStockWeight(12), '12');
     expect(formatStockWeight(42.5), '42.5');
     expect(formatStockWeight(12.340), '12.34');

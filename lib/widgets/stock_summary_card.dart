@@ -106,9 +106,8 @@ class StockSummaryTable extends StatelessWidget {
     if (purchase != null) {
       for (var i = 0; i < kStockWeightTypes.length; i++) {
         final t = kStockWeightTypes[i];
-        if (purchase.type == t) {
-          row[2 + i] = formatStockWeight(purchase.weight);
-        }
+        final weight = purchase.type == t ? purchase.weight : 0.0;
+        row[2 + i] = formatStockWeight(weight, blankWhenZero: false);
       }
       row[6] = purchase.name;
       row[7] = purchase.billNo;
@@ -117,9 +116,8 @@ class StockSummaryTable extends StatelessWidget {
     if (issue != null) {
       for (var i = 0; i < kStockWeightTypes.length; i++) {
         final t = kStockWeightTypes[i];
-        if (issue.type == t) {
-          row[10 + i] = formatStockWeight(issue.weight);
-        }
+        final weight = issue.type == t ? issue.weight : 0.0;
+        row[10 + i] = formatStockWeight(weight, blankWhenZero: false);
       }
     }
     return row;
