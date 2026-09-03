@@ -28,7 +28,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 12,
+      version: 13,
       onCreate: _createDatabase,
       onUpgrade: _upgradeDatabase,
     );
@@ -344,6 +344,48 @@ class DatabaseHelper {
       await db.execute('ALTER TABLE transactions ADD COLUMN paymentItems TEXT');
       await db.execute(
           'ALTER TABLE transactions ADD COLUMN receiptPurpose TEXT');
+    }
+    if (oldVersion < 13) {
+      // Full data reset: clears business data for a fresh start. Keeps
+      // ADMIN login and blank rate rows; paymentItems/receiptPurpose
+      // columns remain on transactions (unused receiptPurpose).
+      await db.delete('transactions');
+      await db.delete('vouchers');
+      await db.delete('opening_weight');
+      await db.delete('rate_history');
+      await db.delete('rates');
+      await db.delete('suppliers');
+      await db.delete('customers');
+
+      await db.insert('rates', {'rateName': 'G.P RATE', 'rateValue': ''});
+      await db.insert('rates', {'rateName': 'F.T RATE', 'rateValue': ''});
+      await db.insert('rates', {'rateName': 'KACHA RATE', 'rateValue': ''});
+      await db.insert('rates', {'rateName': 'S RATE', 'rateValue': ''});
+
+      final userCount = Sqflite.firstIntValue(
+        await db.rawQuery('SELECT COUNT(*) as count FROM users'),
+      ) ??
+          0;
+      if (userCount == 0) {
+        await db.insert('users', {
+          'username': 'ADMIN',
+          'password': 'SVENSKA',
+        });
+      }
+
+      await db.delete(
+        'sqlite_sequence',
+        where: 'name IN (?, ?, ?, ?, ?, ?, ?)',
+        whereArgs: [
+          'transactions',
+          'vouchers',
+          'opening_weight',
+          'rate_history',
+          'rates',
+          'suppliers',
+          'customers',
+        ],
+      );
     }
   }
 

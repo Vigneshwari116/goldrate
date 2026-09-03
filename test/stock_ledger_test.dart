@@ -11,6 +11,7 @@ void main() {
     required String date,
     required String party,
     required List<Map<String, dynamic>> items,
+    List<Map<String, dynamic>>? paymentItems,
   }) =>
       {
         'transactionType': type,
@@ -18,6 +19,7 @@ void main() {
         'date': date,
         'partyName': party,
         'items': items,
+        if (paymentItems != null) 'paymentItems': paymentItems,
       };
 
   Map<String, dynamic> item(String type, double weight, {double touch = 50}) => {
@@ -27,7 +29,7 @@ void main() {
         'pureWt': weight * touch / 100,
       };
 
-  test('opening uses baseline plus movements before range start', () {
+  test('opening uses baseline plus net movements before range start', () {
     final summary = buildStockLedgerSummary(
       transactions: [
         bill(
@@ -58,12 +60,11 @@ void main() {
 
     expect(summary.opening['GWT'], closeTo(207, 0.001)); // 200 + 12 - 5
     expect(summary.opening['FWT'], closeTo(201, 0.001));
-    expect(summary.purchases, isEmpty);
-    expect(summary.issues, isEmpty);
+    expect(summary.rows, isEmpty);
     expect(summary.closing['GWT'], closeTo(207, 0.001));
   });
 
-  test('closing equals opening plus in-range purchases minus in-range issues', () {
+  test('closing equals opening plus in-range receipts minus in-range issues', () {
     final summary = buildStockLedgerSummary(
       transactions: [
         bill(
@@ -86,6 +87,7 @@ void main() {
           date: '10-01-2026',
           party: 'cd',
           items: [item('GWT', 12)],
+          paymentItems: [item('FWT', 4)],
         ),
         bill(
           type: 'SALES',
@@ -109,9 +111,44 @@ void main() {
     expect(summary.opening['GWT'], closeTo(200, 0.001));
     expect(summary.opening['FWT'], closeTo(201, 0.001));
     expect(summary.closing['GWT'], closeTo(200, 0.001)); // 200 + 12 - 12
-    expect(summary.closing['FWT'], closeTo(197, 0.001)); // 201 + 20 - 24
-    expect(summary.purchases.length, 2);
-    expect(summary.issues.length, 2);
+    expect(summary.closing['FWT'], closeTo(201, 0.001)); // 201 + 20 + 4 - 24
+    expect(summary.rows.length, 4);
+    expect(summary.rows.map((r) => r.label).toSet(),
+        {'PUR1', 'PUR2', 'SAL1', 'SAL2'});
+    final sal1 = summary.rows.firstWhere((r) => r.label == 'SAL1');
+    expect(sal1.issueWeights['GWT'], closeTo(12, 0.001));
+    expect(sal1.receiptWeights['FWT'], closeTo(4, 0.001));
+  });
+
+  test('purchase issue side comes from paymentItems', () {
+    final summary = buildStockLedgerSummary(
+      transactions: [
+        bill(
+          type: 'PURCHASE',
+          billNo: 1,
+          date: '10-01-2026',
+          party: 'ra',
+          items: [item('GWT', 20)],
+          paymentItems: [item('FWT', 40)],
+        ),
+      ],
+      openingWeight: {
+        'gPureWt': '200',
+        'fineWt': '201',
+        'kachaWt': '202',
+        'silverWt': '203',
+      },
+      from: DateTime(2026, 1, 10),
+      to: DateTime(2026, 1, 10),
+      dateFormat: fmt,
+    );
+
+    final row = summary.rows.single;
+    expect(row.label, 'PUR1');
+    expect(row.receiptWeights['GWT'], closeTo(20, 0.001));
+    expect(row.issueWeights['FWT'], closeTo(40, 0.001));
+    expect(summary.closing['GWT'], closeTo(220, 0.001));
+    expect(summary.closing['FWT'], closeTo(161, 0.001)); // 201 - 40
   });
 
   test('closing for date X matches opening for date X+1', () {
@@ -183,7 +220,7 @@ void main() {
     );
 
     expect(summary.closing['GWT'], closeTo(100, 0.001));
-    expect(summary.purchases.single.weight, closeTo(100, 0.001));
+    expect(summary.rows.single.receiptWeights['GWT'], closeTo(100, 0.001));
   });
 
   test('formatStockWeight trims trailing zeros', () {

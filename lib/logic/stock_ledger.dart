@@ -5,34 +5,34 @@ import 'package:intl/intl.dart';
 /// Weight type codes used on purchase/sales entry screens.
 const kStockWeightTypes = ['GWT', 'FWT', 'KWT', 'SWT'];
 
-/// One purchase or issue line in the stock summary table.
-class StockLedgerLine {
+/// One transaction row in the merged stock summary table.
+class StockLedgerRow {
+  final String label;
+  final Map<String, double> issueWeights;
   final String name;
   final String billNo;
   final String date;
-  final String type;
-  final double weight;
+  final Map<String, double> receiptWeights;
 
-  const StockLedgerLine({
+  const StockLedgerRow({
+    required this.label,
+    required this.issueWeights,
     required this.name,
     required this.billNo,
     required this.date,
-    required this.type,
-    required this.weight,
+    required this.receiptWeights,
   });
 }
 
 /// Live stock summary for a date range on the Daily Sales Report.
 class StockLedgerSummary {
   final Map<String, double> opening;
-  final List<StockLedgerLine> purchases;
-  final List<StockLedgerLine> issues;
+  final List<StockLedgerRow> rows;
   final Map<String, double> closing;
 
   const StockLedgerSummary({
     required this.opening,
-    required this.purchases,
-    required this.issues,
+    required this.rows,
     required this.closing,
   });
 }
@@ -77,61 +77,49 @@ List<dynamic> _decodeItems(dynamic raw) {
   }
 }
 
-/// Expands a bill into one [StockLedgerLine] per weight row (raw weight only).
-List<StockLedgerLine> _linesFromBill(Map<String, dynamic> bill) {
-  final isPurchase = (bill['transactionType'] ?? '').toString() == 'PURCHASE';
-  final prefix = isPurchase ? 'PUR' : 'SAL';
-  final billNo = '$prefix-${bill['billNo']}';
-  final name = (bill['partyName'] ?? '').toString();
-  final date = (bill['date'] ?? '').toString();
-  final lines = <StockLedgerLine>[];
-
-  for (final item in _decodeItems(bill['items'])) {
-    if (item is! Map) continue;
-    final type = (item['type'] ?? '').toString();
-    if (!kStockWeightTypes.contains(type)) continue;
-    final weight = (item['weight'] as num?)?.toDouble() ??
-        _parseDouble(item['weight']);
-    if (weight == 0) continue;
-    lines.add(StockLedgerLine(
-      name: name,
-      billNo: billNo,
-      date: date,
-      type: type,
-      weight: weight,
-    ));
-  }
-  return lines;
-}
-
-void _applyBillWeights(
-  Map<String, dynamic> bill,
-  Map<String, double> totals, {
-  required int sign,
-}) {
-  for (final item in _decodeItems(bill['items'])) {
+Map<String, double> _weightsFromItems(dynamic raw) {
+  final totals = _emptyWeights();
+  for (final item in _decodeItems(raw)) {
     if (item is! Map) continue;
     final type = (item['type'] ?? '').toString();
     if (!totals.containsKey(type)) continue;
     final weight = (item['weight'] as num?)?.toDouble() ??
         _parseDouble(item['weight']);
-    totals[type] = totals[type]! + (sign * weight);
-  }
-}
-
-Map<String, double> _sumLines(Iterable<StockLedgerLine> lines) {
-  final totals = _emptyWeights();
-  for (final line in lines) {
-    totals[line.type] = totals[line.type]! + line.weight;
+    totals[type] = totals[type]! + weight;
   }
   return totals;
 }
 
+void _applyNetChange(
+  Map<String, double> totals,
+  Map<String, double> issue,
+  Map<String, double> receipt,
+) {
+  for (final type in kStockWeightTypes) {
+    totals[type] = totals[type]! + receipt[type]! - issue[type]!;
+  }
+}
+
+/// Issue/receipt sides for a bill: sales issue [items] and receipt
+/// [paymentItems]; purchases receipt [items] and issue [paymentItems].
+({Map<String, double> issue, Map<String, double> receipt}) _billSides(
+  Map<String, dynamic> bill,
+) {
+  final isPurchase =
+      (bill['transactionType'] ?? '').toString() == 'PURCHASE';
+  final items = _weightsFromItems(bill['items']);
+  final payment = _weightsFromItems(bill['paymentItems']);
+  if (isPurchase) {
+    return (issue: payment, receipt: items);
+  }
+  return (issue: items, receipt: payment);
+}
+
 /// Builds the live stock ledger for the Daily Sales Report.
 ///
-/// Opening for [from] = opening_weight baseline + purchases before [from]
-/// − issues before [from]. Closing = opening + purchases in range − issues
-/// in range. Uses raw [weight] from each line item, never pureWt.
+/// Opening for [from] = opening_weight baseline + net movements before [from].
+/// Closing = opening + receipts in range − issues in range. Uses raw
+/// [weight] from each line item, never pureWt.
 StockLedgerSummary buildStockLedgerSummary({
   required List<Map<String, dynamic>> transactions,
   required Map<String, dynamic>? openingWeight,
@@ -145,8 +133,7 @@ StockLedgerSummary buildStockLedgerSummary({
   final rangeTo = DateTime(to.year, to.month, to.day);
 
   final opening = openingBaselineFromRow(openingWeight);
-  final purchases = <StockLedgerLine>[];
-  final issues = <StockLedgerLine>[];
+  final rows = <StockLedgerRow>[];
 
   final sorted = [...transactions]..sort((a, b) {
       final ad = _parseBillDate(a['date']?.toString(), fmt);
@@ -167,37 +154,37 @@ StockLedgerSummary buildStockLedgerSummary({
     final billDay = DateTime(day.year, day.month, day.day);
     final isPurchase =
         (bill['transactionType'] ?? '').toString() == 'PURCHASE';
-    final sign = isPurchase ? 1 : -1;
+    final prefix = isPurchase ? 'PUR' : 'SAL';
+    final billNo = (bill['billNo'] ?? '').toString();
+    final sides = _billSides(bill);
 
     final beforeRange = !allHistory && billDay.isBefore(rangeFrom);
     final inRange = allHistory ||
         (!billDay.isBefore(rangeFrom) && !billDay.isAfter(rangeTo));
 
     if (beforeRange) {
-      _applyBillWeights(bill, opening, sign: sign);
+      _applyNetChange(opening, sides.issue, sides.receipt);
     }
     if (inRange) {
-      final lines = _linesFromBill(bill);
-      if (isPurchase) {
-        purchases.addAll(lines);
-      } else {
-        issues.addAll(lines);
-      }
+      rows.add(StockLedgerRow(
+        label: '$prefix$billNo',
+        issueWeights: sides.issue,
+        name: (bill['partyName'] ?? '').toString(),
+        billNo: billNo,
+        date: (bill['date'] ?? '').toString(),
+        receiptWeights: sides.receipt,
+      ));
     }
   }
 
   final closing = Map<String, double>.from(opening);
-  final purchaseTotals = _sumLines(purchases);
-  final issueTotals = _sumLines(issues);
-  for (final type in kStockWeightTypes) {
-    closing[type] =
-        closing[type]! + purchaseTotals[type]! - issueTotals[type]!;
+  for (final row in rows) {
+    _applyNetChange(closing, row.issueWeights, row.receiptWeights);
   }
 
   return StockLedgerSummary(
     opening: opening,
-    purchases: purchases,
-    issues: issues,
+    rows: rows,
     closing: closing,
   );
 }
@@ -205,7 +192,7 @@ StockLedgerSummary buildStockLedgerSummary({
 /// Formats a gross weight for the stock table.
 ///
 /// [blankWhenZero] is `true` for Opening/Closing rows (blank cell). Use
-/// `false` for Purchase/Issue transaction rows (shows `0.000` per mockup).
+/// `false` for transaction rows (shows `0.000` per mockup).
 String formatStockWeight(double value, {bool blankWhenZero = true}) {
   if (value == 0) return blankWhenZero ? '' : '0.000';
   final fixed = value.toStringAsFixed(3);

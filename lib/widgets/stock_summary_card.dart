@@ -3,15 +3,14 @@ import 'package:flutter/material.dart';
 import '../logic/stock_ledger.dart';
 import '../theme/app_theme.dart';
 
-/// Opening / Purchase / Issue / Closing stock table for the Daily Sales Report.
+/// Merged Opening / transaction / Closing stock table for the Daily Sales Report.
 class StockSummaryCard extends StatelessWidget {
   const StockSummaryCard({super.key, required this.summary});
 
   final StockLedgerSummary summary;
 
   static const _headers = [
-    '',
-    'purchase',
+    'Issue',
     'GWT',
     'FWT',
     'KWT',
@@ -19,14 +18,14 @@ class StockSummaryCard extends StatelessWidget {
     'Name',
     'Bill no',
     'date',
-    'issue',
+    'Receipt',
     'GWT',
     'FWT',
     'KWT',
     'SWT',
   ];
 
-  static const _flex = [2, 2, 2, 2, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2];
+  static const _flex = [2, 2, 2, 2, 2, 3, 2, 2, 2, 2, 2, 2, 2];
 
   @override
   Widget build(BuildContext context) {
@@ -85,59 +84,35 @@ class StockSummaryTable extends StatelessWidget {
 
   List<String> _emptyRow() => List.filled(headers.length, '');
 
-  List<String> _weightRow(String label, Map<String, double> weights) {
+  List<String> _bookendRow(String label, Map<String, double> weights) {
     final row = _emptyRow();
     row[0] = label;
     for (var i = 0; i < kStockWeightTypes.length; i++) {
-      row[2 + i] = formatStockWeight(weights[kStockWeightTypes[i]] ?? 0);
+      final value = formatStockWeight(weights[kStockWeightTypes[i]] ?? 0);
+      row[1 + i] = value;
+      row[9 + i] = value;
     }
     return row;
   }
 
-  List<String> _combinedRow(
-    StockLedgerLine? purchase,
-    StockLedgerLine? issue, {
-    bool purchaseLabel = false,
-    bool issueLabel = false,
-  }) {
+  List<String> _transactionRow(StockLedgerRow txn) {
     final row = _emptyRow();
-    if (purchaseLabel) row[1] = 'PURCHASE';
-    if (issueLabel) row[9] = 'ISSUE';
-    if (purchase != null) {
-      for (var i = 0; i < kStockWeightTypes.length; i++) {
-        final t = kStockWeightTypes[i];
-        final weight = purchase.type == t ? purchase.weight : 0.0;
-        row[2 + i] = formatStockWeight(weight, blankWhenZero: false);
-      }
-      row[6] = purchase.name;
-      row[7] = purchase.billNo;
-      row[8] = purchase.date;
+    row[0] = txn.label;
+    for (var i = 0; i < kStockWeightTypes.length; i++) {
+      final type = kStockWeightTypes[i];
+      row[1 + i] =
+          formatStockWeight(txn.issueWeights[type] ?? 0, blankWhenZero: false);
+      row[9 + i] = formatStockWeight(txn.receiptWeights[type] ?? 0,
+          blankWhenZero: false);
     }
-    if (issue != null) {
-      for (var i = 0; i < kStockWeightTypes.length; i++) {
-        final t = kStockWeightTypes[i];
-        final weight = issue.type == t ? issue.weight : 0.0;
-        row[10 + i] = formatStockWeight(weight, blankWhenZero: false);
-      }
-    }
+    row[5] = txn.name;
+    row[6] = txn.billNo;
+    row[7] = txn.date;
     return row;
   }
 
   @override
   Widget build(BuildContext context) {
-    final dataRows = <List<String>>[];
-    final rowCount = summary.purchases.length > summary.issues.length
-        ? summary.purchases.length
-        : summary.issues.length;
-    for (var i = 0; i < rowCount; i++) {
-      dataRows.add(_combinedRow(
-        i < summary.purchases.length ? summary.purchases[i] : null,
-        i < summary.issues.length ? summary.issues[i] : null,
-        purchaseLabel: i == 0,
-        issueLabel: i == 0,
-      ));
-    }
-
     int flexFor(int i) => i < columnFlex.length ? columnFlex[i] : 2;
 
     Widget rowWidget(List<String> row,
@@ -158,7 +133,7 @@ class StockSummaryTable extends StatelessWidget {
                   i < row.length ? row[i] : '',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  textAlign: i >= 2 && i <= 5 || i >= 10
+                  textAlign: i >= 1 && i <= 4 || i >= 9
                       ? TextAlign.right
                       : TextAlign.left,
                   style: TextStyle(
@@ -180,9 +155,10 @@ class StockSummaryTable extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
       children: [
         rowWidget(headers, header: true),
-        rowWidget(_weightRow('Opening', summary.opening), band: true, bold: true),
-        for (final row in dataRows) rowWidget(row),
-        rowWidget(_weightRow('Closing Stock', summary.closing),
+        rowWidget(_bookendRow('Opening', summary.opening),
+            band: true, bold: true),
+        for (final txn in summary.rows) rowWidget(_transactionRow(txn)),
+        rowWidget(_bookendRow('Closing Stock', summary.closing),
             band: true, bold: true),
       ],
     );

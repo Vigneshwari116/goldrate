@@ -6,7 +6,7 @@ import 'package:grate_app/widgets/stock_summary_card.dart';
 import 'package:intl/intl.dart';
 
 void main() {
-  testWidgets('Stock summary card renders opening, movements, and closing',
+  testWidgets('Stock summary card renders merged opening, rows, and closing',
       (tester) async {
     final summary = buildStockLedgerSummary(
       transactions: [
@@ -20,45 +20,42 @@ void main() {
           ],
         },
         {
-          'transactionType': 'PURCHASE',
-          'billNo': 2,
-          'date': '10-01-2026',
-          'partyName': 'xy',
-          'items': [
-            {'type': 'FWT', 'weight': 20, 'touch': 98, 'pureWt': 19.6},
-          ],
-        },
-        {
           'transactionType': 'SALES',
           'billNo': 1,
           'date': '10-01-2026',
           'partyName': 'cd',
           'items': [
-            {'type': 'GWT', 'weight': 12, 'touch': 50, 'pureWt': 6},
+            {'type': 'GWT', 'weight': 20, 'touch': 50, 'pureWt': 10},
+          ],
+          'paymentItems': [
+            {'type': 'GWT', 'weight': 30, 'touch': 50, 'pureWt': 15},
           ],
         },
         {
-          'transactionType': 'SALES',
+          'transactionType': 'PURCHASE',
           'billNo': 2,
           'date': '10-01-2026',
-          'partyName': 'ef',
+          'partyName': 'ra',
           'items': [
-            {'type': 'FWT', 'weight': 24, 'touch': 98, 'pureWt': 23.52},
+            {'type': 'GWT', 'weight': 20, 'touch': 50, 'pureWt': 10},
+          ],
+          'paymentItems': [
+            {'type': 'FWT', 'weight': 40, 'touch': 98, 'pureWt': 39.2},
           ],
         },
       ],
       openingWeight: {
         'gPureWt': '200',
-        'fineWt': '201',
-        'kachaWt': '202',
-        'silverWt': '203',
+        'fineWt': '300',
+        'kachaWt': '400',
+        'silverWt': '500',
       },
       from: DateTime(2026, 1, 10),
       to: DateTime(2026, 1, 10),
       dateFormat: DateFormat('dd-MM-yyyy'),
     );
 
-    await tester.binding.setSurfaceSize(const Size(1100, 420));
+    await tester.binding.setSurfaceSize(const Size(1200, 480));
     addTearDown(tester.view.resetPhysicalSize);
 
     await tester.pumpWidget(
@@ -66,7 +63,7 @@ void main() {
         theme: AppTheme.theme,
         home: Scaffold(
           body: SizedBox(
-            height: 420,
+            height: 480,
             child: StockSummaryCard(summary: summary),
           ),
         ),
@@ -77,14 +74,16 @@ void main() {
     expect(find.text('STOCK SUMMARY'), findsOneWidget);
     expect(find.text('Opening'), findsOneWidget);
     expect(find.text('Closing Stock'), findsOneWidget);
-    expect(find.text('PURCHASE'), findsOneWidget);
-    expect(find.text('ISSUE'), findsOneWidget);
-    expect(find.text('200'), findsNWidgets(2)); // opening + closing GWT
-    expect(find.text('201'), findsWidgets);
+    expect(find.text('SAL1'), findsOneWidget);
+    expect(find.text('PUR1'), findsOneWidget);
+    expect(find.text('PUR2'), findsOneWidget);
     expect(find.text('ab'), findsOneWidget);
-    expect(find.text('PUR-1'), findsOneWidget);
-    expect(find.text('12'), findsWidgets);
-    expect(find.text('24'), findsOneWidget);
+    expect(find.text('cd'), findsOneWidget);
+    expect(find.text('ra'), findsOneWidget);
+    expect(find.text('0.000'), findsWidgets);
+    expect(find.text('20'), findsWidgets);
+    expect(find.text('30'), findsOneWidget);
+    expect(find.text('40'), findsOneWidget);
 
     await expectLater(
       find.byType(StockSummaryCard),
