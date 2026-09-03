@@ -242,13 +242,14 @@ app.post('/api/transactions', async (req, res) => {
     `INSERT INTO transactions
       (transaction_type, bill_no, party_name, items, total_wt, total_pure_wt, total_value,
        payment_mode, payment_amount, balance, balance_unit, staff_name, date, time,
-       old_grams, old_rupees, new_grams, new_rupees, cash_to_gold, gold_rate_used)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+       old_grams, old_rupees, new_grams, new_rupees, cash_to_gold, gold_rate_used,
+       payment_items, receipt_purpose)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
      RETURNING id`,
     [t.transactionType, t.billNo, t.partyName, t.items, t.totalWt, t.totalPureWt,
      t.totalValue, t.paymentMode, t.paymentAmount, t.balance, t.balanceUnit,
      t.staffName, t.date, t.time, t.oldGrams, t.oldRupees, t.newGrams, t.newRupees,
-     t.cashToGold, t.goldRateUsed],
+     t.cashToGold, t.goldRateUsed, t.paymentItems, t.receiptPurpose],
   );
   res.json({ id: result.rows[0].id });
 });
@@ -319,9 +320,9 @@ app.get('/api/stock/current', async (_req, res) => {
     }
     for (const item of items) {
       const type = item.type || '';
-      const pureWt = parseFloat(item.pureWt) || 0;
+      const weight = parseFloat(item.weight) || 0;
       if (Object.prototype.hasOwnProperty.call(stock, type)) {
-        stock[type] += sign * pureWt;
+        stock[type] += sign * weight;
       }
     }
   }

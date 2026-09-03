@@ -28,7 +28,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 11,
+      version: 12,
       onCreate: _createDatabase,
       onUpgrade: _upgradeDatabase,
     );
@@ -136,7 +136,9 @@ class DatabaseHelper {
         newGrams TEXT,
         newRupees TEXT,
         cashToGold TEXT,
-        goldRateUsed TEXT
+        goldRateUsed TEXT,
+        paymentItems TEXT,
+        receiptPurpose TEXT
       )
     ''');
 
@@ -337,6 +339,11 @@ class DatabaseHelper {
           time TEXT
         )
       ''');
+    }
+    if (oldVersion < 12) {
+      await db.execute('ALTER TABLE transactions ADD COLUMN paymentItems TEXT');
+      await db.execute(
+          'ALTER TABLE transactions ADD COLUMN receiptPurpose TEXT');
     }
   }
 
@@ -725,13 +732,11 @@ class DatabaseHelper {
   // ---------- Live current stock ----------
 
   /// Current stock, per metal type, calculated live as:
-  ///   opening weight (the locked one-time baseline)
-  ///   + everything bought in on Purchase bills
-  ///   - everything sold out on Sales bills
-  /// Nothing is re-entered daily — this always reflects "right now"
-  /// because it's computed fresh from the opening baseline plus every
-  /// transaction ever saved, not stored as its own row anywhere.
-  /// Keys match the item type codes used on the bill: GWT, FWT, KWT, SWT.
+  ///   opening weight (the locked one-time baseline, gross weight)
+  ///   + everything bought in on Purchase bills (gross weight per line)
+  ///   - everything sold out on Sales bills (gross weight per line)
+  /// Uses raw [weight] from each bill line, not pureWt — consistent with the
+  /// Daily Sales Report stock summary in [buildStockLedgerSummary].
   Future<Map<String, double>> getCurrentStock() async {
     if (ApiConfig.useRemoteApi) return ApiClient.getCurrentStock();
     final opening = await getOpeningWeight();
@@ -760,9 +765,10 @@ class DatabaseHelper {
       for (final item in items) {
         if (item is! Map) continue;
         final type = (item['type'] ?? '').toString();
-        final pureWt = (item['pureWt'] as num?)?.toDouble() ?? 0;
+        final weight = (item['weight'] as num?)?.toDouble() ??
+            (double.tryParse((item['weight'] ?? '').toString()) ?? 0);
         if (stock.containsKey(type)) {
-          stock[type] = stock[type]! + (sign * pureWt);
+          stock[type] = stock[type]! + (sign * weight);
         }
       }
     }
