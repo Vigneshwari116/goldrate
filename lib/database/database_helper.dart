@@ -405,10 +405,35 @@ class DatabaseHelper {
   }
 
   Future<List<Map<String, dynamic>>> getRates() async {
+    await ensureDefaultRates();
     if (ApiConfig.useRemoteApi) return ApiClient.getRates();
     final db = await database;
-    return await db.query('rates');
+    return await db.query('rates', orderBy: 'id');
   }
+
+  /// Ensures the four daily rate rows exist (blank values on fresh install).
+  Future<void> ensureDefaultRates() async {
+    if (ApiConfig.useRemoteApi) {
+      await ApiClient.ensureDefaultRates();
+      return;
+    }
+    final db = await database;
+    final count = Sqflite.firstIntValue(
+          await db.rawQuery('SELECT COUNT(*) as count FROM rates'),
+        ) ??
+        0;
+    if (count > 0) return;
+    for (final name in _defaultRateNames) {
+      await db.insert('rates', {'rateName': name, 'rateValue': ''});
+    }
+  }
+
+  static const _defaultRateNames = [
+    'G.P RATE',
+    'F.T RATE',
+    'KACHA RATE',
+    'S RATE',
+  ];
 
   /// Rates keyed by rateName (e.g. 'G.P RATE' -> 15100), parsed to double.
   /// A rate that hasn't been set yet (blank) is simply left out of the map.

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../util/focus_chain.dart';
+import '../util/screen_activation.dart';
 import '../database/database_helper.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
@@ -10,15 +11,21 @@ import '../theme/responsive.dart';
 /// left. Purchase/Sales live on Home, not here, so this form is never
 /// sitting on screen when staff is mid-billing.
 class MasterScreen extends StatefulWidget {
-  const MasterScreen({super.key, this.embedded = false});
+  const MasterScreen({
+    super.key,
+    this.embedded = false,
+    this.isActive = true,
+  });
 
   final bool embedded;
+  final bool isActive;
 
   @override
   State<MasterScreen> createState() => _MasterScreenState();
 }
 
-class _MasterScreenState extends State<MasterScreen> {
+class _MasterScreenState extends State<MasterScreen>
+    with ScreenActivationMixin<MasterScreen> {
   List<Map<String, dynamic>> rates = [];
   final Map<int, TextEditingController> _controllers = {};
   final Map<int, FocusNode> _focusNodes = {};
@@ -35,6 +42,17 @@ class _MasterScreenState extends State<MasterScreen> {
   }
 
   @override
+  bool get screenIsActive => widget.isActive;
+
+  @override
+  bool wasScreenActive(MasterScreen oldWidget) => oldWidget.isActive;
+
+  @override
+  void onScreenActivated() {
+    loadRates();
+  }
+
+  @override
   void dispose() {
     for (final c in _controllers.values) {
       c.dispose();
@@ -45,33 +63,47 @@ class _MasterScreenState extends State<MasterScreen> {
     super.dispose();
   }
 
+  int _rateId(Map<String, dynamic> item) =>
+      (item['id'] as num?)?.toInt() ?? 0;
+
   Future<void> loadRates() async {
-    final data = await DatabaseHelper.instance.getRates();
-    final stats = await DatabaseHelper.instance.getUpdateStats();
+    setState(() => _loading = true);
+    try {
+      await DatabaseHelper.instance.ensureDefaultRates();
+      final data = await DatabaseHelper.instance.getRates();
+      final stats = await DatabaseHelper.instance.getUpdateStats();
 
-    for (final c in _controllers.values) {
-      c.dispose();
-    }
-    _controllers.clear();
-    for (final n in _focusNodes.values) {
-      n.dispose();
-    }
-    _focusNodes.clear();
+      for (final c in _controllers.values) {
+        c.dispose();
+      }
+      _controllers.clear();
+      for (final n in _focusNodes.values) {
+        n.dispose();
+      }
+      _focusNodes.clear();
 
-    for (final item in data) {
-      final id = item['id'] as int;
-      _controllers[id] =
-          TextEditingController(text: (item['rateValue'] ?? '').toString());
-      _focusNodes[id] = FocusNode();
-    }
+      for (final item in data) {
+        final id = _rateId(item);
+        if (id == 0) continue;
+        _controllers[id] =
+            TextEditingController(text: (item['rateValue'] ?? '').toString());
+        _focusNodes[id] = FocusNode();
+      }
 
-    if (!mounted) return;
-    setState(() {
-      rates = data;
-      _lastDate = stats['lastDate'] as String;
-      _lastTime = stats['lastTime'] as String;
-      _loading = false;
-    });
+      if (!mounted) return;
+      setState(() {
+        rates = data;
+        _lastDate = stats['lastDate'] as String? ?? '';
+        _lastTime = stats['lastTime'] as String? ?? '';
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not load rates: $e')),
+      );
+    }
   }
 
   /// Saves ALL rates in one tap. Any field left blank or invalid is
@@ -86,7 +118,8 @@ class _MasterScreenState extends State<MasterScreen> {
     int savedCount = 0;
 
     for (final item in rates) {
-      final id = item['id'] as int;
+      final id = _rateId(item);
+      if (id == 0) continue;
       final rateName = item['rateName'] as String;
       final controller = _controllers[id]!;
       final parsed = double.tryParse(controller.text.trim());
@@ -148,11 +181,21 @@ class _MasterScreenState extends State<MasterScreen> {
                 ),
                 Expanded(
                   child: rates.isEmpty
-                      ? const Center(
-                          child: Text(
-                            "No rates found",
-                            style:
-                                TextStyle(fontSize: 13, color: Colors.black54),
+                      ? Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Text(
+                                "No rates found",
+                                style: TextStyle(
+                                    fontSize: 13, color: Colors.black54),
+                              ),
+                              const SizedBox(height: 12),
+                              OutlinedButton(
+                                onPressed: loadRates,
+                                child: const Text('RETRY'),
+                              ),
+                            ],
                           ),
                         )
                       : ListView.builder(
@@ -160,7 +203,7 @@ class _MasterScreenState extends State<MasterScreen> {
                           itemCount: rates.length,
                           itemBuilder: (context, index) {
                             final item = rates[index];
-                            final id = item['id'] as int;
+                            final id = _rateId(item);
                             final controller = _controllers[id]!;
                             final focusNode = _focusNodes[id]!;
 
@@ -196,7 +239,7 @@ class _MasterScreenState extends State<MasterScreen> {
                                       onSubmitted: (_) {
                                         if (index + 1 < rates.length) {
                                           final nextId =
-                                              rates[index + 1]['id'] as int;
+                                              _rateId(rates[index + 1]);
                                           FocusChain.focus(
                                             _focusNodes[nextId]!,
                                             controller: _controllers[nextId],

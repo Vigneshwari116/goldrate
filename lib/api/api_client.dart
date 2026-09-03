@@ -85,6 +85,11 @@ class ApiClient {
     return _decodeList(res);
   }
 
+  static Future<void> ensureDefaultRates() async {
+    final res = await http.post(_uri('/rates/ensure-defaults'));
+    await _decodeObject(res);
+  }
+
   static Future<Map<String, double>> getRatesMap() async {
     final rows = await getRates();
     final map = <String, double>{};

@@ -46,8 +46,32 @@ app.post('/api/auth/login', async (req, res) => {
 
 // ---------- Rates ----------
 app.get('/api/rates', async (_req, res) => {
-  const result = await pool.query('SELECT * FROM rates ORDER BY id');
+  let result = await pool.query('SELECT * FROM rates ORDER BY id');
+  if (result.rows.length === 0) {
+    await pool.query(
+      `INSERT INTO rates (rate_name, rate_value) VALUES
+        ('G.P RATE', ''),
+        ('F.T RATE', ''),
+        ('KACHA RATE', ''),
+        ('S RATE', '')`,
+    );
+    result = await pool.query('SELECT * FROM rates ORDER BY id');
+  }
   res.json(toCamelList(result.rows));
+});
+
+app.post('/api/rates/ensure-defaults', async (_req, res) => {
+  const count = await pool.query('SELECT COUNT(*)::int AS count FROM rates');
+  if (count.rows[0].count === 0) {
+    await pool.query(
+      `INSERT INTO rates (rate_name, rate_value) VALUES
+        ('G.P RATE', ''),
+        ('F.T RATE', ''),
+        ('KACHA RATE', ''),
+        ('S RATE', '')`,
+    );
+  }
+  res.json({ ok: true });
 });
 
 app.put('/api/rates/:id', async (req, res) => {
