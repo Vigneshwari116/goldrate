@@ -6,7 +6,7 @@ import 'package:grate_app/widgets/stock_summary_card.dart';
 import 'package:intl/intl.dart';
 
 void main() {
-  testWidgets('Stock summary card renders merged opening, rows, and closing',
+  testWidgets('Daily sales stock table renders merged opening, rows, and closing',
       (tester) async {
     final summary = buildStockLedgerSummary(
       transactions: [
@@ -64,14 +64,13 @@ void main() {
         home: Scaffold(
           body: SizedBox(
             height: 480,
-            child: StockSummaryCard(summary: summary),
+            child: StockSummaryTable(summary: summary),
           ),
         ),
       ),
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('STOCK SUMMARY'), findsOneWidget);
     expect(find.text('Opening'), findsOneWidget);
     expect(find.text('Closing Stock'), findsOneWidget);
     expect(find.text('SAL1'), findsOneWidget);
@@ -80,13 +79,14 @@ void main() {
     expect(find.text('ab'), findsOneWidget);
     expect(find.text('cd'), findsOneWidget);
     expect(find.text('ra'), findsOneWidget);
+    expect(find.text('Name'), findsOneWidget);
     expect(find.text('0.000'), findsWidgets);
     expect(find.text('20'), findsWidgets);
     expect(find.text('30'), findsOneWidget);
     expect(find.text('40'), findsOneWidget);
 
     await expectLater(
-      find.byType(StockSummaryCard),
+      find.byType(StockSummaryTable),
       matchesGoldenFile('goldens/stock_summary_card.png'),
     );
   });

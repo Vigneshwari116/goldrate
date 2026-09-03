@@ -368,25 +368,19 @@ class _ReportsScreenState extends State<ReportsScreen>
       allHistory: _allHistory,
       dateFormat: _fmt,
     );
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Flexible(flex: 3, child: _stockSummaryCard(summary)),
-        Flexible(
-          flex: 4,
-          child: _billAbstract(
-            salesOnly: true,
-            title: 'DAILY SALES REPORT',
-          ),
-        ),
-      ],
+    final closingUnits = kStockWeightTypes.fold<double>(
+      0,
+      (sum, type) => sum + (summary.closing[type] ?? 0),
     );
-  }
-
-  Widget _stockSummaryCard(StockLedgerSummary summary) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-      child: StockSummaryCard(summary: summary),
+    return _reportShell(
+      title: 'DAILY SALES REPORT',
+      records: summary.rows.length,
+      units: closingUnits,
+      total: 0,
+      totalText: StockSummaryTable.closingSummaryText(summary.closing),
+      child: StockSummaryTable(summary: summary),
+      pdfRows: StockSummaryTable.pdfRowsFor(summary),
+      headers: StockSummaryTable.headers,
     );
   }
 
