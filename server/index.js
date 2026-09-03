@@ -46,33 +46,32 @@ app.post('/api/auth/login', async (req, res) => {
 
 // ---------- Rates ----------
 app.get('/api/rates', async (_req, res) => {
-  let result = await pool.query('SELECT * FROM rates ORDER BY id');
-  if (result.rows.length === 0) {
-    await pool.query(
-      `INSERT INTO rates (rate_name, rate_value) VALUES
-        ('G.P RATE', ''),
-        ('F.T RATE', ''),
-        ('KACHA RATE', ''),
-        ('S RATE', '')`,
-    );
-    result = await pool.query('SELECT * FROM rates ORDER BY id');
-  }
+  await seedDefaultRates();
+  const result = await pool.query('SELECT * FROM rates ORDER BY id');
   res.json(toCamelList(result.rows));
 });
 
 app.post('/api/rates/ensure-defaults', async (_req, res) => {
-  const count = await pool.query('SELECT COUNT(*)::int AS count FROM rates');
-  if (count.rows[0].count === 0) {
-    await pool.query(
-      `INSERT INTO rates (rate_name, rate_value) VALUES
-        ('G.P RATE', ''),
-        ('F.T RATE', ''),
-        ('KACHA RATE', ''),
-        ('S RATE', '')`,
-    );
-  }
+  await seedDefaultRates();
   res.json({ ok: true });
 });
+
+app.post('/api/admin/seed-rates', async (_req, res) => {
+  await seedDefaultRates();
+  res.json({ ok: true });
+});
+
+async function seedDefaultRates() {
+  const count = await pool.query('SELECT COUNT(*)::int AS count FROM rates');
+  if (count.rows[0].count > 0) return;
+  await pool.query(
+    `INSERT INTO rates (rate_name, rate_value) VALUES
+      ('G.P RATE', ''),
+      ('F.T RATE', ''),
+      ('KACHA RATE', ''),
+      ('S RATE', '')`,
+  );
+}
 
 app.put('/api/rates/:id', async (req, res) => {
   const { id } = req.params;

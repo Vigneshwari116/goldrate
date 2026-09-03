@@ -405,10 +405,28 @@ class DatabaseHelper {
   }
 
   Future<List<Map<String, dynamic>>> getRates() async {
-    await ensureDefaultRates();
     if (ApiConfig.useRemoteApi) return ApiClient.getRates();
     final db = await database;
     return await db.query('rates', orderBy: 'id');
+  }
+
+  /// Daily Rate rows for the UI — always returns four named slots.
+  Future<List<Map<String, dynamic>>> getRatesForMaster() async {
+    try {
+      await ensureDefaultRates();
+    } catch (_) {
+      // Older API builds may lack seed routes; still show the four fields.
+    }
+    try {
+      final rows = await getRates();
+      if (rows.isNotEmpty) return rows;
+    } catch (_) {
+      // Offline or server error — fall back to blank local template rows.
+    }
+    return [
+      for (final name in _defaultRateNames)
+        {'id': 0, 'rateName': name, 'rateValue': ''},
+    ];
   }
 
   /// Ensures the four daily rate rows exist (blank values on fresh install).

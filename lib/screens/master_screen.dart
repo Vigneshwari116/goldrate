@@ -27,8 +27,8 @@ class MasterScreen extends StatefulWidget {
 class _MasterScreenState extends State<MasterScreen>
     with ScreenActivationMixin<MasterScreen> {
   List<Map<String, dynamic>> rates = [];
-  final Map<int, TextEditingController> _controllers = {};
-  final Map<int, FocusNode> _focusNodes = {};
+  final Map<String, TextEditingController> _controllers = {};
+  final Map<String, FocusNode> _focusNodes = {};
   bool _loading = true;
   bool _saving = false;
 
@@ -63,14 +63,16 @@ class _MasterScreenState extends State<MasterScreen>
     super.dispose();
   }
 
+  String _rateName(Map<String, dynamic> item) =>
+      (item['rateName'] ?? '').toString();
+
   int _rateId(Map<String, dynamic> item) =>
       (item['id'] as num?)?.toInt() ?? 0;
 
   Future<void> loadRates() async {
     setState(() => _loading = true);
     try {
-      await DatabaseHelper.instance.ensureDefaultRates();
-      final data = await DatabaseHelper.instance.getRates();
+      final data = await DatabaseHelper.instance.getRatesForMaster();
       final stats = await DatabaseHelper.instance.getUpdateStats();
 
       for (final c in _controllers.values) {
@@ -83,11 +85,10 @@ class _MasterScreenState extends State<MasterScreen>
       _focusNodes.clear();
 
       for (final item in data) {
-        final id = _rateId(item);
-        if (id == 0) continue;
-        _controllers[id] =
+        final name = _rateName(item);
+        _controllers[name] =
             TextEditingController(text: (item['rateValue'] ?? '').toString());
-        _focusNodes[id] = FocusNode();
+        _focusNodes[name] = FocusNode();
       }
 
       if (!mounted) return;
@@ -106,25 +107,35 @@ class _MasterScreenState extends State<MasterScreen>
     }
   }
 
+  Future<Map<String, int>> _rateIdsByName() async {
+    await DatabaseHelper.instance.ensureDefaultRates();
+    final rows = await DatabaseHelper.instance.getRates();
+    return {
+      for (final row in rows)
+        _rateName(row): _rateId(row),
+    };
+  }
+
   /// Saves ALL rates in one tap. Any field left blank or invalid is
   /// simply skipped (not overwritten), so you can update just the
   /// ones that changed if you want, or all four at once.
   Future<void> saveAllRates() async {
     setState(() => _saving = true);
 
-    String date = DateFormat("dd-MM-yyyy").format(DateTime.now());
-    String time = DateFormat("hh:mm a").format(DateTime.now());
+    final date = DateFormat('dd-MM-yyyy').format(DateTime.now());
+    final time = DateFormat('hh:mm a').format(DateTime.now());
+    final idsByName = await _rateIdsByName();
 
-    int savedCount = 0;
+    var savedCount = 0;
 
     for (final item in rates) {
-      final id = _rateId(item);
+      final rateName = _rateName(item);
+      final id = idsByName[rateName] ?? _rateId(item);
       if (id == 0) continue;
-      final rateName = item['rateName'] as String;
-      final controller = _controllers[id]!;
+      final controller = _controllers[rateName];
+      if (controller == null) continue;
       final parsed = double.tryParse(controller.text.trim());
-
-      if (parsed == null) continue; // skip blank/invalid fields
+      if (parsed == null) continue;
 
       await DatabaseHelper.instance.updateRate(
         id,
@@ -142,15 +153,21 @@ class _MasterScreenState extends State<MasterScreen>
 
     if (savedCount == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Enter at least one valid rate")),
+        const SnackBar(
+          content: Text(
+            'Enter at least one valid rate. If fields just appeared, '
+            'tap SAVE again after the server seeds the rate rows.',
+          ),
+        ),
       );
+      await loadRates();
       return;
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("$savedCount rate(s) updated successfully")),
+      SnackBar(content: Text('$savedCount rate(s) updated successfully')),
     );
-    loadRates();
+    await loadRates();
   }
 
   @override
@@ -170,8 +187,8 @@ class _MasterScreenState extends State<MasterScreen>
                   ),
                   child: Text(
                     _lastDate.isEmpty
-                        ? "Last Updated : —"
-                        : "Last Updated : $_lastDate  $_lastTime",
+                        ? 'Last Updated : —'
+                        : 'Last Updated : $_lastDate  $_lastTime',
                     style: const TextStyle(
                       fontWeight: FontWeight.w600,
                       fontSize: AppTextSizes.sectionHeader,
@@ -180,86 +197,72 @@ class _MasterScreenState extends State<MasterScreen>
                   ),
                 ),
                 Expanded(
-                  child: rates.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Text(
-                                "No rates found",
-                                style: TextStyle(
-                                    fontSize: 13, color: Colors.black54),
-                              ),
-                              const SizedBox(height: 12),
-                              OutlinedButton(
-                                onPressed: loadRates,
-                                child: const Text('RETRY'),
-                              ),
-                            ],
-                          ),
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.all(12),
-                          itemCount: rates.length,
-                          itemBuilder: (context, index) {
-                            final item = rates[index];
-                            final id = _rateId(item);
-                            final controller = _controllers[id]!;
-                            final focusNode = _focusNodes[id]!;
+                  child: ListView.builder(
+                    padding: const EdgeInsets.all(12),
+                    itemCount: rates.length,
+                    itemBuilder: (context, index) {
+                      final item = rates[index];
+                      final rateName = _rateName(item);
+                      final controller = _controllers[rateName]!;
+                      final focusNode = _focusNodes[rateName]!;
 
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 10),
-                              decoration: BoxDecoration(
-                                color: AppColors.cardWhite,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: AppColors.border),
-                              ),
-                              padding: const EdgeInsets.all(12),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    flex: 3,
-                                    child: Text(
-                                      item['rateName'],
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 14,
-                                      ),
-                                    ),
-                                  ),
-                                  Expanded(
-                                    flex: 4,
-                                    child: TextField(
-                                      controller: controller,
-                                      focusNode: focusNode,
-                                      style: const TextStyle(fontSize: 14),
-                                      keyboardType: const TextInputType
-                                          .numberWithOptions(decimal: true),
-                                      textInputAction: TextInputAction.next,
-                                      onSubmitted: (_) {
-                                        if (index + 1 < rates.length) {
-                                          final nextId =
-                                              _rateId(rates[index + 1]);
-                                          FocusChain.focus(
-                                            _focusNodes[nextId]!,
-                                            controller: _controllers[nextId],
-                                          );
-                                        } else {
-                                          saveAllRates();
-                                        }
-                                      },
-                                      decoration: const InputDecoration(
-                                        isDense: true,
-                                        contentPadding: EdgeInsets.symmetric(
-                                            horizontal: 10, vertical: 10),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        decoration: BoxDecoration(
+                          color: AppColors.cardWhite,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.border),
                         ),
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              flex: 3,
+                              child: Text(
+                                rateName,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              flex: 4,
+                              child: TextField(
+                                controller: controller,
+                                focusNode: focusNode,
+                                style: const TextStyle(fontSize: 14),
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                  decimal: true,
+                                ),
+                                textInputAction: TextInputAction.next,
+                                onSubmitted: (_) {
+                                  if (index + 1 < rates.length) {
+                                    final nextName =
+                                        _rateName(rates[index + 1]);
+                                    FocusChain.focus(
+                                      _focusNodes[nextName]!,
+                                      controller: _controllers[nextName],
+                                    );
+                                  } else {
+                                    saveAllRates();
+                                  }
+                                },
+                                decoration: const InputDecoration(
+                                  isDense: true,
+                                  contentPadding: EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 10,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
                 ),
                 Padding(
                   padding: const EdgeInsets.all(12),
@@ -277,7 +280,7 @@ class _MasterScreenState extends State<MasterScreen>
                                 strokeWidth: 2,
                               ),
                             )
-                          : const Text("SAVE"),
+                          : const Text('SAVE'),
                     ),
                   ),
                 ),
@@ -289,7 +292,7 @@ class _MasterScreenState extends State<MasterScreen>
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text("DAILY RATE")),
+      appBar: AppBar(title: const Text('DAILY RATE')),
       body: content,
     );
   }
