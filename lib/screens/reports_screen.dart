@@ -223,7 +223,10 @@ class _ReportsScreenState extends State<ReportsScreen>
       return Padding(
         padding: const EdgeInsets.only(right: 6),
         child: InkWell(
-          onTap: () => setState(() => _tab = id),
+          onTap: () => setState(() {
+            if (id == _ReportTab.dailySales) _allHistory = false;
+            _tab = id;
+          }),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
@@ -315,11 +318,12 @@ class _ReportsScreenState extends State<ReportsScreen>
             },
           ),
           const SizedBox(width: 8),
-          ElevatedButton(
-            onPressed: () => setState(() => _allHistory = true),
-            child: const Text('SHOW ALL HISTORY'),
-          ),
-          const SizedBox(width: 12),
+          if (_tab != _ReportTab.dailySales)
+            ElevatedButton(
+              onPressed: () => setState(() => _allHistory = true),
+              child: const Text('SHOW ALL HISTORY'),
+            ),
+          if (_tab != _ReportTab.dailySales) const SizedBox(width: 12),
           Text(_filterLabel,
               style: const TextStyle(
                   fontWeight: FontWeight.w700, color: AppColors.mutedBlue)),
@@ -365,7 +369,7 @@ class _ReportsScreenState extends State<ReportsScreen>
       openingWeight: _openingWeight,
       from: _from,
       to: _to,
-      allHistory: _allHistory,
+      allHistory: false,
       dateFormat: _fmt,
     );
     final closingUnits = kStockWeightTypes.fold<double>(
