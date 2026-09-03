@@ -79,6 +79,7 @@ void main() {
     expect(find.text('ab'), findsOneWidget);
     expect(find.text('cd'), findsOneWidget);
     expect(find.text('ra'), findsOneWidget);
+    expect(find.text('Type'), findsOneWidget);
     expect(find.text('Name'), findsOneWidget);
     expect(find.text('0.000'), findsWidgets);
     expect(find.text('20'), findsWidgets);

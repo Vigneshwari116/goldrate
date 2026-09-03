@@ -14,6 +14,7 @@ class StockSummaryTable extends StatelessWidget {
 
   static const headers = [
     'Issue',
+    'Type',
     'GWT',
     'FWT',
     'KWT',
@@ -31,6 +32,7 @@ class StockSummaryTable extends StatelessWidget {
   /// Minimum pixel width per column so headers never squash together.
   static const minWidths = [
     56.0,
+    52.0,
     44.0,
     44.0,
     44.0,
@@ -57,25 +59,25 @@ class StockSummaryTable extends StatelessWidget {
     row[0] = label;
     for (var i = 0; i < kStockWeightTypes.length; i++) {
       final value = formatStockWeight(weights[kStockWeightTypes[i]] ?? 0);
-      row[1 + i] = value;
-      row[9 + i] = value;
+      row[2 + i] = value;
+      row[10 + i] = value;
     }
     return row;
   }
 
   static List<String> transactionRow(StockLedgerRow txn) {
     final row = _emptyRow();
-    row[0] = txn.label;
+    row[1] = txn.label;
     for (var i = 0; i < kStockWeightTypes.length; i++) {
       final type = kStockWeightTypes[i];
-      row[1 + i] =
+      row[2 + i] =
           formatStockWeight(txn.issueWeights[type] ?? 0, blankWhenZero: false);
-      row[9 + i] = formatStockWeight(txn.receiptWeights[type] ?? 0,
+      row[10 + i] = formatStockWeight(txn.receiptWeights[type] ?? 0,
           blankWhenZero: false);
     }
-    row[5] = txn.name;
-    row[6] = txn.billNo;
-    row[7] = txn.date;
+    row[6] = txn.name;
+    row[7] = txn.billNo;
+    row[8] = txn.date;
     return row;
   }
 
@@ -121,7 +123,7 @@ class StockSummaryTable extends StatelessWidget {
                     i < row.length ? row[i] : '',
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    textAlign: i >= 1 && i <= 4 || i >= 9
+                    textAlign: i >= 2 && i <= 5 || i >= 10
                         ? TextAlign.right
                         : TextAlign.left,
                     style: TextStyle(
