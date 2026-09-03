@@ -85,6 +85,31 @@ class ApiClient {
     return _decodeList(res);
   }
 
+  static Future<void> ensureDefaultRates() async {
+    // Read first — never block the UI on a missing seed POST route (404).
+    var rows = await getRates();
+    if (rows.isNotEmpty) return;
+
+    for (final path in ['/rates/ensure-defaults', '/admin/seed-rates']) {
+      try {
+        final res = await http.post(_uri(path));
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          rows = await getRates();
+          if (rows.isNotEmpty) return;
+        }
+      } catch (_) {
+        // Older API builds may not have the seed route yet.
+      }
+    }
+
+    // Final read — updated GET /rates auto-seeds when empty.
+    try {
+      await getRates();
+    } catch (_) {
+      // Caller shows blank template rows when the server is unreachable.
+    }
+  }
+
   static Future<Map<String, double>> getRatesMap() async {
     final rows = await getRates();
     final map = <String, double>{};

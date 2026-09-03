@@ -185,7 +185,12 @@ class _AppShellState extends State<AppShell> {
             isActive: _page == AppPage.suppliers,
           ),
         ),
-        _KeepAlivePage(child: MasterScreen(embedded: true)),
+        _KeepAlivePage(
+          child: MasterScreen(
+            embedded: true,
+            isActive: _page == AppPage.rates,
+          ),
+        ),
         _KeepAlivePage(
           child: ReportsScreen(
             embedded: true,
