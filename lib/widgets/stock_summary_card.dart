@@ -31,60 +31,12 @@ class StockSummaryTable extends StatelessWidget {
     'SWT',
   ];
 
-  /// Minimum pixel width per column so headers never squash together.
-  static const minWidths = [
-    56.0,
-    52.0,
-    48.0,
-    48.0,
-    48.0,
-    56.0,
-    112.0,
-    60.0,
-    80.0,
-    60.0,
-    48.0,
-    48.0,
-    48.0,
-    48.0,
-  ];
+  /// Equal column width when horizontal scroll is required on narrow screens.
+  static const scrollColumnWidth = 68.0;
 
-  /// Extra gap between SWT and Name so headers do not read as one word.
-  static const gapAfterSwt = 14.0;
+  static const _cellPadding = EdgeInsets.symmetric(horizontal: 5, vertical: 7);
 
-  static const _containerPadding = 12.0;
-
-  static double minContentWidth() =>
-      minWidths.fold<double>(0, (sum, w) => sum + w) +
-      gapAfterSwt +
-      _containerPadding;
-
-  static List<double> columnWidthsFor(double outerWidth) {
-    final widths = List<double>.from(minWidths);
-    final minRowContent =
-        minWidths.fold<double>(0, (sum, w) => sum + w) + gapAfterSwt;
-    final rowBudget = outerWidth - _containerPadding;
-    if (!outerWidth.isFinite || rowBudget <= minRowContent) {
-      return widths;
-    }
-    var extra = rowBudget - minRowContent;
-    widths[6] += extra * 0.40; // Name
-    widths[8] += extra * 0.20; // date
-    widths[0] += extra * 0.15; // Issue
-    widths[5] += extra * 0.10; // SWT
-    widths[1] += extra * 0.08; // Type
-    widths[7] += extra * 0.07; // Bill no
-    final used = widths.fold<double>(0, (sum, w) => sum + w) + gapAfterSwt;
-    if ((used - rowBudget).abs() > 0.5) {
-      widths[6] += rowBudget - used;
-    }
-    return widths;
-  }
-
-  static double tableWidthFor(List<double> widths) =>
-      widths.fold<double>(0, (sum, w) => sum + w) +
-      gapAfterSwt +
-      _containerPadding;
+  static double minScrollWidth() => scrollColumnWidth * headers.length;
 
   static List<String> _emptyRow() => List.filled(headers.length, '');
 
@@ -134,57 +86,66 @@ class StockSummaryTable extends StatelessWidget {
     return 'CLOSING: ${parts.join('  |  ')}';
   }
 
+  static bool _isWeightColumn(int index) =>
+      index >= 2 && index <= 5 || index >= 10;
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final horizontalInset = 16.0;
-        final available = constraints.maxWidth.isFinite
-            ? math.max(minContentWidth(), constraints.maxWidth - horizontalInset)
-            : minContentWidth();
-        final widths = columnWidthsFor(available);
-        final tableWidth = math.max(tableWidthFor(widths), available);
+        final useScroll =
+            constraints.maxWidth.isFinite &&
+            constraints.maxWidth < minScrollWidth();
+
+        Widget cell({
+          required int index,
+          required String text,
+          required bool header,
+          required bool band,
+          required bool bold,
+          double? width,
+        }) {
+          final child = Text(
+            text,
+            maxLines: header ? 1 : 2,
+            overflow: TextOverflow.ellipsis,
+            textAlign: _isWeightColumn(index) ? TextAlign.right : TextAlign.left,
+            style: TextStyle(
+              fontSize: header ? 10 : 11,
+              fontWeight: header || bold ? FontWeight.w700 : FontWeight.normal,
+              color: header
+                  ? AppColors.mutedBlue
+                  : (band ? AppColors.navy : Colors.black87),
+            ),
+          );
+
+          final padded = Padding(padding: _cellPadding, child: child);
+          if (width != null) {
+            return SizedBox(width: width, child: padded);
+          }
+          return Expanded(child: padded);
+        }
 
         Widget rowWidget(List<String> row,
             {bool header = false, bool band = false, bool bold = false}) {
-          return SizedBox(
-            width: tableWidth,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
-              decoration: BoxDecoration(
-                color: band ? AppColors.headerBand : Colors.white,
-                border: const Border(bottom: BorderSide(color: AppColors.border)),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.max,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  for (var i = 0; i < headers.length; i++) ...[
-                    if (i == 6) SizedBox(width: gapAfterSwt),
-                    SizedBox(
-                      width: widths[i],
-                      child: Text(
-                        i < row.length ? row[i] : '',
-                        maxLines: header ? 1 : 2,
-                        overflow: TextOverflow.ellipsis,
-                        softWrap: false,
-                        textAlign: i >= 2 && i <= 5 || i >= 10
-                            ? TextAlign.right
-                            : TextAlign.left,
-                        style: TextStyle(
-                          fontSize: header ? 10 : 11,
-                          fontWeight: header || bold
-                              ? FontWeight.w700
-                              : FontWeight.normal,
-                          color: header
-                              ? AppColors.mutedBlue
-                              : (band ? AppColors.navy : Colors.black87),
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
+          return Container(
+            decoration: BoxDecoration(
+              color: band ? AppColors.headerBand : Colors.white,
+              border: const Border(bottom: BorderSide(color: AppColors.border)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var i = 0; i < headers.length; i++)
+                  cell(
+                    index: i,
+                    text: i < row.length ? row[i] : '',
+                    header: header,
+                    band: band,
+                    bold: bold,
+                    width: useScroll ? scrollColumnWidth : null,
+                  ),
+              ],
             ),
           );
         }
@@ -198,23 +159,31 @@ class StockSummaryTable extends StatelessWidget {
               band: true, bold: true),
         ];
 
-        final needsHorizontalScroll = tableWidth > available + 1;
+        final table = Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: rows,
+        );
 
-        return Scrollbar(
-          thumbVisibility: needsHorizontalScroll,
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: SizedBox(
-              width: tableWidth,
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: rows,
+        if (useScroll) {
+          final tableWidth = math.max(minScrollWidth(), constraints.maxWidth);
+          return Scrollbar(
+            thumbVisibility: true,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                width: tableWidth,
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: table,
                 ),
               ),
             ),
-          ),
+          );
+        }
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: table,
         );
       },
     );
