@@ -46,10 +46,6 @@ Map<String, double> _emptyWeights() => {
 /// Client-confirmed: values in `gPureWt`, `fineWt`, `kachaWt`, and `silverWt`
 /// are **gross/raw weight** despite the "Pure" in `gPureWt`'s column name — no
 /// touch conversion is applied here or on the Opening Weight entry screen.
-///
-/// TODO(pre-existing): [DatabaseHelper.getCurrentStock] and `/api/stock/current`
-/// apply `item.pureWt` against these same opening columns (gross baseline vs
-/// pure movements). Fix separately — out of scope for the stock summary PR.
 Map<String, double> openingBaselineFromRow(Map<String, dynamic>? opening) {
   if (opening == null) return _emptyWeights();
   return {

@@ -319,9 +319,9 @@ app.get('/api/stock/current', async (_req, res) => {
     }
     for (const item of items) {
       const type = item.type || '';
-      const pureWt = parseFloat(item.pureWt) || 0;
+      const weight = parseFloat(item.weight) || 0;
       if (Object.prototype.hasOwnProperty.call(stock, type)) {
-        stock[type] += sign * pureWt;
+        stock[type] += sign * weight;
       }
     }
   }
