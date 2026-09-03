@@ -89,7 +89,9 @@ CREATE TABLE IF NOT EXISTS transactions (
   new_grams TEXT,
   new_rupees TEXT,
   cash_to_gold TEXT,
-  gold_rate_used TEXT
+  gold_rate_used TEXT,
+  payment_items TEXT,
+  receipt_purpose TEXT
 );
 
 CREATE TABLE IF NOT EXISTS vouchers (

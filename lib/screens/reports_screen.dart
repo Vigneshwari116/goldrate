@@ -5,6 +5,7 @@ import 'package:pdf/widgets.dart' as pw;
 
 import '../database/database_helper.dart';
 import '../logic/gold_ledger.dart';
+import '../logic/old_gold_report.dart';
 import '../logic/stock_ledger.dart';
 import '../pdf/pdf_kit.dart';
 import '../theme/app_theme.dart';
@@ -15,6 +16,7 @@ import '../widgets/stock_summary_card.dart';
 
 enum _ReportTab {
   dailySales,
+  oldGold,
   billWise,
   salesReport,
   purchaseReport,
@@ -252,6 +254,7 @@ class _ReportsScreenState extends State<ReportsScreen>
         child: Row(
           children: [
             tab(_ReportTab.dailySales, 'DAILY SALES REPORT'),
+            tab(_ReportTab.oldGold, 'OLD GOLD REPORT'),
             tab(_ReportTab.billWise, 'BILL WISE ABSTRACT'),
             tab(_ReportTab.salesReport, 'SALES'),
             tab(_ReportTab.purchaseReport, 'PURCHASE'),
@@ -332,6 +335,8 @@ class _ReportsScreenState extends State<ReportsScreen>
     switch (_tab) {
       case _ReportTab.dailySales:
         return _dailyCard();
+      case _ReportTab.oldGold:
+        return _oldGoldReport();
       case _ReportTab.billWise:
         return _billAbstract(salesOnly: false);
       case _ReportTab.salesReport:
@@ -387,6 +392,61 @@ class _ReportsScreenState extends State<ReportsScreen>
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
       child: StockSummaryCard(summary: summary),
+    );
+  }
+
+  Widget _oldGoldReport() {
+    final goldRate = GoldLedger.goldRate(_rates);
+    final report = buildOldGoldReport(
+      transactions: _txns,
+      from: _from,
+      to: _to,
+      allHistory: _allHistory,
+      goldRate: goldRate,
+      dateFormat: _fmt,
+    );
+    const headers = [
+      'SALE NO',
+      'DATE',
+      'GOLD WT',
+      'KACHA WT',
+      'PURE WT',
+      'SILVER WT',
+      'CASH',
+      'NAME',
+      'TOTAL',
+    ];
+    const flex = [2, 2, 2, 2, 2, 2, 2, 3, 2];
+    final table = [for (final row in report.rows) row.toTableRow()];
+    final openingRow = report.opening.bookendRow('Opening');
+    final closingRow = report.closing.bookendRow('Closing');
+    final pdfRows = [
+      openingRow,
+      ...table,
+      closingRow,
+    ];
+    final totalValue = report.rows.fold<double>(0, (s, r) => s + r.total);
+
+    return _reportShell(
+      title: 'OLD GOLD REPORT',
+      records: report.rows.length,
+      units: report.closing.goldWt +
+          report.closing.kachaWt +
+          report.closing.pureWt +
+          report.closing.silverWt,
+      total: totalValue,
+      totalText:
+          'GOLD: ${report.closing.goldWt.toStringAsFixed(3)} g  |  '
+          'TOTAL: ₹${totalValue.toStringAsFixed(2)}',
+      child: _htmlTable(
+        table,
+        headers: headers,
+        columnFlex: flex,
+        openingRow: openingRow,
+        footerRow: closingRow,
+      ),
+      pdfRows: pdfRows,
+      headers: headers,
     );
   }
 

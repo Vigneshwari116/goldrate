@@ -148,6 +148,7 @@ class _TransactionScreenState extends State<TransactionScreen>
   bool _loading = true;
   bool _saving = false;
   bool _sharingPdf = false;
+  bool _receiptIsOldGold = false;
 
   List<Map<String, dynamic>> _history = [];
   Map<String, double> _rates = {};
@@ -598,6 +599,7 @@ class _TransactionScreenState extends State<TransactionScreen>
   void _clearPanels() {
     _billLines.clear();
     _paymentLines.clear();
+    _receiptIsOldGold = false;
     _resetBillEntry();
     _resetPaymentEntry();
   }
@@ -622,6 +624,27 @@ class _TransactionScreenState extends State<TransactionScreen>
       }
     }
     return true;
+  }
+
+  Map<String, dynamic> _paymentLineToJson(_PanelLine line) {
+    if (line.isCash) {
+      return {
+        'type': 'CASH',
+        'weight': 0,
+        'touch': 0,
+        'pureWt': 0,
+        'cashAmount': line.cashAmount ?? 0,
+      };
+    }
+    final rateName = kItemTypeToRateName[line.type];
+    final rate = _rates[rateName] ?? 0;
+    return {
+      'type': line.type,
+      'weight': line.weight,
+      'touch': line.touch,
+      'pureWt': double.parse(line.metalPureWt.toStringAsFixed(3)),
+      'rate': rate,
+    };
   }
 
   Future<void> _saveTransaction() async {
@@ -665,6 +688,11 @@ class _TransactionScreenState extends State<TransactionScreen>
       'billNo': _nextBillNo,
       'partyName': _partyController.text.trim(),
       'items': jsonEncode(items.map((i) => i.toJson()).toList()),
+      if (!_isPurchase) ...{
+        'paymentItems': jsonEncode(
+            _paymentLines.map(_paymentLineToJson).toList()),
+        'receiptPurpose': _receiptIsOldGold ? 'old_gold' : null,
+      },
       'totalWt': _totalWt.toStringAsFixed(2),
       'totalPureWt': _totalPureWt.toStringAsFixed(3),
       'totalValue': _totalValue.toStringAsFixed(2),
@@ -1836,6 +1864,38 @@ class _TransactionScreenState extends State<TransactionScreen>
       totalCash: _paymentTotalCash,
       combinedCashAndGrams: true,
       rows: [
+        if (!_isPurchase && !_isVoucher)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Container(
+              decoration: BoxDecoration(
+                color: AppColors.headerBand,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: CheckboxListTile(
+                dense: true,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                title: const Text(
+                  'Old gold receipt',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.navy,
+                  ),
+                ),
+                subtitle: const Text(
+                  'Mark when customer gives old jewellery in exchange',
+                  style: TextStyle(fontSize: 10.5, color: Colors.black54),
+                ),
+                value: _receiptIsOldGold,
+                onChanged: (v) =>
+                    setState(() => _receiptIsOldGold = v ?? false),
+                controlAffinity: ListTileControlAffinity.leading,
+              ),
+            ),
+          ),
         _paymentEntryBlock(
           prefix: prefix,
         ),

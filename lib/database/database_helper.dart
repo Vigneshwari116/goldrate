@@ -28,7 +28,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 11,
+      version: 12,
       onCreate: _createDatabase,
       onUpgrade: _upgradeDatabase,
     );
@@ -136,7 +136,9 @@ class DatabaseHelper {
         newGrams TEXT,
         newRupees TEXT,
         cashToGold TEXT,
-        goldRateUsed TEXT
+        goldRateUsed TEXT,
+        paymentItems TEXT,
+        receiptPurpose TEXT
       )
     ''');
 
@@ -337,6 +339,11 @@ class DatabaseHelper {
           time TEXT
         )
       ''');
+    }
+    if (oldVersion < 12) {
+      await db.execute('ALTER TABLE transactions ADD COLUMN paymentItems TEXT');
+      await db.execute(
+          'ALTER TABLE transactions ADD COLUMN receiptPurpose TEXT');
     }
   }
 
