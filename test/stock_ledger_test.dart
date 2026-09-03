@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grate_app/logic/stock_ledger.dart';
+import 'package:grate_app/widgets/stock_summary_card.dart';
 import 'package:intl/intl.dart';
 
 void main() {
@@ -229,5 +230,68 @@ void main() {
     expect(formatStockWeight(12), '12');
     expect(formatStockWeight(42.5), '42.5');
     expect(formatStockWeight(12.340), '12.34');
+  });
+
+  test('opening baseline accepts snake_case API keys', () {
+    final weights = openingBaselineFromRow({
+      'g_pure_wt': '5',
+      'fine_wt': '2',
+      'kacha_wt': '3',
+      'silver_wt': '1',
+    });
+    expect(weights['GWT'], closeTo(5, 0.001));
+    expect(weights['FWT'], closeTo(2, 0.001));
+    expect(weights['KWT'], closeTo(3, 0.001));
+    expect(weights['SWT'], closeTo(1, 0.001));
+  });
+
+  test('daily sales opening and closing show all four weight columns', () {
+    final summary = buildStockLedgerSummary(
+      transactions: [
+        {
+          'transactionType': 'SALES',
+          'billNo': 1,
+          'date': '03-09-2026',
+          'partyName': 'ab',
+          'items': [
+            {'type': 'GWT', 'weight': 10, 'touch': 100},
+          ],
+        },
+      ],
+      openingWeight: {
+        'gPureWt': '5',
+        'fineWt': '2',
+        'kachaWt': '3',
+        'silverWt': '1',
+      },
+      from: DateTime(2026, 9, 3),
+      to: DateTime(2026, 9, 3),
+      dateFormat: fmt,
+    );
+
+    expect(summary.opening['GWT'], closeTo(5, 0.001));
+    expect(summary.opening['FWT'], closeTo(2, 0.001));
+    expect(summary.closing['GWT'], closeTo(-5, 0.001));
+    expect(summary.closing['FWT'], closeTo(2, 0.001));
+    expect(summary.closing['KWT'], closeTo(3, 0.001));
+    expect(summary.closing['SWT'], closeTo(1, 0.001));
+
+    final opening = StockSummaryTable.openingRow(summary.opening);
+    expect(opening[2], '5');
+    expect(opening[3], '2');
+    expect(opening[4], '3');
+    expect(opening[5], '1');
+    expect(opening[10], '');
+    expect(opening[11], '');
+
+    final closing = StockSummaryTable.closingRow(summary.closing);
+    expect(closing[2], '-5');
+    expect(closing[3], '2');
+    expect(closing[4], '3');
+    expect(closing[5], '1');
+    expect(closing[10], '-5');
+    expect(closing[11], '2');
+    expect(closing[12], '3');
+    expect(closing[13], '1');
   });
 }
