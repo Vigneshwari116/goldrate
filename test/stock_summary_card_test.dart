@@ -73,6 +73,10 @@ void main() {
 
     expect(find.text('Opening'), findsOneWidget);
     expect(find.text('Closing Stock'), findsOneWidget);
+    expect(find.text('200'), findsWidgets);
+    expect(find.text('300'), findsWidgets);
+    expect(find.text('400'), findsWidgets);
+    expect(find.text('500'), findsWidgets);
     expect(find.text('SAL1'), findsOneWidget);
     expect(find.text('PUR1'), findsOneWidget);
     expect(find.text('PUR2'), findsOneWidget);

@@ -203,7 +203,7 @@ class ApiClient {
     if (res.body == 'null' || res.body.isEmpty) return null;
     final body = jsonDecode(res.body);
     if (body == null) return null;
-    return Map<String, dynamic>.from(body as Map);
+    return normalizeApiRow(Map<String, dynamic>.from(body as Map));
   }
 
   static Future<int> insertOpeningWeight(Map<String, dynamic> weight) async {

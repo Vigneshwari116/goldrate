@@ -49,12 +49,19 @@ Map<String, double> _emptyWeights() => {
 Map<String, double> openingBaselineFromRow(Map<String, dynamic>? opening) {
   if (opening == null) return _emptyWeights();
   return {
-    'GWT': _parseDouble(opening['gPureWt']),
-    'FWT': _parseDouble(opening['fineWt']),
-    'KWT': _parseDouble(opening['kachaWt']),
-    'SWT': _parseDouble(opening['silverWt']),
+    'GWT': _openingField(opening, 'gPureWt', 'g_pure_wt'),
+    'FWT': _openingField(opening, 'fineWt', 'fine_wt'),
+    'KWT': _openingField(opening, 'kachaWt', 'kacha_wt'),
+    'SWT': _openingField(opening, 'silverWt', 'silver_wt'),
   };
 }
+
+double _openingField(
+  Map<String, dynamic> opening,
+  String camelKey,
+  String snakeKey,
+) =>
+    _parseDouble(opening[camelKey] ?? opening[snakeKey]);
 
 double _parseDouble(dynamic raw) =>
     double.tryParse((raw ?? '').toString()) ?? 0;

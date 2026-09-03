@@ -40,11 +40,28 @@ class StockSummaryTable extends StatelessWidget {
 
   static List<String> _emptyRow() => List.filled(headers.length, '');
 
-  static List<String> bookendRow(String label, Map<String, double> weights) {
+  /// Opening stock — Issue GWT/FWT/KWT/SWT only (left block).
+  static List<String> openingRow(Map<String, double> weights) {
     final row = _emptyRow();
-    row[0] = label;
+    row[0] = 'Opening';
     for (var i = 0; i < kStockWeightTypes.length; i++) {
-      final value = formatStockWeight(weights[kStockWeightTypes[i]] ?? 0);
+      row[2 + i] = formatStockWeight(
+        weights[kStockWeightTypes[i]] ?? 0,
+        blankWhenZero: false,
+      );
+    }
+    return row;
+  }
+
+  /// Closing stock — same totals in Issue and Receipt weight columns.
+  static List<String> closingRow(Map<String, double> weights) {
+    final row = _emptyRow();
+    row[0] = 'Closing Stock';
+    for (var i = 0; i < kStockWeightTypes.length; i++) {
+      final value = formatStockWeight(
+        weights[kStockWeightTypes[i]] ?? 0,
+        blankWhenZero: false,
+      );
       row[2 + i] = value;
       row[10 + i] = value;
     }
@@ -69,9 +86,9 @@ class StockSummaryTable extends StatelessWidget {
 
   /// Data rows for PDF export (opening, transactions, closing).
   static List<List<String>> pdfRowsFor(StockLedgerSummary summary) => [
-        bookendRow('Opening', summary.opening),
+        openingRow(summary.opening),
         for (final txn in summary.rows) transactionRow(txn),
-        bookendRow('Closing Stock', summary.closing),
+        closingRow(summary.closing),
       ];
 
   static String closingSummaryText(Map<String, double> closing) {
@@ -152,11 +169,9 @@ class StockSummaryTable extends StatelessWidget {
 
         final rows = [
           rowWidget(headers, header: true),
-          rowWidget(bookendRow('Opening', summary.opening),
-              band: true, bold: true),
+          rowWidget(openingRow(summary.opening), band: true, bold: true),
           for (final txn in summary.rows) rowWidget(transactionRow(txn)),
-          rowWidget(bookendRow('Closing Stock', summary.closing),
-              band: true, bold: true),
+          rowWidget(closingRow(summary.closing), band: true, bold: true),
         ];
 
         final table = Column(
