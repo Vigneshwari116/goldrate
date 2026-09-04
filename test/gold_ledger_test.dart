@@ -193,41 +193,52 @@ void main() {
     );
   });
 
-  test('gold weight from customer master uses pure weight only', () {
-    final balances = buildMasterOpeningBalances([
-      {
-        'name': 'ab',
-        'cr': '0',
-        'dr': '23.000',
-        'drGross': '99.000',
-        'balanceUnit': 'GRAMS',
-        'billRef': '',
-      },
-    ]);
-    expect(balances['ab'], closeTo(23, 0.0001));
+  test('master opening uses gold weight when pure weight is blank', () {
+    final row = {
+      'name': 'upendra',
+      'cr': '0',
+      'dr': '0',
+      'drGross': '102.000',
+      'balanceUnit': 'GRAMS',
+      'billRef': '',
+    };
+    expect(
+      partyLedgerRowGrams(row, isCustomer: true),
+      closeTo(102, 0.001),
+    );
+    final balances = buildMasterOpeningBalances([row], isCustomer: true);
+    expect(balances['upendra'], closeTo(102, 0.001));
 
     final sections = buildPartyLedgerSections(
       customer: true,
       transactions: const [],
       vouchers: const [],
-      masterRows: [
-        {
-          'name': 'ab',
-          'cr': '0',
-          'dr': '23.000',
-          'drGross': '99.000',
-          'balanceUnit': 'GRAMS',
-          'billRef': '',
-        },
-      ],
-      from: DateTime(2026, 9, 1),
-      to: DateTime(2026, 9, 30),
-      nameQuery: 'ab',
-      goldRate: 16000,
+      masterRows: [row],
+      from: DateTime(2026, 9, 3),
+      to: DateTime(2026, 9, 3),
+      nameQuery: 'upendra',
+      goldRate: 15100,
     );
     expect(sections.length, 1);
-    expect(sections.first.openingBalance, closeTo(23, 0.0001));
-    expect(sections.first.openingTableRow()[7], '+23.000 g');
+    expect(sections.first.openingBalance, closeTo(102, 0.001));
+    expect(sections.first.openingTableRow()[7], '+102.000 g');
+  });
+
+  test('supplier master opening uses gross gold weight field', () {
+    final row = {
+      'name': 'vendor',
+      'cr': '0',
+      'dr': '0',
+      'gross': '55.500',
+      'balanceUnit': 'GRAMS',
+      'billRef': '',
+    };
+    expect(
+      partyLedgerRowGrams(row, isCustomer: false),
+      closeTo(55.5, 0.001),
+    );
+    final balances = buildMasterOpeningBalances([row], isCustomer: false);
+    expect(balances['vendor'], closeTo(55.5, 0.001));
   });
 
   test('master opening appears with case-insensitive name search', () {

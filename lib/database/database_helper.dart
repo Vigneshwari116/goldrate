@@ -7,6 +7,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../api/api_client.dart';
 import '../config/api_config.dart';
+import '../logic/gold_ledger.dart';
 import '../logic/transaction_records.dart';
 import '../util/api_row_keys.dart';
 
@@ -794,7 +795,9 @@ class DatabaseHelper {
       final cr = double.tryParse((row['cr'] ?? '').toString()) ?? 0;
       final dr = double.tryParse((row['dr'] ?? '').toString()) ?? 0;
       final unit = (row['balanceUnit'] ?? 'RUPEES').toString();
-      final net = dr - cr;
+      final net = unit == 'GRAMS'
+          ? partyLedgerRowGrams(row, isCustomer: isCustomer)
+          : dr - cr;
       if (unit == 'GRAMS') {
         grams += net;
         crGrams += cr;

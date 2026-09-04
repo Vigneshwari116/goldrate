@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../database/database_helper.dart';
+import '../logic/gold_ledger.dart';
 import '../util/focus_chain.dart';
 import '../util/screen_activation.dart';
 import '../theme/app_theme.dart';
@@ -56,20 +57,17 @@ List<_PartySummary> _buildSummaries(
     String city = '';
 
     for (final e in entries) {
-      final cr =
-          double.tryParse((e['cr'] ?? '0').toString()) ?? 0;
-      final dr =
-          double.tryParse((e['dr'] ?? '0').toString()) ?? 0;
-
       final unit =
       (e['balanceUnit'] ?? 'RUPEES').toString().toUpperCase();
 
-      final net = dr - cr;
-
       if (unit == 'GRAMS') {
-        grams += net;
+        grams += partyLedgerRowGrams(e, isCustomer: true);
       } else {
-        rupees += net;
+        final cr =
+            double.tryParse((e['cr'] ?? '0').toString()) ?? 0;
+        final dr =
+            double.tryParse((e['dr'] ?? '0').toString()) ?? 0;
+        rupees += dr - cr;
       }
 
       if (mobile.isEmpty) {

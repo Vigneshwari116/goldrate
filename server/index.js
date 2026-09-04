@@ -153,7 +153,12 @@ app.get('/api/customers/:name/outstanding', async (req, res) => {
     const cr = parseFloat(row.cr) || 0;
     const dr = parseFloat(row.dr) || 0;
     const unit = row.balance_unit || 'RUPEES';
-    const net = dr - cr;
+    const billRef = (row.bill_ref || '').toString().trim();
+    let net = dr - cr;
+    if (unit === 'GRAMS' && !billRef) {
+      const gold = parseFloat(row.dr_gross) || 0;
+      if (Math.abs(gold) > 0.0005) net = gold;
+    }
     if (unit === 'GRAMS') {
       grams += net; crGrams += cr; drGrams += dr;
     } else {
@@ -226,7 +231,12 @@ app.get('/api/suppliers/:name/outstanding', async (req, res) => {
     const cr = parseFloat(row.cr) || 0;
     const dr = parseFloat(row.dr) || 0;
     const unit = row.balance_unit || 'RUPEES';
-    const net = dr - cr;
+    const billRef = (row.bill_ref || '').toString().trim();
+    let net = dr - cr;
+    if (unit === 'GRAMS' && !billRef) {
+      const gold = parseFloat(row.gross) || 0;
+      if (Math.abs(gold) > 0.0005) net = gold;
+    }
     if (unit === 'GRAMS') {
       grams += net; crGrams += cr; drGrams += dr;
     } else {
