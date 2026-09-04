@@ -175,6 +175,13 @@ class ApiClient {
     return data['rowsAffected'] as int? ?? 0;
   }
 
+  static Future<int> deleteCustomersByName(String name) async {
+    final encoded = Uri.encodeComponent(name.trim());
+    final res = await http.delete(_uri('/customers/by-name/$encoded'));
+    final data = await _decodeObject(res);
+    return data['rowsAffected'] as int? ?? 0;
+  }
+
   // ---------- Suppliers ----------
   static Future<List<Map<String, dynamic>>> getSuppliers() async {
     final res = await http.get(_uri('/suppliers'));
@@ -193,6 +200,13 @@ class ApiClient {
 
   static Future<int> deleteSupplier(int id) async {
     final res = await http.delete(_uri('/suppliers/$id'));
+    final data = await _decodeObject(res);
+    return data['rowsAffected'] as int? ?? 0;
+  }
+
+  static Future<int> deleteSuppliersByName(String name) async {
+    final encoded = Uri.encodeComponent(name.trim());
+    final res = await http.delete(_uri('/suppliers/by-name/$encoded'));
     final data = await _decodeObject(res);
     return data['rowsAffected'] as int? ?? 0;
   }

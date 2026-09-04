@@ -14,22 +14,32 @@ class StockSummaryTable extends StatelessWidget {
 
   final StockLedgerSummary summary;
 
+  // Name | Bill no | date | Type | Receipt GWT..SWT | Issue GWT..SWT
   static const headers = [
-    'Issue',
-    'Type',
-    'GWT',
-    'FWT',
-    'KWT',
-    'SWT',
+    '',
     'Name',
     'Bill no',
     'date',
+    'Type',
     'Receipt',
     'GWT',
     'FWT',
     'KWT',
     'SWT',
+    'Issue',
+    'GWT',
+    'FWT',
+    'KWT',
+    'SWT',
   ];
+
+  static const _labelCol = 0;
+  static const _nameCol = 1;
+  static const _billCol = 2;
+  static const _dateCol = 3;
+  static const _typeCol = 4;
+  static const _receiptStart = 6;
+  static const _issueStart = 11;
 
   /// Equal column width when horizontal scroll is required on narrow screens.
   static const scrollColumnWidth = 68.0;
@@ -40,47 +50,44 @@ class StockSummaryTable extends StatelessWidget {
 
   static List<String> _emptyRow() => List.filled(headers.length, '');
 
-  /// Opening stock — Issue GWT/FWT/KWT/SWT only (left block).
-  static List<String> openingRow(Map<String, double> weights) {
-    final row = _emptyRow();
-    row[0] = 'Opening';
+  static void _setWeights(
+    List<String> row,
+    int startCol,
+    Map<String, double> weights,
+  ) {
     for (var i = 0; i < kStockWeightTypes.length; i++) {
-      row[2 + i] = formatStockWeight(
+      row[startCol + i] = formatStockWeight(
         weights[kStockWeightTypes[i]] ?? 0,
         blankWhenZero: false,
       );
     }
+  }
+
+  /// Opening stock — Issue GWT/FWT/KWT/SWT only.
+  static List<String> openingRow(Map<String, double> weights) {
+    final row = _emptyRow();
+    row[_labelCol] = 'Opening';
+    _setWeights(row, _issueStart, weights);
     return row;
   }
 
-  /// Closing stock — same totals in Issue and Receipt weight columns.
+  /// Closing stock — same totals in Receipt and Issue weight columns.
   static List<String> closingRow(Map<String, double> weights) {
     final row = _emptyRow();
-    row[0] = 'Closing Stock';
-    for (var i = 0; i < kStockWeightTypes.length; i++) {
-      final value = formatStockWeight(
-        weights[kStockWeightTypes[i]] ?? 0,
-        blankWhenZero: false,
-      );
-      row[2 + i] = value;
-      row[10 + i] = value;
-    }
+    row[_labelCol] = 'Closing Stock';
+    _setWeights(row, _receiptStart, weights);
+    _setWeights(row, _issueStart, weights);
     return row;
   }
 
   static List<String> transactionRow(StockLedgerRow txn) {
     final row = _emptyRow();
-    row[1] = txn.label;
-    for (var i = 0; i < kStockWeightTypes.length; i++) {
-      final type = kStockWeightTypes[i];
-      row[2 + i] =
-          formatStockWeight(txn.issueWeights[type] ?? 0, blankWhenZero: false);
-      row[10 + i] = formatStockWeight(txn.receiptWeights[type] ?? 0,
-          blankWhenZero: false);
-    }
-    row[6] = txn.name;
-    row[7] = txn.billNo;
-    row[8] = txn.date;
+    row[_typeCol] = txn.label;
+    row[_nameCol] = txn.name;
+    row[_billCol] = txn.billNo;
+    row[_dateCol] = txn.date;
+    _setWeights(row, _receiptStart, txn.receiptWeights);
+    _setWeights(row, _issueStart, txn.issueWeights);
     return row;
   }
 
@@ -104,7 +111,8 @@ class StockSummaryTable extends StatelessWidget {
   }
 
   static bool _isWeightColumn(int index) =>
-      index >= 2 && index <= 5 || index >= 10;
+      index >= _receiptStart && index <= _receiptStart + 3 ||
+      index >= _issueStart && index <= _issueStart + 3;
 
   @override
   Widget build(BuildContext context) {

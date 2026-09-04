@@ -193,13 +193,13 @@ void main() {
     );
   });
 
-  test('gold weight from customer master counts as opening balance', () {
+  test('gold weight from customer master uses pure weight only', () {
     final balances = buildMasterOpeningBalances([
       {
         'name': 'ab',
         'cr': '0',
-        'dr': '0',
-        'drGross': '23.000',
+        'dr': '23.000',
+        'drGross': '99.000',
         'balanceUnit': 'GRAMS',
         'billRef': '',
       },
@@ -214,8 +214,8 @@ void main() {
         {
           'name': 'ab',
           'cr': '0',
-          'dr': '0',
-          'drGross': '23.000',
+          'dr': '23.000',
+          'drGross': '99.000',
           'balanceUnit': 'GRAMS',
           'billRef': '',
         },
@@ -228,6 +228,30 @@ void main() {
     expect(sections.length, 1);
     expect(sections.first.openingBalance, closeTo(23, 0.0001));
     expect(sections.first.openingTableRow()[7], '+23.000 g');
+  });
+
+  test('master opening appears with case-insensitive name search', () {
+    final sections = buildPartyLedgerSections(
+      customer: true,
+      transactions: const [],
+      vouchers: const [],
+      masterRows: [
+        {
+          'name': 'Upendra',
+          'cr': '0',
+          'dr': '102.000',
+          'balanceUnit': 'GRAMS',
+          'billRef': '',
+        },
+      ],
+      from: DateTime(2026, 9, 3),
+      to: DateTime(2026, 9, 3),
+      nameQuery: 'upendra',
+      goldRate: 15100,
+    );
+    expect(sections.length, 1);
+    expect(sections.first.partyName, 'Upendra');
+    expect(sections.first.openingBalance, closeTo(102, 0.001));
   });
 
   test('customer name filter shows master opening without transactions', () {

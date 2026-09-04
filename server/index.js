@@ -123,6 +123,15 @@ app.post('/api/customers', async (req, res) => {
   res.json({ id: result.rows[0].id });
 });
 
+app.delete('/api/customers/by-name/:name', async (req, res) => {
+  const name = decodeURIComponent(req.params.name);
+  const result = await pool.query(
+    'DELETE FROM customers WHERE LOWER(name) = LOWER($1)',
+    [name],
+  );
+  res.json({ rowsAffected: result.rowCount });
+});
+
 app.delete('/api/customers/:id', async (req, res) => {
   const result = await pool.query('DELETE FROM customers WHERE id = $1', [req.params.id]);
   res.json({ rowsAffected: result.rowCount });
@@ -134,7 +143,11 @@ app.get('/api/customers/names', async (_req, res) => {
 });
 
 app.get('/api/customers/:name/outstanding', async (req, res) => {
-  const result = await pool.query('SELECT * FROM customers WHERE name = $1', [req.params.name]);
+  const name = decodeURIComponent(req.params.name);
+  const result = await pool.query(
+    'SELECT * FROM customers WHERE LOWER(name) = LOWER($1)',
+    [name],
+  );
   let rupees = 0, grams = 0, crRupees = 0, drRupees = 0, crGrams = 0, drGrams = 0;
   for (const row of result.rows) {
     const cr = parseFloat(row.cr) || 0;
@@ -183,6 +196,15 @@ app.post('/api/suppliers', async (req, res) => {
   res.json({ id: result.rows[0].id });
 });
 
+app.delete('/api/suppliers/by-name/:name', async (req, res) => {
+  const name = decodeURIComponent(req.params.name);
+  const result = await pool.query(
+    'DELETE FROM suppliers WHERE LOWER(name) = LOWER($1)',
+    [name],
+  );
+  res.json({ rowsAffected: result.rowCount });
+});
+
 app.delete('/api/suppliers/:id', async (req, res) => {
   const result = await pool.query('DELETE FROM suppliers WHERE id = $1', [req.params.id]);
   res.json({ rowsAffected: result.rowCount });
@@ -194,7 +216,11 @@ app.get('/api/suppliers/names', async (_req, res) => {
 });
 
 app.get('/api/suppliers/:name/outstanding', async (req, res) => {
-  const result = await pool.query('SELECT * FROM suppliers WHERE name = $1', [req.params.name]);
+  const name = decodeURIComponent(req.params.name);
+  const result = await pool.query(
+    'SELECT * FROM suppliers WHERE LOWER(name) = LOWER($1)',
+    [name],
+  );
   let rupees = 0, grams = 0, crRupees = 0, drRupees = 0, crGrams = 0, drGrams = 0;
   for (const row of result.rows) {
     const cr = parseFloat(row.cr) || 0;

@@ -68,9 +68,20 @@ double _parseDouble(dynamic raw) =>
 
 DateTime? _parseBillDate(String? raw, DateFormat fmt) {
   if (raw == null || raw.isEmpty) return null;
+  final text = raw.trim();
+  if (RegExp(r'^\d{4}-\d{2}-\d{2}').hasMatch(text)) {
+    try {
+      return DateFormat('yyyy-MM-dd').parse(text);
+    } catch (_) {}
+  }
   try {
-    return fmt.parse(raw);
+    return fmt.parse(text);
   } catch (_) {
+    for (final pattern in ['dd/MM/yyyy', 'dd-MM-yyyy']) {
+      try {
+        return DateFormat(pattern).parse(text);
+      } catch (_) {}
+    }
     return null;
   }
 }
@@ -84,11 +95,17 @@ List<dynamic> _decodeItems(dynamic raw) {
   }
 }
 
+String _normalizeItemType(String raw) {
+  final type = raw.trim().toUpperCase();
+  if (type.startsWith('O.')) return type.substring(2);
+  return type;
+}
+
 Map<String, double> _weightsFromItems(dynamic raw) {
   final totals = _emptyWeights();
   for (final item in _decodeItems(raw)) {
     if (item is! Map) continue;
-    final type = (item['type'] ?? '').toString();
+    final type = _normalizeItemType((item['type'] ?? '').toString());
     if (!totals.containsKey(type)) continue;
     final weight = (item['weight'] as num?)?.toDouble() ??
         _parseDouble(item['weight']);
