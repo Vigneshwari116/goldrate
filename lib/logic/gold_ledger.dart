@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 
+import '../util/app_date.dart';
 import '../util/party_name_key.dart';
+import 'transaction_records.dart';
 
 /// Cash-to-gold conversion and running party balances.
 ///
@@ -542,7 +544,9 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
   bool nameMatches(String name) => partyNameMatches(name, nameQuery);
 
   for (final bill in transactions) {
-    final type = (bill['transactionType'] ?? '').toString();
+    final type = normalizeTransactionType(
+      (bill['transactionType'] ?? '').toString(),
+    );
     final name = (bill['partyName'] ?? '').toString();
     if (!nameMatches(name)) continue;
     if (!inAppDateRange(
@@ -794,17 +798,6 @@ String paymentModeLabel(String? raw) {
   return m;
 }
 
-DateTime? parseAppDate(String? raw) {
-  if (raw == null || raw.isEmpty) return null;
-  try {
-    final p = raw.split(RegExp(r'[-/]'));
-    if (p.length < 3) return null;
-    return DateTime(int.parse(p[2]), int.parse(p[1]), int.parse(p[0]));
-  } catch (_) {
-    return null;
-  }
-}
-
 /// Gold grams received as payment on a bill or voucher.
 double goldPaidOnRow(Map<String, dynamic> row) {
   final mode = (row['paymentMode'] ?? '').toString().toUpperCase();
@@ -889,7 +882,9 @@ List<PartyNameWiseRow> buildPartyNameWise({
   }
 
   for (final bill in transactions) {
-    final type = (bill['transactionType'] ?? '').toString();
+    final type = normalizeTransactionType(
+      (bill['transactionType'] ?? '').toString(),
+    );
     final name = (bill['partyName'] ?? '').toString();
     final grams = double.tryParse((bill['totalPureWt'] ?? '').toString()) ?? 0;
     final paid = goldPaidOnRow(bill);

@@ -701,9 +701,13 @@ class DatabaseHelper {
 
   Future<List<Map<String, dynamic>>> getTransactions(
       String transactionType) async {
+    final wanted = transactionType.trim().toUpperCase();
     final all = await getAllTransactions();
     return all
-        .where((row) => apiStr(row, 'transactionType') == transactionType)
+        .where(
+          (row) =>
+              normalizeTransactionType(apiStr(row, 'transactionType')) == wanted,
+        )
         .toList();
   }
 
