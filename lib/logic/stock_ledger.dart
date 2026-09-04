@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:intl/intl.dart';
 
+import 'transaction_records.dart';
+
 /// Weight type codes used on purchase/sales entry screens.
 const kStockWeightTypes = ['GWT', 'FWT', 'KWT', 'SWT'];
 
@@ -130,7 +132,8 @@ void _applyNetChange(
   Map<String, dynamic> bill,
 ) {
   final isPurchase =
-      (bill['transactionType'] ?? '').toString() == 'PURCHASE';
+      normalizeTransactionType((bill['transactionType'] ?? '').toString()) ==
+          'PURCHASE';
   final items = _weightsFromItems(bill['items']);
   final payment = _weightsFromItems(bill['paymentItems']);
   if (isPurchase) {
@@ -177,7 +180,8 @@ StockLedgerSummary buildStockLedgerSummary({
     if (day == null) continue;
     final billDay = DateTime(day.year, day.month, day.day);
     final isPurchase =
-        (bill['transactionType'] ?? '').toString() == 'PURCHASE';
+        normalizeTransactionType((bill['transactionType'] ?? '').toString()) ==
+            'PURCHASE';
     final prefix = isPurchase ? 'PUR' : 'SAL';
     final billNo = (bill['billNo'] ?? '').toString();
     final sides = _billSides(bill);

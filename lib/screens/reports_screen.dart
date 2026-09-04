@@ -6,8 +6,10 @@ import 'package:pdf/widgets.dart' as pw;
 import '../database/database_helper.dart';
 import '../logic/gold_ledger.dart';
 import '../logic/stock_ledger.dart';
+import '../logic/transaction_records.dart';
 import '../pdf/pdf_kit.dart';
 import '../theme/app_theme.dart';
+import '../util/app_date.dart';
 import '../util/platform_detect.dart';
 import '../util/screen_activation.dart';
 import '../widgets/party_options_overlay.dart';
@@ -128,14 +130,7 @@ class _ReportsScreenState extends State<ReportsScreen>
     });
   }
 
-  DateTime? _parse(String? raw) {
-    if (raw == null || raw.isEmpty) return null;
-    try {
-      return _fmt.parse(raw);
-    } catch (_) {
-      return null;
-    }
-  }
+  DateTime? _parse(String? raw) => parseAppDate(raw);
 
   bool _inRange(String? date) {
     if (_allHistory) return true;
@@ -456,10 +451,26 @@ class _ReportsScreenState extends State<ReportsScreen>
   }) {
     var rows = _filteredTxns;
     if (salesOnly) {
-      rows = rows.where((r) => r['transactionType'] == 'SALES').toList();
+      rows = rows
+          .where(
+            (r) =>
+                normalizeTransactionType(
+                  (r['transactionType'] ?? '').toString(),
+                ) ==
+                'SALES',
+          )
+          .toList();
     }
     if (purchasesOnly) {
-      rows = rows.where((r) => r['transactionType'] == 'PURCHASE').toList();
+      rows = rows
+          .where(
+            (r) =>
+                normalizeTransactionType(
+                  (r['transactionType'] ?? '').toString(),
+                ) ==
+                'PURCHASE',
+          )
+          .toList();
     }
     rows = [...rows]..sort((a, b) {
         final an = a['billNo'] as int? ?? 0;
@@ -471,7 +482,8 @@ class _ReportsScreenState extends State<ReportsScreen>
     double totalIssue = 0;
     final table = <List<String>>[];
     for (final bill in rows) {
-      final type = (bill['transactionType'] ?? '').toString();
+      final type =
+          normalizeTransactionType((bill['transactionType'] ?? '').toString());
       final isSales = type == 'SALES';
       final weights = billLedgerWeights(bill, isSales: isSales);
       totalReceipt += weights.receipt;
