@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grate_app/logic/gold_ledger.dart';
 
@@ -146,10 +148,190 @@ void main() {
     expect(sections.first.openingBalance, 0);
     expect(sections.first.closingBalance, closeTo(10, 0.0001));
     final table = sections.first.toTableRows();
-    expect(table.first[1], '1');
+    expect(table.first[0], 'SAL-1');
     expect(table.first[2], 'Ravi');
-    expect(table.first[6], '10.000');
+    expect(table.first[5], ''); // R.WEIGHT (receipt) — unpaid cash sale
+    expect(table.first[6], '10.000'); // Issue weight
     expect(table.first[7], '');
+    expect(sections.first.openingTableRow()[4], 'opening balance');
+    expect(sections.first.openingTableRow()[7], '0.000 g');
+    expect(sections.first.footerTableRow()[4], 'total');
+    expect(
+      sections.first.footerTableRow()[7],
+      'closing balance: +10.000 g',
+    );
+  });
+
+  test('master opening balance from customer master appears in ledger', () {
+    final sections = buildPartyLedgerSections(
+      customer: true,
+      transactions: const [],
+      vouchers: const [],
+      masterRows: [
+        {
+          'name': 'Priya',
+          'cr': '0',
+          'dr': '5.500',
+          'balanceUnit': 'GRAMS',
+          'billRef': '',
+        },
+      ],
+      from: DateTime(2026, 8, 10),
+      to: DateTime(2026, 8, 10),
+      nameQuery: 'Priya',
+      goldRate: 15100,
+    );
+    expect(sections.length, 1);
+    expect(sections.first.partyName, 'Priya');
+    expect(sections.first.openingBalance, closeTo(5.5, 0.0001));
+    expect(sections.first.closingBalance, closeTo(5.5, 0.0001));
+    expect(sections.first.rows, isEmpty);
+    expect(sections.first.openingTableRow()[7], '+5.500 g');
+    expect(
+      sections.first.footerTableRow()[7],
+      'closing balance: +5.500 g',
+    );
+  });
+
+  test('master opening uses gold weight when pure weight is blank', () {
+    final row = {
+      'name': 'upendra',
+      'cr': '0',
+      'dr': '0',
+      'drGross': '102.000',
+      'balanceUnit': 'GRAMS',
+      'billRef': '',
+    };
+    expect(
+      partyLedgerRowGrams(row, isCustomer: true),
+      closeTo(102, 0.001),
+    );
+    final balances = buildMasterOpeningBalances([row], isCustomer: true);
+    expect(balances['upendra'], closeTo(102, 0.001));
+
+    final sections = buildPartyLedgerSections(
+      customer: true,
+      transactions: const [],
+      vouchers: const [],
+      masterRows: [row],
+      from: DateTime(2026, 9, 3),
+      to: DateTime(2026, 9, 3),
+      nameQuery: 'upendra',
+      goldRate: 15100,
+    );
+    expect(sections.length, 1);
+    expect(sections.first.openingBalance, closeTo(102, 0.001));
+    expect(sections.first.openingTableRow()[7], '+102.000 g');
+  });
+
+  test('supplier master opening uses gross gold weight field', () {
+    final row = {
+      'name': 'vendor',
+      'cr': '0',
+      'dr': '0',
+      'gross': '55.500',
+      'balanceUnit': 'GRAMS',
+      'billRef': '',
+    };
+    expect(
+      partyLedgerRowGrams(row, isCustomer: false),
+      closeTo(55.5, 0.001),
+    );
+    final balances = buildMasterOpeningBalances([row], isCustomer: false);
+    expect(balances['vendor'], closeTo(55.5, 0.001));
+  });
+
+  test('master opening appears with case-insensitive name search', () {
+    final sections = buildPartyLedgerSections(
+      customer: true,
+      transactions: const [],
+      vouchers: const [],
+      masterRows: [
+        {
+          'name': 'Upendra',
+          'cr': '0',
+          'dr': '102.000',
+          'balanceUnit': 'GRAMS',
+          'billRef': '',
+        },
+      ],
+      from: DateTime(2026, 9, 3),
+      to: DateTime(2026, 9, 3),
+      nameQuery: 'upendra',
+      goldRate: 15100,
+    );
+    expect(sections.length, 1);
+    expect(sections.first.partyName, 'Upendra');
+    expect(sections.first.openingBalance, closeTo(102, 0.001));
+  });
+
+  test('customer name filter shows master opening without transactions', () {
+    final sections = buildPartyLedgerSections(
+      customer: true,
+      transactions: const [],
+      vouchers: const [],
+      masterRows: [
+        {
+          'name': 'Anita',
+          'cr': '0',
+          'dr': '3.000',
+          'balanceUnit': 'GRAMS',
+          'billRef': '',
+        },
+      ],
+      from: DateTime(2026, 8, 1),
+      to: DateTime(2026, 8, 31),
+      nameQuery: 'anita',
+      goldRate: 15100,
+    );
+    expect(sections.length, 1);
+    expect(sections.first.openingBalance, closeTo(3, 0.0001));
+  });
+
+  test('date range carries forward closing as next opening', () {
+    final rows = buildPartyNameWise(
+      customer: true,
+      knownNames: ['Ravi'],
+      transactions: [
+        {
+          'transactionType': 'SALES',
+          'partyName': 'Ravi',
+          'totalPureWt': '10.000',
+          'paymentMode': 'CASH',
+          'paymentAmount': '0',
+          'cashToGold': '0',
+          'date': '05-08-2026',
+        },
+        {
+          'transactionType': 'SALES',
+          'partyName': 'Ravi',
+          'totalPureWt': '2.000',
+          'paymentMode': 'CASH',
+          'paymentAmount': '0',
+          'cashToGold': '0',
+          'date': '15-08-2026',
+        },
+      ],
+      vouchers: const [],
+      masterOpening: {'Ravi': 1.0},
+      from: DateTime(2026, 8, 10),
+      to: DateTime(2026, 8, 20),
+    );
+    expect(rows.first.opening, closeTo(11, 0.0001));
+    expect(rows.first.debit, closeTo(2, 0.0001));
+    expect(rows.first.closing, closeTo(13, 0.0001));
+  });
+
+  test('bill particulars lists item types from bill lines', () {
+    expect(
+      billParticulars({
+        'items': jsonEncode([
+          {'type': 'GWT', 'weight': 10},
+          {'type': 'FWT', 'weight': 2},
+        ]),
+      }),
+      'GWT/FWT',
+    );
   });
 
   test('ledger payment narration shows cash or gold given', () {

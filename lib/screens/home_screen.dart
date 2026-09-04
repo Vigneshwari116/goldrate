@@ -3,18 +3,26 @@ import 'package:intl/intl.dart';
 import '../database/database_helper.dart';
 import '../navigation/app_page.dart';
 import '../theme/app_theme.dart';
+import '../util/screen_activation.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, this.onOpen, this.embedded = false});
+  const HomeScreen({
+    super.key,
+    this.onOpen,
+    this.embedded = false,
+    this.isActive = true,
+  });
 
   final void Function(AppPage page)? onOpen;
   final bool embedded;
+  final bool isActive;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen>
+    with ScreenActivationMixin<HomeScreen> {
   Map<String, String> _rates = {};
   Map<String, double> _stock = {};
   String _lastDate = '';
@@ -38,6 +46,17 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _load();
+  }
+
+  @override
+  bool get screenIsActive => widget.isActive;
+
+  @override
+  bool wasScreenActive(HomeScreen oldWidget) => oldWidget.isActive;
+
+  @override
+  void onScreenActivated() {
     _load();
   }
 

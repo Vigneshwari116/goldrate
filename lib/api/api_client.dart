@@ -85,6 +85,31 @@ class ApiClient {
     return _decodeList(res);
   }
 
+  static Future<void> ensureDefaultRates() async {
+    // Read first — never block the UI on a missing seed POST route (404).
+    var rows = await getRates();
+    if (rows.isNotEmpty) return;
+
+    for (final path in ['/rates/ensure-defaults', '/admin/seed-rates']) {
+      try {
+        final res = await http.post(_uri(path));
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          rows = await getRates();
+          if (rows.isNotEmpty) return;
+        }
+      } catch (_) {
+        // Older API builds may not have the seed route yet.
+      }
+    }
+
+    // Final read — updated GET /rates auto-seeds when empty.
+    try {
+      await getRates();
+    } catch (_) {
+      // Caller shows blank template rows when the server is unreachable.
+    }
+  }
+
   static Future<Map<String, double>> getRatesMap() async {
     final rows = await getRates();
     final map = <String, double>{};
@@ -150,6 +175,13 @@ class ApiClient {
     return data['rowsAffected'] as int? ?? 0;
   }
 
+  static Future<int> deleteCustomersByName(String name) async {
+    final encoded = Uri.encodeComponent(name.trim());
+    final res = await http.delete(_uri('/customers/by-name/$encoded'));
+    final data = await _decodeObject(res);
+    return data['rowsAffected'] as int? ?? 0;
+  }
+
   // ---------- Suppliers ----------
   static Future<List<Map<String, dynamic>>> getSuppliers() async {
     final res = await http.get(_uri('/suppliers'));
@@ -172,13 +204,20 @@ class ApiClient {
     return data['rowsAffected'] as int? ?? 0;
   }
 
+  static Future<int> deleteSuppliersByName(String name) async {
+    final encoded = Uri.encodeComponent(name.trim());
+    final res = await http.delete(_uri('/suppliers/by-name/$encoded'));
+    final data = await _decodeObject(res);
+    return data['rowsAffected'] as int? ?? 0;
+  }
+
   // ---------- Opening weight ----------
   static Future<Map<String, dynamic>?> getOpeningWeight() async {
     final res = await http.get(_uri('/opening-weight'));
     if (res.body == 'null' || res.body.isEmpty) return null;
     final body = jsonDecode(res.body);
     if (body == null) return null;
-    return Map<String, dynamic>.from(body as Map);
+    return normalizeApiRow(Map<String, dynamic>.from(body as Map));
   }
 
   static Future<int> insertOpeningWeight(Map<String, dynamic> weight) async {

@@ -2,12 +2,26 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
+const {
+  decodeNameParam,
+  installAsyncRouteWrapper,
+  parsePositiveInt,
+} = require('./route_utils');
 
 const app = express();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
+pool.on('error', (err) => {
+  console.error('Unexpected database pool error:', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection:', reason);
+});
+
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
+installAsyncRouteWrapper(app);
 
 // Convert DB snake_case rows to Flutter camelCase keys.
 function toCamel(row) {
@@ -46,12 +60,35 @@ app.post('/api/auth/login', async (req, res) => {
 
 // ---------- Rates ----------
 app.get('/api/rates', async (_req, res) => {
+  await seedDefaultRates();
   const result = await pool.query('SELECT * FROM rates ORDER BY id');
   res.json(toCamelList(result.rows));
 });
 
+app.post('/api/rates/ensure-defaults', async (_req, res) => {
+  await seedDefaultRates();
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/seed-rates', async (_req, res) => {
+  await seedDefaultRates();
+  res.json({ ok: true });
+});
+
+async function seedDefaultRates() {
+  const count = await pool.query('SELECT COUNT(*)::int AS count FROM rates');
+  if (count.rows[0].count > 0) return;
+  await pool.query(
+    `INSERT INTO rates (rate_name, rate_value) VALUES
+      ('G.P RATE', ''),
+      ('F.T RATE', ''),
+      ('KACHA RATE', ''),
+      ('S RATE', '')`,
+  );
+}
+
 app.put('/api/rates/:id', async (req, res) => {
-  const { id } = req.params;
+  const id = parsePositiveInt(req.params.id, 'rate id');
   const { rateName, rateValue, date, time } = req.body;
   const updated = await pool.query(
     'UPDATE rates SET rate_value = $1 WHERE id = $2 RETURNING *',
@@ -100,8 +137,18 @@ app.post('/api/customers', async (req, res) => {
   res.json({ id: result.rows[0].id });
 });
 
+app.delete('/api/customers/by-name/:name', async (req, res) => {
+  const name = decodeNameParam(req.params.name);
+  const result = await pool.query(
+    'DELETE FROM customers WHERE LOWER(name) = LOWER($1)',
+    [name],
+  );
+  res.json({ rowsAffected: result.rowCount });
+});
+
 app.delete('/api/customers/:id', async (req, res) => {
-  const result = await pool.query('DELETE FROM customers WHERE id = $1', [req.params.id]);
+  const id = parsePositiveInt(req.params.id, 'customer id');
+  const result = await pool.query('DELETE FROM customers WHERE id = $1', [id]);
   res.json({ rowsAffected: result.rowCount });
 });
 
@@ -111,13 +158,22 @@ app.get('/api/customers/names', async (_req, res) => {
 });
 
 app.get('/api/customers/:name/outstanding', async (req, res) => {
-  const result = await pool.query('SELECT * FROM customers WHERE name = $1', [req.params.name]);
+  const name = decodeURIComponent(req.params.name);
+  const result = await pool.query(
+    'SELECT * FROM customers WHERE LOWER(name) = LOWER($1)',
+    [name],
+  );
   let rupees = 0, grams = 0, crRupees = 0, drRupees = 0, crGrams = 0, drGrams = 0;
   for (const row of result.rows) {
     const cr = parseFloat(row.cr) || 0;
     const dr = parseFloat(row.dr) || 0;
     const unit = row.balance_unit || 'RUPEES';
-    const net = dr - cr;
+    const billRef = (row.bill_ref || '').toString().trim();
+    let net = dr - cr;
+    if (unit === 'GRAMS' && !billRef) {
+      const gold = parseFloat(row.dr_gross) || 0;
+      if (Math.abs(gold) > 0.0005) net = gold;
+    }
     if (unit === 'GRAMS') {
       grams += net; crGrams += cr; drGrams += dr;
     } else {
@@ -160,8 +216,18 @@ app.post('/api/suppliers', async (req, res) => {
   res.json({ id: result.rows[0].id });
 });
 
+app.delete('/api/suppliers/by-name/:name', async (req, res) => {
+  const name = decodeNameParam(req.params.name);
+  const result = await pool.query(
+    'DELETE FROM suppliers WHERE LOWER(name) = LOWER($1)',
+    [name],
+  );
+  res.json({ rowsAffected: result.rowCount });
+});
+
 app.delete('/api/suppliers/:id', async (req, res) => {
-  const result = await pool.query('DELETE FROM suppliers WHERE id = $1', [req.params.id]);
+  const id = parsePositiveInt(req.params.id, 'supplier id');
+  const result = await pool.query('DELETE FROM suppliers WHERE id = $1', [id]);
   res.json({ rowsAffected: result.rowCount });
 });
 
@@ -171,13 +237,22 @@ app.get('/api/suppliers/names', async (_req, res) => {
 });
 
 app.get('/api/suppliers/:name/outstanding', async (req, res) => {
-  const result = await pool.query('SELECT * FROM suppliers WHERE name = $1', [req.params.name]);
+  const name = decodeURIComponent(req.params.name);
+  const result = await pool.query(
+    'SELECT * FROM suppliers WHERE LOWER(name) = LOWER($1)',
+    [name],
+  );
   let rupees = 0, grams = 0, crRupees = 0, drRupees = 0, crGrams = 0, drGrams = 0;
   for (const row of result.rows) {
     const cr = parseFloat(row.cr) || 0;
     const dr = parseFloat(row.dr) || 0;
     const unit = row.balance_unit || 'RUPEES';
-    const net = dr - cr;
+    const billRef = (row.bill_ref || '').toString().trim();
+    let net = dr - cr;
+    if (unit === 'GRAMS' && !billRef) {
+      const gold = parseFloat(row.gross) || 0;
+      if (Math.abs(gold) > 0.0005) net = gold;
+    }
     if (unit === 'GRAMS') {
       grams += net; crGrams += cr; drGrams += dr;
     } else {
@@ -242,19 +317,21 @@ app.post('/api/transactions', async (req, res) => {
     `INSERT INTO transactions
       (transaction_type, bill_no, party_name, items, total_wt, total_pure_wt, total_value,
        payment_mode, payment_amount, balance, balance_unit, staff_name, date, time,
-       old_grams, old_rupees, new_grams, new_rupees, cash_to_gold, gold_rate_used)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+       old_grams, old_rupees, new_grams, new_rupees, cash_to_gold, gold_rate_used,
+       payment_items, receipt_purpose)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
      RETURNING id`,
     [t.transactionType, t.billNo, t.partyName, t.items, t.totalWt, t.totalPureWt,
      t.totalValue, t.paymentMode, t.paymentAmount, t.balance, t.balanceUnit,
      t.staffName, t.date, t.time, t.oldGrams, t.oldRupees, t.newGrams, t.newRupees,
-     t.cashToGold, t.goldRateUsed],
+     t.cashToGold, t.goldRateUsed, t.paymentItems, t.receiptPurpose],
   );
   res.json({ id: result.rows[0].id });
 });
 
 app.delete('/api/transactions/:id', async (req, res) => {
-  const result = await pool.query('DELETE FROM transactions WHERE id = $1', [req.params.id]);
+  const id = parsePositiveInt(req.params.id, 'transaction id');
+  const result = await pool.query('DELETE FROM transactions WHERE id = $1', [id]);
   res.json({ rowsAffected: result.rowCount });
 });
 
@@ -292,7 +369,8 @@ app.post('/api/vouchers', async (req, res) => {
 });
 
 app.delete('/api/vouchers/:id', async (req, res) => {
-  const result = await pool.query('DELETE FROM vouchers WHERE id = $1', [req.params.id]);
+  const id = parsePositiveInt(req.params.id, 'voucher id');
+  const result = await pool.query('DELETE FROM vouchers WHERE id = $1', [id]);
   res.json({ rowsAffected: result.rowCount });
 });
 
@@ -319,9 +397,9 @@ app.get('/api/stock/current', async (_req, res) => {
     }
     for (const item of items) {
       const type = item.type || '';
-      const pureWt = parseFloat(item.pureWt) || 0;
+      const weight = parseFloat(item.weight) || 0;
       if (Object.prototype.hasOwnProperty.call(stock, type)) {
-        stock[type] += sign * pureWt;
+        stock[type] += sign * weight;
       }
     }
   }
@@ -368,6 +446,14 @@ app.post('/api/admin/reset', async (_req, res) => {
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }
+});
+
+// JSON error responses for failed API handlers (prevents process crashes).
+app.use('/api', (err, _req, res, next) => {
+  if (!err) return next();
+  console.error('API error:', err);
+  const status = err.status && err.status >= 400 && err.status < 600 ? err.status : 500;
+  res.status(status).json({ error: err.message || 'Internal server error' });
 });
 
 // JSON 404 for unknown API routes (avoids HTML error pages in the Flutter client).

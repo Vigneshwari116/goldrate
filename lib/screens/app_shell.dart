@@ -14,7 +14,6 @@ import 'opening_weight_screen.dart';
 import 'printer_settings_screen.dart';
 import 'reports_screen.dart';
 import 'reset_screen.dart';
-import 'stock_screen.dart';
 import 'supplier_master_screen.dart';
 import 'transaction_screen.dart';
 
@@ -45,8 +44,6 @@ class _AppShellState extends State<AppShell> {
         return 'HOME';
       case AppPage.openingWeight:
         return 'OPENING WEIGHT';
-      case AppPage.stock:
-        return 'STOCK';
       case AppPage.sales:
         return 'SALES';
       case AppPage.purchase:
@@ -122,7 +119,6 @@ class _AppShellState extends State<AppShell> {
   static const _pageOrder = [
     AppPage.home,
     AppPage.openingWeight,
-    AppPage.stock,
     AppPage.sales,
     AppPage.purchase,
     AppPage.receipt,
@@ -149,7 +145,6 @@ class _AppShellState extends State<AppShell> {
       children: [
         _KeepAlivePage(child: _HomePage()),
         _KeepAlivePage(child: OpeningWeightScreen(embedded: true)),
-        _KeepAlivePage(child: StockScreen(embedded: true)),
         _KeepAlivePage(
           child: TransactionScreen(
             kind: TransactionKind.sales,
@@ -190,7 +185,12 @@ class _AppShellState extends State<AppShell> {
             isActive: _page == AppPage.suppliers,
           ),
         ),
-        _KeepAlivePage(child: MasterScreen(embedded: true)),
+        _KeepAlivePage(
+          child: MasterScreen(
+            embedded: true,
+            isActive: _page == AppPage.rates,
+          ),
+        ),
         _KeepAlivePage(
           child: ReportsScreen(
             embedded: true,
@@ -363,21 +363,10 @@ class _AppShellState extends State<AppShell> {
                         label: 'Home',
                         page: AppPage.home,
                         nested: false),
-                    _group(
-                      icon: Icons.inventory_2,
-                      label: 'INVENTORY',
-                      pages: const [AppPage.openingWeight, AppPage.stock],
-                      children: [
-                        _leaf(
-                            icon: Icons.scale,
-                            label: 'Opening Weight',
-                            page: AppPage.openingWeight),
-                        _leaf(
-                            icon: Icons.inventory_2,
-                            label: 'Stock',
-                            page: AppPage.stock),
-                      ],
-                    ),
+                    _leaf(
+                        icon: Icons.scale,
+                        label: 'Opening Weight',
+                        page: AppPage.openingWeight),
                     _group(
                       icon: Icons.swap_horiz,
                       label: 'TRANSACTIONS',
@@ -535,7 +524,11 @@ class _HomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final shell = context.findAncestorStateOfType<_AppShellState>();
-    return HomeScreen(onOpen: shell?._go ?? (_) {});
+    return HomeScreen(
+      onOpen: shell?._go ?? (_) {},
+      embedded: true,
+      isActive: shell?._page == AppPage.home,
+    );
   }
 }
 

@@ -7,6 +7,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../api/api_client.dart';
 import '../config/api_config.dart';
+import '../logic/gold_ledger.dart';
 import '../logic/transaction_records.dart';
 import '../util/api_row_keys.dart';
 
@@ -28,7 +29,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 11,
+      version: 13,
       onCreate: _createDatabase,
       onUpgrade: _upgradeDatabase,
     );
@@ -136,7 +137,9 @@ class DatabaseHelper {
         newGrams TEXT,
         newRupees TEXT,
         cashToGold TEXT,
-        goldRateUsed TEXT
+        goldRateUsed TEXT,
+        paymentItems TEXT,
+        receiptPurpose TEXT
       )
     ''');
 
@@ -338,6 +341,53 @@ class DatabaseHelper {
         )
       ''');
     }
+    if (oldVersion < 12) {
+      await db.execute('ALTER TABLE transactions ADD COLUMN paymentItems TEXT');
+      await db.execute(
+          'ALTER TABLE transactions ADD COLUMN receiptPurpose TEXT');
+    }
+    if (oldVersion < 13) {
+      // Full data reset: clears business data for a fresh start. Keeps
+      // ADMIN login and blank rate rows; paymentItems/receiptPurpose
+      // columns remain on transactions (unused receiptPurpose).
+      await db.delete('transactions');
+      await db.delete('vouchers');
+      await db.delete('opening_weight');
+      await db.delete('rate_history');
+      await db.delete('rates');
+      await db.delete('suppliers');
+      await db.delete('customers');
+
+      await db.insert('rates', {'rateName': 'G.P RATE', 'rateValue': ''});
+      await db.insert('rates', {'rateName': 'F.T RATE', 'rateValue': ''});
+      await db.insert('rates', {'rateName': 'KACHA RATE', 'rateValue': ''});
+      await db.insert('rates', {'rateName': 'S RATE', 'rateValue': ''});
+
+      final userCount = Sqflite.firstIntValue(
+        await db.rawQuery('SELECT COUNT(*) as count FROM users'),
+      ) ??
+          0;
+      if (userCount == 0) {
+        await db.insert('users', {
+          'username': 'ADMIN',
+          'password': 'SVENSKA',
+        });
+      }
+
+      await db.delete(
+        'sqlite_sequence',
+        where: 'name IN (?, ?, ?, ?, ?, ?, ?)',
+        whereArgs: [
+          'transactions',
+          'vouchers',
+          'opening_weight',
+          'rate_history',
+          'rates',
+          'suppliers',
+          'customers',
+        ],
+      );
+    }
   }
 
   Future<bool> checkLogin(String username, String password) async {
@@ -358,8 +408,51 @@ class DatabaseHelper {
   Future<List<Map<String, dynamic>>> getRates() async {
     if (ApiConfig.useRemoteApi) return ApiClient.getRates();
     final db = await database;
-    return await db.query('rates');
+    return await db.query('rates', orderBy: 'id');
   }
+
+  /// Daily Rate rows for the UI — always returns four named slots.
+  Future<List<Map<String, dynamic>>> getRatesForMaster() async {
+    try {
+      await ensureDefaultRates();
+    } catch (_) {
+      // Older API builds may lack seed routes; still show the four fields.
+    }
+    try {
+      final rows = await getRates();
+      if (rows.isNotEmpty) return rows;
+    } catch (_) {
+      // Offline or server error — fall back to blank local template rows.
+    }
+    return [
+      for (final name in _defaultRateNames)
+        {'id': 0, 'rateName': name, 'rateValue': ''},
+    ];
+  }
+
+  /// Ensures the four daily rate rows exist (blank values on fresh install).
+  Future<void> ensureDefaultRates() async {
+    if (ApiConfig.useRemoteApi) {
+      await ApiClient.ensureDefaultRates();
+      return;
+    }
+    final db = await database;
+    final count = Sqflite.firstIntValue(
+          await db.rawQuery('SELECT COUNT(*) as count FROM rates'),
+        ) ??
+        0;
+    if (count > 0) return;
+    for (final name in _defaultRateNames) {
+      await db.insert('rates', {'rateName': name, 'rateValue': ''});
+    }
+  }
+
+  static const _defaultRateNames = [
+    'G.P RATE',
+    'F.T RATE',
+    'KACHA RATE',
+    'S RATE',
+  ];
 
   /// Rates keyed by rateName (e.g. 'G.P RATE' -> 15100), parsed to double.
   /// A rate that hasn't been set yet (blank) is simply left out of the map.
@@ -489,6 +582,18 @@ class DatabaseHelper {
     );
   }
 
+  Future<int> deleteCustomersByName(String name) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.deleteCustomersByName(name);
+    }
+    final db = await database;
+    return await db.delete(
+      'customers',
+      where: 'LOWER(name) = ?',
+      whereArgs: [name.trim().toLowerCase()],
+    );
+  }
+
 
   Future<int> insertSupplier(Map<String, dynamic> supplier) async {
     if (ApiConfig.useRemoteApi) return ApiClient.insertSupplier(supplier);
@@ -509,6 +614,18 @@ class DatabaseHelper {
       'suppliers',
       where: 'id = ?',
       whereArgs: [id],
+    );
+  }
+
+  Future<int> deleteSuppliersByName(String name) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.deleteSuppliersByName(name);
+    }
+    final db = await database;
+    return await db.delete(
+      'suppliers',
+      where: 'LOWER(name) = ?',
+      whereArgs: [name.trim().toLowerCase()],
     );
   }
 
@@ -584,9 +701,13 @@ class DatabaseHelper {
 
   Future<List<Map<String, dynamic>>> getTransactions(
       String transactionType) async {
+    final wanted = transactionType.trim().toUpperCase();
     final all = await getAllTransactions();
     return all
-        .where((row) => apiStr(row, 'transactionType') == transactionType)
+        .where(
+          (row) =>
+              normalizeTransactionType(apiStr(row, 'transactionType')) == wanted,
+        )
         .toList();
   }
 
@@ -678,7 +799,9 @@ class DatabaseHelper {
       final cr = double.tryParse((row['cr'] ?? '').toString()) ?? 0;
       final dr = double.tryParse((row['dr'] ?? '').toString()) ?? 0;
       final unit = (row['balanceUnit'] ?? 'RUPEES').toString();
-      final net = dr - cr;
+      final net = unit == 'GRAMS'
+          ? partyLedgerRowGrams(row, isCustomer: isCustomer)
+          : dr - cr;
       if (unit == 'GRAMS') {
         grams += net;
         crGrams += cr;
@@ -725,13 +848,11 @@ class DatabaseHelper {
   // ---------- Live current stock ----------
 
   /// Current stock, per metal type, calculated live as:
-  ///   opening weight (the locked one-time baseline)
-  ///   + everything bought in on Purchase bills
-  ///   - everything sold out on Sales bills
-  /// Nothing is re-entered daily — this always reflects "right now"
-  /// because it's computed fresh from the opening baseline plus every
-  /// transaction ever saved, not stored as its own row anywhere.
-  /// Keys match the item type codes used on the bill: GWT, FWT, KWT, SWT.
+  ///   opening weight (the locked one-time baseline, gross weight)
+  ///   + everything bought in on Purchase bills (gross weight per line)
+  ///   - everything sold out on Sales bills (gross weight per line)
+  /// Uses raw [weight] from each bill line, not pureWt — consistent with the
+  /// Daily Sales Report stock summary in [buildStockLedgerSummary].
   Future<Map<String, double>> getCurrentStock() async {
     if (ApiConfig.useRemoteApi) return ApiClient.getCurrentStock();
     final opening = await getOpeningWeight();
@@ -760,9 +881,10 @@ class DatabaseHelper {
       for (final item in items) {
         if (item is! Map) continue;
         final type = (item['type'] ?? '').toString();
-        final pureWt = (item['pureWt'] as num?)?.toDouble() ?? 0;
+        final weight = (item['weight'] as num?)?.toDouble() ??
+            (double.tryParse((item['weight'] ?? '').toString()) ?? 0);
         if (stock.containsKey(type)) {
-          stock[type] = stock[type]! + (sign * pureWt);
+          stock[type] = stock[type]! + (sign * weight);
         }
       }
     }

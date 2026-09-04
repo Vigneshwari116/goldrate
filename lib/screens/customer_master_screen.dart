@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../database/database_helper.dart';
+import '../logic/gold_ledger.dart';
 import '../util/focus_chain.dart';
 import '../util/screen_activation.dart';
 import '../theme/app_theme.dart';
@@ -56,20 +57,17 @@ List<_PartySummary> _buildSummaries(
     String city = '';
 
     for (final e in entries) {
-      final cr =
-          double.tryParse((e['cr'] ?? '0').toString()) ?? 0;
-      final dr =
-          double.tryParse((e['dr'] ?? '0').toString()) ?? 0;
-
       final unit =
       (e['balanceUnit'] ?? 'RUPEES').toString().toUpperCase();
 
-      final net = dr - cr;
-
       if (unit == 'GRAMS') {
-        grams += net;
+        grams += partyLedgerRowGrams(e, isCustomer: true);
       } else {
-        rupees += net;
+        final cr =
+            double.tryParse((e['cr'] ?? '0').toString()) ?? 0;
+        final dr =
+            double.tryParse((e['dr'] ?? '0').toString()) ?? 0;
+        rupees += dr - cr;
       }
 
       if (mobile.isEmpty) {
@@ -456,26 +454,24 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
     );
   }
 
-  Future<void> _confirmDelete(int id) async {
+  Future<void> _confirmDeleteAll(String name) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Delete Entry'),
-          content: const Text(
-            'Are you sure you want to delete this record?',
+          title: const Text('Delete All Entries'),
+          content: Text(
+            'Delete every ledger entry for "$name"? This cannot be undone.',
           ),
           actions: [
             TextButton(
-              onPressed: () =>
-                  Navigator.pop(context, false),
+              onPressed: () => Navigator.pop(context, false),
               child: const Text('Cancel'),
             ),
             TextButton(
-              onPressed: () =>
-                  Navigator.pop(context, true),
+              onPressed: () => Navigator.pop(context, true),
               child: const Text(
-                'Delete',
+                'Delete All',
                 style: TextStyle(color: Colors.red),
               ),
             ),
@@ -487,23 +483,17 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
     if (confirmed != true) return;
 
     try {
-      await DatabaseHelper.instance.deleteCustomer(id);
-
-      await loadCustomers();
-
+      await DatabaseHelper.instance.deleteCustomersByName(name);
       if (!mounted) return;
-
+      Navigator.pop(context);
+      await loadCustomers();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Customer entry deleted'),
-        ),
+        SnackBar(content: Text('All entries for $name deleted')),
       );
     } catch (e) {
       if (!mounted) return;
-
-      _showError(
-        'Could not delete customer.\n\n$e',
-      );
+      _showError('Could not delete entries.\n\n$e');
     }
   }
 
@@ -581,14 +571,19 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
                     ),
                   ),
                   const SizedBox(height: 6),
-                  ...summary.entries.map(
-                        (e) => _buildEntryTile(e),
-                  ),
+                  ...summary.entries.map(_buildEntryTile),
                 ],
               ),
             ),
           ),
           actions: [
+            TextButton(
+              onPressed: () => _confirmDeleteAll(summary.name),
+              child: const Text(
+                'DELETE ALL',
+                style: TextStyle(color: Colors.red),
+              ),
+            ),
             TextButton(
               onPressed: () =>
                   Navigator.pop(context),
@@ -600,9 +595,7 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
     );
   }
 
-  Widget _buildEntryTile(
-      Map<String, dynamic> e,
-      ) {
+  Widget _buildEntryTile(Map<String, dynamic> e) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(8),
@@ -610,63 +603,28 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
         color: AppColors.headerBand,
         borderRadius: BorderRadius.circular(6),
       ),
-      child: Row(
-        crossAxisAlignment:
-        CrossAxisAlignment.start,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment:
-              CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _entryLine(e),
-                  style: const TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                if ((e['narration'] ?? '')
-                    .toString()
-                    .isNotEmpty)
-                  Text(
-                    e['narration'].toString(),
-                    style: const TextStyle(
-                      fontSize: 11.5,
-                    ),
-                  ),
-                Text(
-                  '${e['date'] ?? ''} ${e['time'] ?? ''}'
-                      '${(e['billRef'] ?? '').toString().isNotEmpty ? '  •  ${e['billRef']}' : ''}',
-                  style: const TextStyle(
-                    fontSize: 10.5,
-                    color: Colors.black54,
-                  ),
-                ),
-              ],
+          Text(
+            _entryLine(e),
+            style: const TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
             ),
           ),
-          IconButton(
-            icon: const Icon(
-              Icons.delete,
-              size: 16,
-              color: Colors.redAccent,
+          if ((e['narration'] ?? '').toString().isNotEmpty)
+            Text(
+              e['narration'].toString(),
+              style: const TextStyle(fontSize: 11.5),
             ),
-            padding: EdgeInsets.zero,
-            constraints:
-            const BoxConstraints(),
-            onPressed: () async {
-              Navigator.pop(context);
-
-              final id =
-              int.tryParse(
-                e['id'].toString(),
-              );
-
-              if (id != null) {
-                await _confirmDelete(id);
-              }
-            },
+          Text(
+            '${e['date'] ?? ''} ${e['time'] ?? ''}'
+                '${(e['billRef'] ?? '').toString().isNotEmpty ? '  •  ${e['billRef']}' : ''}',
+            style: const TextStyle(
+              fontSize: 10.5,
+              color: Colors.black54,
+            ),
           ),
         ],
       ),

@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../database/database_helper.dart';
+import '../logic/gold_ledger.dart';
 import '../util/focus_chain.dart';
 import '../util/screen_activation.dart';
 import '../theme/app_theme.dart';
@@ -57,21 +58,17 @@ List<_PartySummary> _buildSummaries(
     String city = '';
 
     for (final e in entries) {
-      final cr =
-          double.tryParse((e['cr'] ?? '').toString()) ?? 0;
-
-      final dr =
-          double.tryParse((e['dr'] ?? '').toString()) ?? 0;
-
       final unit =
-      (e['balanceUnit'] ?? 'RUPEES').toString();
-
-      final net = dr - cr;
+      (e['balanceUnit'] ?? 'RUPEES').toString().toUpperCase();
 
       if (unit == 'GRAMS') {
-        grams += net;
+        grams += partyLedgerRowGrams(e, isCustomer: false);
       } else {
-        rupees += net;
+        final cr =
+            double.tryParse((e['cr'] ?? '').toString()) ?? 0;
+        final dr =
+            double.tryParse((e['dr'] ?? '').toString()) ?? 0;
+        rupees += dr - cr;
       }
 
       if (mobile.isEmpty &&
@@ -621,6 +618,52 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen>
     }
   }
 
+  Future<void> _confirmDeleteAll(String name) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete All Entries'),
+        content: Text(
+          'Delete every ledger entry for "$name"? This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text(
+              'Delete All',
+              style: TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await DatabaseHelper.instance.deleteSuppliersByName(name);
+      if (!mounted) return;
+      Navigator.pop(context);
+      await loadSuppliers();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('All entries for $name deleted')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Delete failed: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   // ============================================================
   // ENTRY LINE
   // ============================================================
@@ -711,90 +754,34 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen>
                 const SizedBox(height: 6),
                 for (final e in summary.entries)
                   Container(
-                    margin:
-                    const EdgeInsets.only(
-                      bottom: 8,
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.headerBand,
+                      borderRadius: BorderRadius.circular(6),
                     ),
-                    padding:
-                    const EdgeInsets.all(8),
-                    decoration:
-                    BoxDecoration(
-                      color:
-                      AppColors.headerBand,
-                      borderRadius:
-                      BorderRadius.circular(
-                        6,
-                      ),
-                    ),
-                    child: Row(
-                      crossAxisAlignment:
-                      CrossAxisAlignment.start,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment:
-                            CrossAxisAlignment
-                                .start,
-                            children: [
-                              Text(
-                                _entryLine(e),
-                                style:
-                                const TextStyle(
-                                  fontSize: 12.5,
-                                  fontWeight:
-                                  FontWeight
-                                      .w600,
-                                ),
-                              ),
-                              if ((e['narration'] ??
-                                  '')
-                                  .toString()
-                                  .isNotEmpty)
-                                Text(
-                                  e['narration']
-                                      .toString(),
-                                  style:
-                                  const TextStyle(
-                                    fontSize: 11.5,
-                                  ),
-                                ),
-                              Text(
-                                '${e['date'] ?? ''} '
-                                    '${e['time'] ?? ''}'
-                                    '${(e['billRef'] ?? '').toString().isNotEmpty ? '  •  ${e['billRef']}' : ''}',
-                                style:
-                                const TextStyle(
-                                  fontSize: 10.5,
-                                  color:
-                                  Colors.black54,
-                                ),
-                              ),
-                            ],
+                        Text(
+                          _entryLine(e),
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                        IconButton(
-                          icon: const Icon(
-                            Icons.delete,
-                            size: 16,
-                            color:
-                            Colors.redAccent,
+                        if ((e['narration'] ?? '').toString().isNotEmpty)
+                          Text(
+                            e['narration'].toString(),
+                            style: const TextStyle(fontSize: 11.5),
                           ),
-                          padding:
-                          EdgeInsets.zero,
-                          constraints:
-                          const BoxConstraints(),
-                          onPressed: () async {
-                            Navigator.pop(context);
-
-                            final id =
-                            e['id'];
-
-                            if (id is int) {
-                              await _confirmDelete(
-                                id,
-                              );
-                            }
-                          },
+                        Text(
+                          '${e['date'] ?? ''} ${e['time'] ?? ''}'
+                              '${(e['billRef'] ?? '').toString().isNotEmpty ? '  •  ${e['billRef']}' : ''}',
+                          style: const TextStyle(
+                            fontSize: 10.5,
+                            color: Colors.black54,
+                          ),
                         ),
                       ],
                     ),
@@ -804,6 +791,13 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen>
           ),
         ),
         actions: [
+          TextButton(
+            onPressed: () => _confirmDeleteAll(summary.name),
+            child: const Text(
+              'DELETE ALL',
+              style: TextStyle(color: Colors.red),
+            ),
+          ),
           TextButton(
             onPressed: () =>
                 Navigator.pop(context),
