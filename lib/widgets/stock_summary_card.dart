@@ -14,41 +14,43 @@ class StockSummaryTable extends StatelessWidget {
 
   final StockLedgerSummary summary;
 
-  // Name | Bill no | date | Type | Receipt GWT..SWT | Issue GWT..SWT
-  static const headers = [
-    '',
-    'Name',
-    'Bill no',
-    'date',
-    'Type',
-    'Receipt',
-    'GWT',
-    'FWT',
-    'KWT',
-    'SWT',
-    'Issue',
-    'GWT',
-    'FWT',
-    'KWT',
-    'SWT',
-  ];
+  static const columnCount = 13;
 
   static const _labelCol = 0;
   static const _nameCol = 1;
   static const _billCol = 2;
   static const _dateCol = 3;
   static const _typeCol = 4;
-  static const _receiptStart = 6;
-  static const _issueStart = 11;
+  static const _receiptStart = 5;
+  static const _issueStart = 9;
+  static const _infoColCount = 5;
+  static const _weightColCount = 4;
+
+  /// Flat header row for PDF export.
+  static const headers = [
+    '',
+    'Name',
+    'Bill no',
+    'date',
+    'Type',
+    'Rcpt GWT',
+    'Rcpt FWT',
+    'Rcpt KWT',
+    'Rcpt SWT',
+    'Issue GWT',
+    'Issue FWT',
+    'Issue KWT',
+    'Issue SWT',
+  ];
 
   /// Equal column width when horizontal scroll is required on narrow screens.
   static const scrollColumnWidth = 68.0;
 
   static const _cellPadding = EdgeInsets.symmetric(horizontal: 5, vertical: 7);
 
-  static double minScrollWidth() => scrollColumnWidth * headers.length;
+  static double minScrollWidth() => scrollColumnWidth * columnCount;
 
-  static List<String> _emptyRow() => List.filled(headers.length, '');
+  static List<String> _emptyRow() => List.filled(columnCount, '');
 
   static void _setWeights(
     List<String> row,
@@ -63,10 +65,11 @@ class StockSummaryTable extends StatelessWidget {
     }
   }
 
-  /// Opening stock — Issue GWT/FWT/KWT/SWT only.
+  /// Opening stock — same baseline in Receipt and Issue weight columns.
   static List<String> openingRow(Map<String, double> weights) {
     final row = _emptyRow();
     row[_labelCol] = 'Opening';
+    _setWeights(row, _receiptStart, weights);
     _setWeights(row, _issueStart, weights);
     return row;
   }
@@ -118,41 +121,144 @@ class StockSummaryTable extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final useScroll =
-            constraints.maxWidth.isFinite &&
-            constraints.maxWidth < minScrollWidth();
+        final availableWidth = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : minScrollWidth();
+        final columnWidth = math.max(
+          scrollColumnWidth,
+          availableWidth / columnCount,
+        );
+        final tableWidth = columnWidth * columnCount;
+        final needsHorizontalScroll = tableWidth > availableWidth + 0.5;
 
-        Widget cell({
+        TextStyle cellStyle({
+          required bool header,
+          required bool band,
+          required bool bold,
+        }) {
+          return TextStyle(
+            fontSize: header ? 10 : 11,
+            fontWeight: header || bold ? FontWeight.w700 : FontWeight.normal,
+            color: header
+                ? AppColors.mutedBlue
+                : (band ? AppColors.navy : Colors.black87),
+          );
+        }
+
+        Widget sizedCell({
+          required double width,
+          required Widget child,
+        }) {
+          return SizedBox(width: width, child: child);
+        }
+
+        Widget textCell({
           required int index,
           required String text,
           required bool header,
           required bool band,
           required bool bold,
-          double? width,
+          TextAlign textAlign = TextAlign.left,
         }) {
-          final child = Text(
-            text,
-            maxLines: header ? 1 : 2,
-            overflow: TextOverflow.ellipsis,
-            textAlign: _isWeightColumn(index) ? TextAlign.right : TextAlign.left,
-            style: TextStyle(
-              fontSize: header ? 10 : 11,
-              fontWeight: header || bold ? FontWeight.w700 : FontWeight.normal,
-              color: header
-                  ? AppColors.mutedBlue
-                  : (band ? AppColors.navy : Colors.black87),
+          return sizedCell(
+            width: columnWidth,
+            child: Padding(
+              padding: _cellPadding,
+              child: Text(
+                text,
+                maxLines: header ? 1 : 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: textAlign,
+                style: cellStyle(header: header, band: band, bold: bold),
+              ),
             ),
           );
-
-          final padded = Padding(padding: _cellPadding, child: child);
-          if (width != null) {
-            return SizedBox(width: width, child: padded);
-          }
-          return Expanded(child: padded);
         }
 
-        Widget rowWidget(List<String> row,
-            {bool header = false, bool band = false, bool bold = false}) {
+        Widget groupHeaderCell({
+          required String text,
+          required int span,
+        }) {
+          return sizedCell(
+            width: columnWidth * span,
+            child: Padding(
+              padding: _cellPadding,
+              child: Text(
+                text,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: cellStyle(header: true, band: false, bold: true),
+              ),
+            ),
+          );
+        }
+
+        Widget headerWidget() {
+          const infoLabels = ['', 'Name', 'Bill no', 'date', 'Type'];
+          const weightLabels = ['GWT', 'FWT', 'KWT', 'SWT'];
+
+          Widget headerBand({required List<Widget> children}) {
+            return Container(
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: AppColors.border)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: children,
+              ),
+            );
+          }
+
+          return Column(
+            children: [
+              headerBand(
+                children: [
+                  for (final label in infoLabels)
+                    textCell(
+                      index: infoLabels.indexOf(label),
+                      text: label,
+                      header: true,
+                      band: false,
+                      bold: true,
+                    ),
+                  groupHeaderCell(text: 'Receipt', span: _weightColCount),
+                  groupHeaderCell(text: 'Issue', span: _weightColCount),
+                ],
+              ),
+              headerBand(
+                children: [
+                  for (var i = 0; i < _infoColCount; i++)
+                    sizedCell(width: columnWidth, child: const SizedBox.shrink()),
+                  for (final label in weightLabels)
+                    textCell(
+                      index: _receiptStart + weightLabels.indexOf(label),
+                      text: label,
+                      header: true,
+                      band: false,
+                      bold: true,
+                      textAlign: TextAlign.right,
+                    ),
+                  for (final label in weightLabels)
+                    textCell(
+                      index: _issueStart + weightLabels.indexOf(label),
+                      text: label,
+                      header: true,
+                      band: false,
+                      bold: true,
+                      textAlign: TextAlign.right,
+                    ),
+                ],
+              ),
+            ],
+          );
+        }
+
+        Widget dataRowWidget(
+          List<String> row, {
+          bool band = false,
+          bool bold = false,
+        }) {
           return Container(
             decoration: BoxDecoration(
               color: band ? AppColors.headerBand : Colors.white,
@@ -161,44 +267,45 @@ class StockSummaryTable extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                for (var i = 0; i < headers.length; i++)
-                  cell(
+                for (var i = 0; i < columnCount; i++)
+                  textCell(
                     index: i,
                     text: i < row.length ? row[i] : '',
-                    header: header,
+                    header: false,
                     band: band,
                     bold: bold,
-                    width: useScroll ? scrollColumnWidth : null,
+                    textAlign:
+                        _isWeightColumn(i) ? TextAlign.right : TextAlign.left,
                   ),
               ],
             ),
           );
         }
 
-        final rows = [
-          rowWidget(headers, header: true),
-          rowWidget(openingRow(summary.opening), band: true, bold: true),
-          for (final txn in summary.rows) rowWidget(transactionRow(txn)),
-          rowWidget(closingRow(summary.closing), band: true, bold: true),
-        ];
-
         final table = Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: rows,
+          children: [
+            headerWidget(),
+            dataRowWidget(openingRow(summary.opening), band: true, bold: true),
+            for (final txn in summary.rows)
+              dataRowWidget(transactionRow(txn)),
+            dataRowWidget(closingRow(summary.closing), band: true, bold: true),
+          ],
         );
 
-        if (useScroll) {
-          final tableWidth = math.max(minScrollWidth(), constraints.maxWidth);
+        final sizedTable = SizedBox(
+          width: tableWidth,
+          child: table,
+        );
+
+        if (needsHorizontalScroll) {
           return Scrollbar(
             thumbVisibility: true,
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
-              child: SizedBox(
-                width: tableWidth,
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: table,
-                ),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: sizedTable,
               ),
             ),
           );
@@ -206,7 +313,7 @@ class StockSummaryTable extends StatelessWidget {
 
         return SingleChildScrollView(
           padding: const EdgeInsets.only(bottom: 8),
-          child: table,
+          child: sizedTable,
         );
       },
     );

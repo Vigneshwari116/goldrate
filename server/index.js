@@ -2,12 +2,26 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
+const {
+  decodeNameParam,
+  installAsyncRouteWrapper,
+  parsePositiveInt,
+} = require('./route_utils');
 
 const app = express();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
+pool.on('error', (err) => {
+  console.error('Unexpected database pool error:', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection:', reason);
+});
+
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
+installAsyncRouteWrapper(app);
 
 // Convert DB snake_case rows to Flutter camelCase keys.
 function toCamel(row) {
@@ -74,7 +88,7 @@ async function seedDefaultRates() {
 }
 
 app.put('/api/rates/:id', async (req, res) => {
-  const { id } = req.params;
+  const id = parsePositiveInt(req.params.id, 'rate id');
   const { rateName, rateValue, date, time } = req.body;
   const updated = await pool.query(
     'UPDATE rates SET rate_value = $1 WHERE id = $2 RETURNING *',
@@ -124,7 +138,7 @@ app.post('/api/customers', async (req, res) => {
 });
 
 app.delete('/api/customers/by-name/:name', async (req, res) => {
-  const name = decodeURIComponent(req.params.name);
+  const name = decodeNameParam(req.params.name);
   const result = await pool.query(
     'DELETE FROM customers WHERE LOWER(name) = LOWER($1)',
     [name],
@@ -133,7 +147,8 @@ app.delete('/api/customers/by-name/:name', async (req, res) => {
 });
 
 app.delete('/api/customers/:id', async (req, res) => {
-  const result = await pool.query('DELETE FROM customers WHERE id = $1', [req.params.id]);
+  const id = parsePositiveInt(req.params.id, 'customer id');
+  const result = await pool.query('DELETE FROM customers WHERE id = $1', [id]);
   res.json({ rowsAffected: result.rowCount });
 });
 
@@ -202,7 +217,7 @@ app.post('/api/suppliers', async (req, res) => {
 });
 
 app.delete('/api/suppliers/by-name/:name', async (req, res) => {
-  const name = decodeURIComponent(req.params.name);
+  const name = decodeNameParam(req.params.name);
   const result = await pool.query(
     'DELETE FROM suppliers WHERE LOWER(name) = LOWER($1)',
     [name],
@@ -211,7 +226,8 @@ app.delete('/api/suppliers/by-name/:name', async (req, res) => {
 });
 
 app.delete('/api/suppliers/:id', async (req, res) => {
-  const result = await pool.query('DELETE FROM suppliers WHERE id = $1', [req.params.id]);
+  const id = parsePositiveInt(req.params.id, 'supplier id');
+  const result = await pool.query('DELETE FROM suppliers WHERE id = $1', [id]);
   res.json({ rowsAffected: result.rowCount });
 });
 
@@ -314,7 +330,8 @@ app.post('/api/transactions', async (req, res) => {
 });
 
 app.delete('/api/transactions/:id', async (req, res) => {
-  const result = await pool.query('DELETE FROM transactions WHERE id = $1', [req.params.id]);
+  const id = parsePositiveInt(req.params.id, 'transaction id');
+  const result = await pool.query('DELETE FROM transactions WHERE id = $1', [id]);
   res.json({ rowsAffected: result.rowCount });
 });
 
@@ -352,7 +369,8 @@ app.post('/api/vouchers', async (req, res) => {
 });
 
 app.delete('/api/vouchers/:id', async (req, res) => {
-  const result = await pool.query('DELETE FROM vouchers WHERE id = $1', [req.params.id]);
+  const id = parsePositiveInt(req.params.id, 'voucher id');
+  const result = await pool.query('DELETE FROM vouchers WHERE id = $1', [id]);
   res.json({ rowsAffected: result.rowCount });
 });
 
@@ -428,6 +446,14 @@ app.post('/api/admin/reset', async (_req, res) => {
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }
+});
+
+// JSON error responses for failed API handlers (prevents process crashes).
+app.use('/api', (err, _req, res, next) => {
+  if (!err) return next();
+  console.error('API error:', err);
+  const status = err.status && err.status >= 400 && err.status < 600 ? err.status : 500;
+  res.status(status).json({ error: err.message || 'Internal server error' });
 });
 
 // JSON 404 for unknown API routes (avoids HTML error pages in the Flutter client).
