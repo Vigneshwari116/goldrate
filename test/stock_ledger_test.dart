@@ -247,18 +247,23 @@ void main() {
 
   test('Daily Sales headers place Receipt block before Issue block', () {
     final headers = StockSummaryTable.headers;
-    final receiptIdx = headers.indexOf('Receipt');
-    final issueIdx = headers.indexOf('Issue');
+    final receiptIdx = headers.indexWhere((h) => h.startsWith('Rcpt'));
+    final issueIdx = headers.indexWhere((h) => h.startsWith('Issue'));
     expect(receiptIdx, lessThan(issueIdx));
-    expect(
-      headers.sublist(receiptIdx, receiptIdx + 5),
-      ['Receipt', 'GWT', 'FWT', 'KWT', 'SWT'],
-    );
-    expect(
-      headers.sublist(issueIdx, issueIdx + 5),
-      ['Issue', 'GWT', 'FWT', 'KWT', 'SWT'],
-    );
+    expect(headers.sublist(receiptIdx, receiptIdx + 4), [
+      'Rcpt GWT',
+      'Rcpt FWT',
+      'Rcpt KWT',
+      'Rcpt SWT',
+    ]);
+    expect(headers.sublist(issueIdx, issueIdx + 4), [
+      'Issue GWT',
+      'Issue FWT',
+      'Issue KWT',
+      'Issue SWT',
+    ]);
     expect(headers.sublist(1, 5), ['Name', 'Bill no', 'date', 'Type']);
+    expect(StockSummaryTable.columnCount, 13);
   });
 
   test('daily sales opening and closing show all four weight columns', () {
@@ -293,21 +298,24 @@ void main() {
     expect(summary.closing['SWT'], closeTo(1, 0.001));
 
     final opening = StockSummaryTable.openingRow(summary.opening);
-    expect(opening[11], '5');
-    expect(opening[12], '2');
-    expect(opening[13], '3');
-    expect(opening[14], '1');
-    expect(opening[6], '');
+    expect(opening[5], '5');
+    expect(opening[6], '2');
+    expect(opening[7], '3');
+    expect(opening[8], '1');
+    expect(opening[9], '5');
+    expect(opening[10], '2');
+    expect(opening[11], '3');
+    expect(opening[12], '1');
 
     final closing = StockSummaryTable.closingRow(summary.closing);
-    expect(closing[11], '-5');
-    expect(closing[12], '2');
-    expect(closing[13], '3');
-    expect(closing[14], '1');
-    expect(closing[6], '-5');
-    expect(closing[7], '2');
-    expect(closing[8], '3');
-    expect(closing[9], '1');
+    expect(closing[5], '-5');
+    expect(closing[6], '2');
+    expect(closing[7], '3');
+    expect(closing[8], '1');
+    expect(closing[9], '-5');
+    expect(closing[10], '2');
+    expect(closing[11], '3');
+    expect(closing[12], '1');
   });
 
   test('includes bills when date uses yyyy-MM-dd from API', () {
