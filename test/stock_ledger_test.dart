@@ -245,6 +245,22 @@ void main() {
     expect(weights['SWT'], closeTo(1, 0.001));
   });
 
+  test('Daily Sales headers place Receipt block before Issue block', () {
+    final headers = StockSummaryTable.headers;
+    final receiptIdx = headers.indexOf('Receipt');
+    final issueIdx = headers.indexOf('Issue');
+    expect(receiptIdx, lessThan(issueIdx));
+    expect(
+      headers.sublist(receiptIdx, receiptIdx + 5),
+      ['Receipt', 'GWT', 'FWT', 'KWT', 'SWT'],
+    );
+    expect(
+      headers.sublist(issueIdx, issueIdx + 5),
+      ['Issue', 'GWT', 'FWT', 'KWT', 'SWT'],
+    );
+    expect(headers.sublist(1, 5), ['Name', 'Bill no', 'date', 'Type']);
+  });
+
   test('daily sales opening and closing show all four weight columns', () {
     final summary = buildStockLedgerSummary(
       transactions: [

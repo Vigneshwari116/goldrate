@@ -373,26 +373,46 @@ List<dynamic> _decodeItemsJson(String raw) {
   }
 }
 
+/// Gram balance from one customer/supplier ledger row.
+///
+/// Master rows (no [billRef]) use **Gold Weight** (`drGross` / `gross`).
+/// Bill/voucher rows use net pure grams (`dr − cr`).
+double partyLedgerRowGrams(
+  Map<String, dynamic> row, {
+  required bool isCustomer,
+}) {
+  final unit = (row['balanceUnit'] ?? 'RUPEES').toString().toUpperCase();
+  if (unit != 'GRAMS') return 0;
+
+  final cr = double.tryParse((row['cr'] ?? '0').toString()) ?? 0;
+  final dr = double.tryParse((row['dr'] ?? '0').toString()) ?? 0;
+  final ref = (row['billRef'] ?? '').toString().trim();
+
+  if (ref.isEmpty) {
+    final goldRaw = isCustomer ? row['drGross'] : row['gross'];
+    final gold = double.tryParse((goldRaw ?? '0').toString()) ?? 0;
+    if (gold.abs() > 0.0005) return gold;
+    return dr - cr;
+  }
+  return dr - cr;
+}
+
 /// Net opening balance in grams from master rows with no bill reference.
-/// Uses **pure** weight only (dr − cr in GRAMS). Gross/gold weight fields
-/// are never used for ledger balances.
+/// Uses **Gold Weight** (`drGross` / `gross`) when set on the master form.
 Map<String, double> buildMasterOpeningBalances(
-  List<Map<String, dynamic>> masterRows,
-) {
+  List<Map<String, dynamic>> masterRows, {
+  required bool isCustomer,
+}) {
   final acc = <String, double>{};
   for (final row in masterRows) {
     final name = (row['name'] ?? '').toString().trim();
     if (name.isEmpty) continue;
     final ref = (row['billRef'] ?? '').toString().trim();
     if (ref.isNotEmpty) continue;
-    final unit = (row['balanceUnit'] ?? 'RUPEES').toString().toUpperCase();
-    if (unit != 'GRAMS') continue;
-    final cr = double.tryParse((row['cr'] ?? '0').toString()) ?? 0;
-    final dr = double.tryParse((row['dr'] ?? '0').toString()) ?? 0;
-    final pureGrams = dr - cr;
-    if (pureGrams.abs() < 0.0005) continue;
+    final grams = partyLedgerRowGrams(row, isCustomer: isCustomer);
+    if (grams.abs() < 0.0005) continue;
     final key = partyNameKey(name);
-    acc[key] = (acc[key] ?? 0) + pureGrams;
+    acc[key] = (acc[key] ?? 0) + grams;
   }
   return acc;
 }
@@ -648,7 +668,7 @@ List<PartyLedgerSection> buildPartyLedgerSections({
     goldRate: goldRate,
   );
 
-  final masterOpening = buildMasterOpeningBalances(masterRows);
+  final masterOpening = buildMasterOpeningBalances(masterRows, isCustomer: customer);
   final q = nameQuery.trim().toLowerCase();
 
   final displayNames = <String, String>{};
