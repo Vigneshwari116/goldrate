@@ -19,6 +19,7 @@ import '../widgets/party_search_field.dart';
 import '../util/party_save_prompt.dart';
 import '../util/focus_chain.dart';
 import '../util/screen_activation.dart';
+import '../util/touch_input.dart';
 import '../theme/app_theme.dart';
 import '../theme/field_sizes.dart';
 import '../theme/responsive.dart';
@@ -31,6 +32,14 @@ const Map<String, String> kItemTypeToRateName = {
   'FWT': 'F.T RATE',
   'KWT': 'KACHA RATE',
   'SWT': 'S RATE',
+};
+
+/// Receipt-side labels on Sales bills (old gold from customer).
+const Map<String, String> kOldGoldReceiptTypeLabels = {
+  'GWT': 'O.GWT',
+  'FWT': 'O.FWT',
+  'KWT': 'O.KWT',
+  'SWT': 'O.SWT',
 };
 
 class _TransactionItem {
@@ -165,6 +174,15 @@ class _TransactionScreenState extends State<TransactionScreen>
   bool get _hideIssuePanel => _isReceiptVoucher;
 
   bool get _hideReceiptPanel => _isPaymentVoucher;
+
+  bool get _isSales => widget.kind == TransactionKind.sales;
+
+  String _receiptTypeLabel(String type) {
+    if (_isSales && kOldGoldReceiptTypeLabels.containsKey(type)) {
+      return kOldGoldReceiptTypeLabels[type]!;
+    }
+    return type;
+  }
 
   bool get _isCustomerParty =>
       widget.kind == TransactionKind.sales || _isReceiptVoucher;
@@ -333,7 +351,10 @@ class _TransactionScreenState extends State<TransactionScreen>
         weight <= 0) {
       return null;
     }
-    if (touch == null || !_numberRegex.hasMatch(_billEntryTouch.text.trim())) {
+    if (touch == null ||
+        !_numberRegex.hasMatch(_billEntryTouch.text.trim()) ||
+        touch < 0 ||
+        touch > 99.99) {
       return null;
     }
     final rateName = kItemTypeToRateName[_billEntryType];
@@ -364,7 +385,9 @@ class _TransactionScreenState extends State<TransactionScreen>
       return null;
     }
     if (touch == null ||
-        !_numberRegex.hasMatch(_paymentEntryTouch.text.trim())) {
+        !_numberRegex.hasMatch(_paymentEntryTouch.text.trim()) ||
+        touch < 0 ||
+        touch > 99.99) {
       return null;
     }
     return _PanelLine.metal(
@@ -1445,6 +1468,7 @@ class _TransactionScreenState extends State<TransactionScreen>
 
   Widget _lineDataRow({
     required String type,
+    String? displayType,
     required double weight,
     required double touch,
     required double pureWt,
@@ -1471,7 +1495,7 @@ class _TransactionScreenState extends State<TransactionScreen>
       ),
       child: Row(
         children: [
-          cell(type, flex: 2),
+          cell(displayType ?? type, flex: 2),
           cell(
             isCash ? '₹${(cashAmount ?? 0).toStringAsFixed(2)}' : weight.toStringAsFixed(3),
             flex: 2,
@@ -1523,7 +1547,7 @@ class _TransactionScreenState extends State<TransactionScreen>
                 .map(
                   (t) => DropdownMenuItem(
                     value: t,
-                    child: Text(t),
+                    child: Text(_receiptTypeLabel(t)),
                   ),
                 )
                 .toList(),
@@ -1628,7 +1652,7 @@ class _TransactionScreenState extends State<TransactionScreen>
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
               inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                TouchPercentInputFormatter(),
               ],
               textAlign: TextAlign.right,
               style: const TextStyle(fontSize: 13),
@@ -1758,7 +1782,7 @@ class _TransactionScreenState extends State<TransactionScreen>
             keyboardType:
                 const TextInputType.numberWithOptions(decimal: true),
             inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+              TouchPercentInputFormatter(),
             ],
             textAlign: TextAlign.right,
             style: const TextStyle(fontSize: 13),
@@ -1868,6 +1892,7 @@ class _TransactionScreenState extends State<TransactionScreen>
               _lineDataRow(
                 index: i,
                 type: _paymentLines[i].type,
+                displayType: _receiptTypeLabel(_paymentLines[i].type),
                 weight: _paymentLines[i].weight,
                 touch: _paymentLines[i].touch,
                 cashAmount: _paymentLines[i].cashAmount,

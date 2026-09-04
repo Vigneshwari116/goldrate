@@ -277,21 +277,42 @@ void main() {
     expect(summary.closing['SWT'], closeTo(1, 0.001));
 
     final opening = StockSummaryTable.openingRow(summary.opening);
-    expect(opening[2], '5');
-    expect(opening[3], '2');
-    expect(opening[4], '3');
-    expect(opening[5], '1');
-    expect(opening[10], '');
-    expect(opening[11], '');
+    expect(opening[11], '5');
+    expect(opening[12], '2');
+    expect(opening[13], '3');
+    expect(opening[14], '1');
+    expect(opening[6], '');
 
     final closing = StockSummaryTable.closingRow(summary.closing);
-    expect(closing[2], '-5');
-    expect(closing[3], '2');
-    expect(closing[4], '3');
-    expect(closing[5], '1');
-    expect(closing[10], '-5');
-    expect(closing[11], '2');
-    expect(closing[12], '3');
-    expect(closing[13], '1');
+    expect(closing[11], '-5');
+    expect(closing[12], '2');
+    expect(closing[13], '3');
+    expect(closing[14], '1');
+    expect(closing[6], '-5');
+    expect(closing[7], '2');
+    expect(closing[8], '3');
+    expect(closing[9], '1');
+  });
+
+  test('includes bills when date uses yyyy-MM-dd from API', () {
+    final summary = buildStockLedgerSummary(
+      transactions: [
+        {
+          'transactionType': 'SALES',
+          'billNo': 1,
+          'date': '2026-09-03',
+          'partyName': 'ab',
+          'items': [
+            {'type': 'GWT', 'weight': 10, 'touch': 100},
+          ],
+        },
+      ],
+      openingWeight: null,
+      from: DateTime(2026, 9, 3),
+      to: DateTime(2026, 9, 3),
+      dateFormat: fmt,
+    );
+    expect(summary.rows.length, 1);
+    expect(summary.rows.first.issueWeights['GWT'], closeTo(10, 0.001));
   });
 }

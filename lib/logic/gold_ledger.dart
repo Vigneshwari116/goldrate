@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 
+import '../util/party_name_key.dart';
+
 /// Cash-to-gold conversion and running party balances.
 ///
 /// Jewellery books keep customer/supplier dues in **grams**. Cash or UPI
@@ -372,7 +374,8 @@ List<dynamic> _decodeItemsJson(String raw) {
 }
 
 /// Net opening balance in grams from master rows with no bill reference.
-/// Uses pure weight (dr/cr) when set; otherwise falls back to gold/gross weight.
+/// Uses **pure** weight only (dr − cr in GRAMS). Gross/gold weight fields
+/// are never used for ledger balances.
 Map<String, double> buildMasterOpeningBalances(
   List<Map<String, dynamic>> masterRows,
 ) {
@@ -386,14 +389,10 @@ Map<String, double> buildMasterOpeningBalances(
     if (unit != 'GRAMS') continue;
     final cr = double.tryParse((row['cr'] ?? '0').toString()) ?? 0;
     final dr = double.tryParse((row['dr'] ?? '0').toString()) ?? 0;
-    var grams = dr - cr;
-    if (grams.abs() < 0.0005) {
-      final gross =
-          double.tryParse((row['drGross'] ?? row['gross'] ?? '0').toString()) ??
-              0;
-      grams = gross;
-    }
-    acc[name] = (acc[name] ?? 0) + grams;
+    final pureGrams = dr - cr;
+    if (pureGrams.abs() < 0.0005) continue;
+    final key = partyNameKey(name);
+    acc[key] = (acc[key] ?? 0) + pureGrams;
   }
   return acc;
 }
@@ -520,10 +519,7 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
   final records = <PartyLedgerRecord>[];
   final q = nameQuery.trim().toLowerCase();
 
-  bool nameMatches(String name) {
-    if (q.isEmpty) return true;
-    return name.toLowerCase().contains(q);
-  }
+  bool nameMatches(String name) => partyNameMatches(name, nameQuery);
 
   for (final bill in transactions) {
     final type = (bill['transactionType'] ?? '').toString();
@@ -655,20 +651,31 @@ List<PartyLedgerSection> buildPartyLedgerSections({
   final masterOpening = buildMasterOpeningBalances(masterRows);
   final q = nameQuery.trim().toLowerCase();
 
-  final names = <String>{
-    ...records.map((r) => r.partyName),
-  };
-  if (q.isNotEmpty) {
-    for (final name in masterOpening.keys) {
-      if (name.toLowerCase().contains(q)) names.add(name);
-    }
+  final displayNames = <String, String>{};
+  void rememberDisplay(String name) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    final key = partyNameKey(trimmed);
+    displayNames.putIfAbsent(key, () => trimmed);
   }
 
-  final sortedNames = names.toList()..sort();
+  for (final row in masterRows) {
+    rememberDisplay((row['name'] ?? '').toString());
+  }
+  for (final record in records) {
+    rememberDisplay(record.partyName);
+  }
+
+  final nameKeys = <String>{
+    ...records.map((r) => partyNameKey(r.partyName)),
+    ...masterOpening.keys,
+  };
+
+  final sortedKeys = nameKeys.toList()..sort();
   final balances = {
     for (final row in buildPartyNameWise(
       customer: customer,
-      knownNames: sortedNames,
+      knownNames: sortedKeys.map((k) => displayNames[k] ?? k).toList(),
       transactions: transactions,
       vouchers: vouchers,
       masterOpening: masterOpening,
@@ -676,28 +683,29 @@ List<PartyLedgerSection> buildPartyLedgerSections({
       to: to,
       allHistory: allHistory,
     ))
-      row.name: row,
+      partyNameKey(row.name): row,
   };
 
   final grouped = <String, List<PartyLedgerRecord>>{};
   for (final record in records) {
-    grouped.putIfAbsent(record.partyName, () => []).add(record);
+    grouped
+        .putIfAbsent(partyNameKey(record.partyName), () => [])
+        .add(record);
   }
 
-  Iterable<String> visibleNames = sortedNames;
+  Iterable<String> visibleKeys = sortedKeys;
   if (q.isNotEmpty) {
-    visibleNames = sortedNames.where((n) => n.toLowerCase().contains(q));
+    visibleKeys = sortedKeys.where((k) => k.contains(q));
   }
 
   return [
-    for (final name in visibleNames)
+    for (final key in visibleKeys)
       PartyLedgerSection(
-        partyName: name,
-        openingBalance: balances[name]?.opening ?? masterOpening[name] ?? 0,
-        closingBalance: balances[name]?.closing ??
-            masterOpening[name] ??
-            0,
-        rows: grouped[name] ?? const [],
+        partyName: displayNames[key] ?? key,
+        openingBalance: balances[key]?.opening ?? masterOpening[key] ?? 0,
+        closingBalance:
+            balances[key]?.closing ?? masterOpening[key] ?? 0,
+        rows: grouped[key] ?? const [],
         customer: customer,
       ),
   ];
@@ -809,10 +817,13 @@ List<PartyNameWiseRow> buildPartyNameWise({
   bool allHistory = false,
 }) {
   final acc = <String, _NameWiseAcc>{};
+  final displayNames = <String, String>{};
   void ensure(String name) {
     final n = name.trim();
     if (n.isEmpty) return;
-    acc.putIfAbsent(n, () => _NameWiseAcc());
+    final key = partyNameKey(n);
+    displayNames.putIfAbsent(key, () => n);
+    acc.putIfAbsent(key, () => _NameWiseAcc());
   }
 
   for (final n in knownNames) {
@@ -820,7 +831,7 @@ List<PartyNameWiseRow> buildPartyNameWise({
   }
   for (final entry in masterOpening.entries) {
     ensure(entry.key);
-    acc[entry.key]!.opening += entry.value;
+    acc[partyNameKey(entry.key)]!.opening += entry.value;
   }
 
   final fromDay = from == null
@@ -836,7 +847,8 @@ List<PartyNameWiseRow> buildPartyNameWise({
     String kind,
   ) {
     ensure(name);
-    final a = acc[name.trim()];
+    final key = partyNameKey(name.trim());
+    final a = acc[key];
     if (a == null) return;
     if (allHistory || fromDay == null || toDay == null) {
       a.debit += debit;
@@ -889,13 +901,13 @@ List<PartyNameWiseRow> buildPartyNameWise({
 
   final names = acc.keys.toList()..sort();
   return [
-    for (final n in names)
+    for (final key in names)
       PartyNameWiseRow(
-        name: n,
-        types: acc[n]!.types.isEmpty ? '-' : acc[n]!.types.join(', '),
-        opening: acc[n]!.opening,
-        debit: acc[n]!.debit,
-        credit: acc[n]!.credit,
+        name: displayNames[key] ?? key,
+        types: acc[key]!.types.isEmpty ? '-' : acc[key]!.types.join(', '),
+        opening: acc[key]!.opening,
+        debit: acc[key]!.debit,
+        credit: acc[key]!.credit,
       ),
   ];
 }

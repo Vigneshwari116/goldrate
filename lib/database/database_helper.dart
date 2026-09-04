@@ -581,6 +581,18 @@ class DatabaseHelper {
     );
   }
 
+  Future<int> deleteCustomersByName(String name) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.deleteCustomersByName(name);
+    }
+    final db = await database;
+    return await db.delete(
+      'customers',
+      where: 'LOWER(name) = ?',
+      whereArgs: [name.trim().toLowerCase()],
+    );
+  }
+
 
   Future<int> insertSupplier(Map<String, dynamic> supplier) async {
     if (ApiConfig.useRemoteApi) return ApiClient.insertSupplier(supplier);
@@ -601,6 +613,18 @@ class DatabaseHelper {
       'suppliers',
       where: 'id = ?',
       whereArgs: [id],
+    );
+  }
+
+  Future<int> deleteSuppliersByName(String name) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.deleteSuppliersByName(name);
+    }
+    final db = await database;
+    return await db.delete(
+      'suppliers',
+      where: 'LOWER(name) = ?',
+      whereArgs: [name.trim().toLowerCase()],
     );
   }
 
