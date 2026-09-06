@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grate_app/logic/stock_ledger.dart';
-import 'package:grate_app/widgets/stock_summary_card.dart';
 import 'package:intl/intl.dart';
 
 void main() {
@@ -30,7 +29,7 @@ void main() {
         'pureWt': weight * touch / 100,
       };
 
-  test('opening uses baseline plus net movements before range start', () {
+  test('opening uses baseline plus purchase items minus sales before range', () {
     final summary = buildStockLedgerSummary(
       transactions: [
         bill(
@@ -59,13 +58,14 @@ void main() {
       dateFormat: fmt,
     );
 
-    expect(summary.opening['GWT'], closeTo(207, 0.001)); // 200 + 12 - 5
+    expect(summary.opening['GWT'], closeTo(207, 0.001));
     expect(summary.opening['FWT'], closeTo(201, 0.001));
-    expect(summary.rows, isEmpty);
+    expect(summary.purchases, isEmpty);
+    expect(summary.sales, isEmpty);
     expect(summary.closing['GWT'], closeTo(207, 0.001));
   });
 
-  test('closing equals opening plus in-range receipts minus in-range issues', () {
+  test('closing equals opening plus purchase totals minus sales totals', () {
     final summary = buildStockLedgerSummary(
       transactions: [
         bill(
@@ -112,16 +112,18 @@ void main() {
     expect(summary.opening['GWT'], closeTo(200, 0.001));
     expect(summary.opening['FWT'], closeTo(201, 0.001));
     expect(summary.closing['GWT'], closeTo(200, 0.001)); // 200 + 12 - 12
-    expect(summary.closing['FWT'], closeTo(201, 0.001)); // 201 + 20 + 4 - 24
-    expect(summary.rows.length, 4);
-    expect(summary.rows.map((r) => r.label).toSet(),
-        {'PUR1', 'PUR2', 'SAL1', 'SAL2'});
-    final sal1 = summary.rows.firstWhere((r) => r.label == 'SAL1');
-    expect(sal1.issueWeights['GWT'], closeTo(12, 0.001));
-    expect(sal1.receiptWeights['FWT'], closeTo(4, 0.001));
+    expect(summary.closing['FWT'], closeTo(197, 0.001)); // 201 + 20 - 24
+    expect(summary.purchases.length, 2);
+    expect(summary.sales.length, 2);
+    expect(summary.purchaseTotals['GWT'], closeTo(12, 0.001));
+    expect(summary.salesTotals['GWT'], closeTo(12, 0.001));
+
+    final sal1 = summary.sales.firstWhere((r) => r.billLabel == 'SAL1');
+    expect(sal1.weights['GWT'], closeTo(12, 0.001));
+    expect(sal1.weights['FWT'], closeTo(0, 0.001));
   });
 
-  test('purchase issue side comes from paymentItems', () {
+  test('purchase box uses items only not paymentItems', () {
     final summary = buildStockLedgerSummary(
       transactions: [
         bill(
@@ -144,12 +146,41 @@ void main() {
       dateFormat: fmt,
     );
 
-    final row = summary.rows.single;
-    expect(row.label, 'PUR1');
-    expect(row.receiptWeights['GWT'], closeTo(20, 0.001));
-    expect(row.issueWeights['FWT'], closeTo(40, 0.001));
+    final row = summary.purchases.single;
+    expect(row.billLabel, 'PUR1');
+    expect(row.weights['GWT'], closeTo(20, 0.001));
+    expect(row.weights['FWT'], closeTo(0, 0.001));
     expect(summary.closing['GWT'], closeTo(220, 0.001));
-    expect(summary.closing['FWT'], closeTo(161, 0.001)); // 201 - 40
+    expect(summary.closing['FWT'], closeTo(201, 0.001)); // payment ignored
+  });
+
+  test('sales old-gold trade-in does not affect closing stock', () {
+    final summary = buildStockLedgerSummary(
+      transactions: [
+        bill(
+          type: 'SALES',
+          billNo: 1,
+          date: '03-09-2026',
+          party: 'ab',
+          items: [item('GWT', 10)],
+          paymentItems: [item('O.GWT', 8)],
+        ),
+      ],
+      openingWeight: {
+        'gPureWt': '5',
+        'fineWt': '2',
+        'kachaWt': '3',
+        'silverWt': '1',
+      },
+      from: DateTime(2026, 9, 3),
+      to: DateTime(2026, 9, 3),
+      dateFormat: fmt,
+    );
+
+    expect(summary.opening['GWT'], closeTo(5, 0.001));
+    expect(summary.sales.single.weights['GWT'], closeTo(10, 0.001));
+    expect(summary.closing['GWT'], closeTo(-5, 0.001)); // 5 - 10, not -49
+    expect(summary.closing['FWT'], closeTo(2, 0.001));
   });
 
   test('closing for date X matches opening for date X+1', () {
@@ -209,7 +240,7 @@ void main() {
               'type': 'GWT',
               'weight': 100,
               'touch': 50,
-              'pureWt': 1, // should be ignored
+              'pureWt': 1,
             },
           ],
         ),
@@ -221,7 +252,7 @@ void main() {
     );
 
     expect(summary.closing['GWT'], closeTo(100, 0.001));
-    expect(summary.rows.single.receiptWeights['GWT'], closeTo(100, 0.001));
+    expect(summary.purchases.single.weights['GWT'], closeTo(100, 0.001));
   });
 
   test('formatStockWeight trims trailing zeros', () {
@@ -245,79 +276,6 @@ void main() {
     expect(weights['SWT'], closeTo(1, 0.001));
   });
 
-  test('Daily Sales headers place Receipt block before Issue block', () {
-    final headers = StockSummaryTable.headers;
-    final receiptIdx = headers.indexWhere((h) => h.startsWith('Rcpt'));
-    final issueIdx = headers.indexWhere((h) => h.startsWith('Issue'));
-    expect(receiptIdx, lessThan(issueIdx));
-    expect(headers.sublist(receiptIdx, receiptIdx + 4), [
-      'Rcpt GWT',
-      'Rcpt FWT',
-      'Rcpt KWT',
-      'Rcpt SWT',
-    ]);
-    expect(headers.sublist(issueIdx, issueIdx + 4), [
-      'Issue GWT',
-      'Issue FWT',
-      'Issue KWT',
-      'Issue SWT',
-    ]);
-    expect(headers.sublist(1, 5), ['Name', 'Bill no', 'date', 'Type']);
-    expect(StockSummaryTable.columnCount, 13);
-  });
-
-  test('daily sales opening and closing show all four weight columns', () {
-    final summary = buildStockLedgerSummary(
-      transactions: [
-        {
-          'transactionType': 'SALES',
-          'billNo': 1,
-          'date': '03-09-2026',
-          'partyName': 'ab',
-          'items': [
-            {'type': 'GWT', 'weight': 10, 'touch': 100},
-          ],
-        },
-      ],
-      openingWeight: {
-        'gPureWt': '5',
-        'fineWt': '2',
-        'kachaWt': '3',
-        'silverWt': '1',
-      },
-      from: DateTime(2026, 9, 3),
-      to: DateTime(2026, 9, 3),
-      dateFormat: fmt,
-    );
-
-    expect(summary.opening['GWT'], closeTo(5, 0.001));
-    expect(summary.opening['FWT'], closeTo(2, 0.001));
-    expect(summary.closing['GWT'], closeTo(-5, 0.001));
-    expect(summary.closing['FWT'], closeTo(2, 0.001));
-    expect(summary.closing['KWT'], closeTo(3, 0.001));
-    expect(summary.closing['SWT'], closeTo(1, 0.001));
-
-    final opening = StockSummaryTable.openingRow(summary.opening);
-    expect(opening[5], '5');
-    expect(opening[6], '2');
-    expect(opening[7], '3');
-    expect(opening[8], '1');
-    expect(opening[9], '5');
-    expect(opening[10], '2');
-    expect(opening[11], '3');
-    expect(opening[12], '1');
-
-    final closing = StockSummaryTable.closingRow(summary.closing);
-    expect(closing[5], '-5');
-    expect(closing[6], '2');
-    expect(closing[7], '3');
-    expect(closing[8], '1');
-    expect(closing[9], '-5');
-    expect(closing[10], '2');
-    expect(closing[11], '3');
-    expect(closing[12], '1');
-  });
-
   test('includes bills when date uses yyyy-MM-dd from API', () {
     final summary = buildStockLedgerSummary(
       transactions: [
@@ -336,7 +294,7 @@ void main() {
       to: DateTime(2026, 9, 3),
       dateFormat: fmt,
     );
-    expect(summary.rows.length, 1);
-    expect(summary.rows.first.issueWeights['GWT'], closeTo(10, 0.001));
+    expect(summary.sales.length, 1);
+    expect(summary.sales.first.weights['GWT'], closeTo(10, 0.001));
   });
 }

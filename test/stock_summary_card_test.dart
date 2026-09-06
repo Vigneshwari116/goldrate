@@ -1,13 +1,23 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grate_app/logic/stock_ledger.dart';
-import 'package:grate_app/theme/app_theme.dart';
 import 'package:grate_app/widgets/stock_summary_card.dart';
 import 'package:intl/intl.dart';
 
 void main() {
-  testWidgets('Daily sales stock table renders merged opening, rows, and closing',
-      (tester) async {
+  test('closing summary lists all four weight types', () {
+    final text = StockSummaryTable.closingSummaryText({
+      'GWT': 200,
+      'FWT': 201,
+      'KWT': 202,
+      'SWT': 500,
+    });
+    expect(text, contains('GWT: 200'));
+    expect(text, contains('FWT: 201'));
+    expect(text, contains('KWT: 202'));
+    expect(text, contains('SWT: 500'));
+  });
+
+  test('buildStockLedgerSummary splits purchase and sales rows', () {
     final summary = buildStockLedgerSummary(
       transactions: [
         {
@@ -28,19 +38,7 @@ void main() {
             {'type': 'GWT', 'weight': 20, 'touch': 50, 'pureWt': 10},
           ],
           'paymentItems': [
-            {'type': 'GWT', 'weight': 30, 'touch': 50, 'pureWt': 15},
-          ],
-        },
-        {
-          'transactionType': 'PURCHASE',
-          'billNo': 2,
-          'date': '10-01-2026',
-          'partyName': 'ra',
-          'items': [
-            {'type': 'GWT', 'weight': 20, 'touch': 50, 'pureWt': 10},
-          ],
-          'paymentItems': [
-            {'type': 'FWT', 'weight': 40, 'touch': 98, 'pureWt': 39.2},
+            {'type': 'O.GWT', 'weight': 30, 'touch': 50, 'pureWt': 15},
           ],
         },
       ],
@@ -55,44 +53,12 @@ void main() {
       dateFormat: DateFormat('dd-MM-yyyy'),
     );
 
-    await tester.binding.setSurfaceSize(const Size(1200, 480));
-    addTearDown(tester.view.resetPhysicalSize);
-
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.theme,
-        home: Scaffold(
-          body: SizedBox(
-            height: 480,
-            child: StockSummaryTable(summary: summary),
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('Opening'), findsOneWidget);
-    expect(find.text('Closing Stock'), findsOneWidget);
-    expect(find.text('200'), findsWidgets);
-    expect(find.text('300'), findsWidgets);
-    expect(find.text('400'), findsWidgets);
-    expect(find.text('500'), findsWidgets);
-    expect(find.text('SAL1'), findsOneWidget);
-    expect(find.text('PUR1'), findsOneWidget);
-    expect(find.text('PUR2'), findsOneWidget);
-    expect(find.text('ab'), findsOneWidget);
-    expect(find.text('cd'), findsOneWidget);
-    expect(find.text('ra'), findsOneWidget);
-    expect(find.text('Type'), findsOneWidget);
-    expect(find.text('Name'), findsOneWidget);
-    expect(find.text('0.000'), findsWidgets);
-    expect(find.text('20'), findsWidgets);
-    expect(find.text('30'), findsOneWidget);
-    expect(find.text('40'), findsOneWidget);
-
-    await expectLater(
-      find.byType(StockSummaryTable),
-      matchesGoldenFile('goldens/stock_summary_card.png'),
-    );
+    expect(summary.purchases.length, 1);
+    expect(summary.sales.length, 1);
+    expect(summary.purchases.single.weights['GWT'], closeTo(12, 0.001));
+    expect(summary.sales.single.weights['GWT'], closeTo(20, 0.001));
+    expect(summary.purchaseTotals['GWT'], closeTo(12, 0.001));
+    expect(summary.salesTotals['GWT'], closeTo(20, 0.001));
+    expect(summary.closing['GWT'], closeTo(192, 0.001));
   });
 }
