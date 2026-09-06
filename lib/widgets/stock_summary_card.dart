@@ -24,8 +24,10 @@ class StockSummaryTable extends StatelessWidget {
     'SWT',
   ];
 
+  static const _infoColCount = 3;
   static const scrollColumnWidth = 72.0;
   static const _cellPadding = EdgeInsets.symmetric(horizontal: 6, vertical: 7);
+  static const _boxGap = 16.0;
 
   static String closingSummaryText(Map<String, double> closing) {
     final parts = <String>[];
@@ -39,31 +41,34 @@ class StockSummaryTable extends StatelessWidget {
 
   /// Flat rows for PDF export.
   static List<List<String>> pdfRowsFor(StockLedgerSummary summary) {
+    final openingRow = _openingRowValues(summary.opening);
     final rows = <List<String>>[];
-    rows.add([
-      'Opening Stock',
-      '',
-      '',
-      ...kStockWeightTypes.map(
-        (t) => formatStockWeight(summary.opening[t] ?? 0, blankWhenZero: false),
-      ),
-    ]);
-    rows.add(['', '', '', '', '', '', '']);
     rows.add(['PURCHASE', '', '', '', '', '', '']);
     rows.add(boxHeaders);
+    rows.add(openingRow);
     for (final bill in summary.purchases) {
       rows.add(_pdfBillRow(bill));
     }
-    rows.add(_pdfTotalRow('Purchase Total', summary.purchaseTotals));
+    rows.add(_pdfTotalRow('Total', summary.purchaseTotals));
     rows.add(['', '', '', '', '', '', '']);
     rows.add(['SALES', '', '', '', '', '', '']);
     rows.add(boxHeaders);
+    rows.add(openingRow);
     for (final bill in summary.sales) {
       rows.add(_pdfBillRow(bill));
     }
-    rows.add(_pdfTotalRow('Sales Total', summary.salesTotals));
+    rows.add(_pdfTotalRow('Total', summary.salesTotals));
     return rows;
   }
+
+  static List<String> _openingRowValues(Map<String, double> opening) => [
+        'Opening Stock',
+        '',
+        '',
+        ...kStockWeightTypes.map(
+          (t) => formatStockWeight(opening[t] ?? 0, blankWhenZero: false),
+        ),
+      ];
 
   static List<String> _pdfBillRow(DailySalesBillRow bill) => [
         bill.billLabel,
@@ -83,105 +88,54 @@ class StockSummaryTable extends StatelessWidget {
         ),
       ];
 
+  static bool _sideBySideLayout(double availableWidth) {
+    final minBoxWidth = scrollColumnWidth * boxHeaders.length;
+    return availableWidth >= minBoxWidth * 2 + _boxGap;
+  }
+
+  static double _columnWidthFor(double availableWidth) {
+    return math.max(scrollColumnWidth, availableWidth / boxHeaders.length);
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final columnCount = boxHeaders.length;
-        final minWidth = scrollColumnWidth * columnCount;
         final available = constraints.maxWidth.isFinite
             ? constraints.maxWidth
-            : minWidth * 2 + 24;
-        final columnWidth = math.max(scrollColumnWidth, minWidth / columnCount);
-        final boxWidth = columnWidth * columnCount;
-        final sideBySide = available >= boxWidth * 2 + 24;
+            : scrollColumnWidth * boxHeaders.length * 2 + _boxGap;
+        final sideBySide = _sideBySideLayout(available);
+
+        Widget box(String title, List<DailySalesBillRow> rows, Map<String, double> totals) {
+          return _billBox(
+            title: title,
+            rows: rows,
+            totals: totals,
+            opening: summary.opening,
+          );
+        }
 
         return SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _openingBand(columnWidth),
-              const SizedBox(height: 12),
-              if (sideBySide)
-                Row(
+          child: sideBySide
+              ? Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: _billBox(
-                        title: 'Purchase',
-                        rows: summary.purchases,
-                        totals: summary.purchaseTotals,
-                        columnWidth: columnWidth,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: _billBox(
-                        title: 'Sales',
-                        rows: summary.sales,
-                        totals: summary.salesTotals,
-                        columnWidth: columnWidth,
-                      ),
-                    ),
+                    Expanded(child: box('Purchase', summary.purchases, summary.purchaseTotals)),
+                    const SizedBox(width: _boxGap),
+                    Expanded(child: box('Sales', summary.sales, summary.salesTotals)),
                   ],
                 )
-              else ...[
-                _billBox(
-                  title: 'Purchase',
-                  rows: summary.purchases,
-                  totals: summary.purchaseTotals,
-                  columnWidth: columnWidth,
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    box('Purchase', summary.purchases, summary.purchaseTotals),
+                    const SizedBox(height: _boxGap),
+                    box('Sales', summary.sales, summary.salesTotals),
+                  ],
                 ),
-                const SizedBox(height: 16),
-                _billBox(
-                  title: 'Sales',
-                  rows: summary.sales,
-                  totals: summary.salesTotals,
-                  columnWidth: columnWidth,
-                ),
-              ],
-            ],
-          ),
         );
       },
-    );
-  }
-
-  Widget _openingBand(double columnWidth) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppColors.headerBand,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        children: [
-          const SizedBox(
-            width: 110,
-            child: Text(
-              'Opening Stock',
-              style: TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 12,
-                color: AppColors.navy,
-              ),
-            ),
-          ),
-          for (final type in kStockWeightTypes)
-            Expanded(
-              child: Text(
-                '${type}: ${formatStockWeight(summary.opening[type] ?? 0, blankWhenZero: false)}',
-                textAlign: TextAlign.right,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 12,
-                ),
-              ),
-            ),
-        ],
-      ),
     );
   }
 
@@ -189,14 +143,41 @@ class StockSummaryTable extends StatelessWidget {
     required String title,
     required List<DailySalesBillRow> rows,
     required Map<String, double> totals,
-    required double columnWidth,
+    required Map<String, double> opening,
   }) {
-    final tableWidth = columnWidth * boxHeaders.length;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableWidth = constraints.maxWidth.isFinite && constraints.maxWidth > 0
+            ? constraints.maxWidth
+            : scrollColumnWidth * boxHeaders.length;
+        final columnWidth = _columnWidthFor(availableWidth);
+        final tableWidth = columnWidth * boxHeaders.length;
+        return _billBoxTable(
+          title: title,
+          rows: rows,
+          totals: totals,
+          opening: opening,
+          columnWidth: columnWidth,
+          tableWidth: tableWidth,
+        );
+      },
+    );
+  }
+
+  Widget _billBoxTable({
+    required String title,
+    required List<DailySalesBillRow> rows,
+    required Map<String, double> totals,
+    required Map<String, double> opening,
+    required double columnWidth,
+    required double tableWidth,
+  }) {
 
     Widget cell({
       required String text,
       required bool header,
       required bool bold,
+      required bool openingRow,
       TextAlign align = TextAlign.left,
     }) {
       return SizedBox(
@@ -211,17 +192,26 @@ class StockSummaryTable extends StatelessWidget {
             style: TextStyle(
               fontSize: header ? 10 : 11,
               fontWeight: header || bold ? FontWeight.w700 : FontWeight.normal,
-              color: header ? AppColors.mutedBlue : Colors.black87,
+              color: header
+                  ? AppColors.mutedBlue
+                  : openingRow
+                      ? AppColors.navy
+                      : Colors.black87,
             ),
           ),
         ),
       );
     }
 
-    Widget rowWidget(List<String> values, {bool header = false, bool bold = false}) {
+    Widget rowWidget(
+      List<String> values, {
+      bool header = false,
+      bool bold = false,
+      bool openingRow = false,
+    }) {
       return Container(
         decoration: BoxDecoration(
-          color: bold ? AppColors.headerBand : Colors.white,
+          color: openingRow || bold ? AppColors.headerBand : Colors.white,
           border: const Border(bottom: BorderSide(color: AppColors.border)),
         ),
         child: Row(
@@ -232,7 +222,8 @@ class StockSummaryTable extends StatelessWidget {
                 text: i < values.length ? values[i] : '',
                 header: header,
                 bold: bold,
-                align: i >= 3 ? TextAlign.right : TextAlign.left,
+                openingRow: openingRow,
+                align: i >= _infoColCount ? TextAlign.right : TextAlign.left,
               ),
           ],
         ),
@@ -258,7 +249,7 @@ class StockSummaryTable extends StatelessWidget {
         ];
 
     final table = Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
           padding: const EdgeInsets.only(bottom: 6),
@@ -273,6 +264,7 @@ class StockSummaryTable extends StatelessWidget {
           ),
         ),
         rowWidget(boxHeaders, header: true),
+        rowWidget(_openingRowValues(opening), openingRow: true, bold: true),
         if (rows.isEmpty)
           rowWidget(['—', 'No bills', '', '', '', '', ''])
         else
@@ -281,12 +273,9 @@ class StockSummaryTable extends StatelessWidget {
       ],
     );
 
-    return Scrollbar(
-      thumbVisibility: tableWidth > 400,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: SizedBox(width: math.max(tableWidth, 280), child: table),
-      ),
+    return SizedBox(
+      width: tableWidth,
+      child: table,
     );
   }
 }

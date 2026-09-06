@@ -61,4 +61,40 @@ void main() {
     expect(summary.salesTotals['GWT'], closeTo(20, 0.001));
     expect(summary.closing['GWT'], closeTo(192, 0.001));
   });
+
+  test('pdf opening row places weights under GWT FWT KWT SWT columns in both boxes', () {
+    final summary = buildStockLedgerSummary(
+      transactions: const [],
+      openingWeight: {
+        'gPureWt': '110.2',
+        'fineWt': '201',
+        'kachaWt': '202',
+        'silverWt': '5000',
+      },
+      from: DateTime(2026, 9, 6),
+      to: DateTime(2026, 9, 6),
+      dateFormat: DateFormat('dd-MM-yyyy'),
+    );
+
+    final rows = StockSummaryTable.pdfRowsFor(summary);
+    expect(rows[0][0], 'PURCHASE');
+    expect(rows[1], StockSummaryTable.boxHeaders);
+    expect(rows[2][0], 'Opening Stock', reason: rows.map((r) => r[0]).join(', '));
+
+    final purchaseOpening = rows[2];
+    final salesHeaderIndex =
+        rows.indexWhere((row) => row.isNotEmpty && row.first == 'SALES');
+    expect(salesHeaderIndex, greaterThan(0));
+    final salesOpening = rows[salesHeaderIndex + 2];
+
+    for (final openingRow in [purchaseOpening, salesOpening]) {
+      expect(openingRow[0], 'Opening Stock');
+      expect(openingRow[1], '');
+      expect(openingRow[2], '');
+      expect(openingRow[3], '110.2');
+      expect(openingRow[4], '201');
+      expect(openingRow[5], '202');
+      expect(openingRow[6], '5000');
+    }
+  });
 }
