@@ -367,19 +367,16 @@ class _ReportsScreenState extends State<ReportsScreen>
       allHistory: false,
       dateFormat: _fmt,
     );
-    final closingUnits = kStockWeightTypes.fold<double>(
-      0,
-      (sum, type) => sum + (summary.closing[type] ?? 0),
-    );
     return _reportShell(
       title: 'DAILY SALES REPORT',
-      records: summary.rows.length,
-      units: closingUnits,
+      records: summary.rowCount,
+      units: 0,
       total: 0,
+      hideTitleAndRecords: true,
       totalText: StockSummaryTable.closingSummaryText(summary.closing),
       child: StockSummaryTable(summary: summary),
       pdfRows: StockSummaryTable.pdfRowsFor(summary),
-      headers: StockSummaryTable.headers,
+      headers: StockSummaryTable.boxHeaders,
     );
   }
 
@@ -892,6 +889,7 @@ class _ReportsScreenState extends State<ReportsScreen>
       'AMOUNT',
     ],
     String? totalText,
+    bool hideTitleAndRecords = false,
   }) {
     return Padding(
       padding: const EdgeInsets.all(12),
@@ -905,37 +903,56 @@ class _ReportsScreenState extends State<ReportsScreen>
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(title,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 0.4)),
-                        const SizedBox(height: 4),
-                        Text(
-                          'RECORDS: $records | UNITS: ${units.toStringAsFixed(3)}',
+              child: hideTitleAndRecords
+                  ? Align(
+                      alignment: Alignment.centerRight,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        color: AppColors.navy,
+                        child: Text(
+                          totalText ?? 'CLOSING: —',
                           style: const TextStyle(
-                              fontSize: 12, color: Colors.black54),
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    )
+                  : Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(title,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 0.4)),
+                              const SizedBox(height: 4),
+                              Text(
+                                'RECORDS: $records | UNITS: ${units.toStringAsFixed(3)}',
+                                style: const TextStyle(
+                                    fontSize: 12, color: Colors.black54),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 10),
+                          color: AppColors.navy,
+                          child: Text(
+                            totalText ?? 'TOTAL: ₹${total.toStringAsFixed(2)}',
+                            style: const TextStyle(
+                                color: Colors.white, fontWeight: FontWeight.w800),
+                          ),
                         ),
                       ],
                     ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 10),
-                    color: AppColors.navy,
-                    child: Text(
-                      totalText ?? 'TOTAL: ₹${total.toStringAsFixed(2)}',
-                      style: const TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w800),
-                    ),
-                  ),
-                ],
-              ),
             ),
             const Divider(height: 1),
             Expanded(child: child),

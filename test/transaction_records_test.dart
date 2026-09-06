@@ -109,9 +109,9 @@ void main() {
       to: DateTime(2026, 9, 4),
       dateFormat: DateFormat('dd-MM-yyyy'),
     );
-    expect(summary.rows, hasLength(1));
-    expect(summary.rows.first.label, 'PUR2');
-    expect(summary.rows.first.receiptWeights['GWT'], closeTo(25, 0.001));
+    expect(summary.purchases.length, 1);
+    expect(summary.purchases.first.billLabel, 'PUR2');
+    expect(summary.purchases.first.weights['GWT'], closeTo(25, 0.001));
   });
 
   test('parseAppDate accepts dd-MM-yyyy and yyyy-MM-dd', () {

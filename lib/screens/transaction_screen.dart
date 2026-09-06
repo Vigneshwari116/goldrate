@@ -1302,7 +1302,19 @@ class _TransactionScreenState extends State<TransactionScreen>
               builder: (context, constraints) {
                 final singlePanel = _hideIssuePanel || _hideReceiptPanel;
                 final stacked = constraints.maxWidth < 720 || singlePanel;
-                if (stacked) {
+                final receiptFirst = _isPurchase;
+
+                Widget panelColumn() {
+                  if (receiptFirst) {
+                    return Column(
+                      children: [
+                        if (!_hideReceiptPanel) _receiptPanel(),
+                        if (!_hideIssuePanel && !_hideReceiptPanel)
+                          const SizedBox(height: 10),
+                        if (!_hideIssuePanel) _issuePanel(),
+                      ],
+                    );
+                  }
                   return Column(
                     children: [
                       if (!_hideIssuePanel) _issuePanel(),
@@ -1312,15 +1324,34 @@ class _TransactionScreenState extends State<TransactionScreen>
                     ],
                   );
                 }
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (!_hideIssuePanel) Expanded(child: _issuePanel()),
-                    if (!_hideIssuePanel && !_hideReceiptPanel)
-                      const SizedBox(width: 10),
-                    if (!_hideReceiptPanel) Expanded(child: _receiptPanel()),
-                  ],
-                );
+
+                Widget panelRow() {
+                  if (receiptFirst) {
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (!_hideReceiptPanel) Expanded(child: _receiptPanel()),
+                        if (!_hideIssuePanel && !_hideReceiptPanel)
+                          const SizedBox(width: 10),
+                        if (!_hideIssuePanel) Expanded(child: _issuePanel()),
+                      ],
+                    );
+                  }
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (!_hideIssuePanel) Expanded(child: _issuePanel()),
+                      if (!_hideIssuePanel && !_hideReceiptPanel)
+                        const SizedBox(width: 10),
+                      if (!_hideReceiptPanel) Expanded(child: _receiptPanel()),
+                    ],
+                  );
+                }
+
+                if (stacked) {
+                  return panelColumn();
+                }
+                return panelRow();
               },
             ),
             if (_hasBillOrPaymentData) ...[

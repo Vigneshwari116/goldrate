@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../database/database_helper.dart';
 import '../logic/gold_ledger.dart';
 import '../util/focus_chain.dart';
+import '../util/party_name_key.dart';
 import '../util/screen_activation.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
@@ -413,6 +414,39 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen>
 
     try {
       final now = DateTime.now();
+
+      final name = _nameController.text.trim();
+      final duplicate = findDuplicatePartyName(
+        name,
+        _summaries.map((s) => s.name),
+      );
+      if (duplicate != null) {
+        final proceed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Duplicate supplier name'),
+            content: Text(
+              'A supplier named "$duplicate" already exists '
+              '(names match regardless of spelling/capitalisation).\n\n'
+              'Save another entry under "$name" anyway?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Save anyway'),
+              ),
+            ],
+          ),
+        );
+        if (proceed != true) {
+          if (mounted) setState(() => _saving = false);
+          return;
+        }
+      }
 
       final date =
       DateFormat('dd-MM-yyyy').format(now);
