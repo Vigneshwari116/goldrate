@@ -373,7 +373,6 @@ class _ReportsScreenState extends State<ReportsScreen>
       units: 0,
       total: 0,
       hideTitleAndRecords: true,
-      totalText: StockSummaryTable.closingSummaryText(summary.closing),
       child: StockSummaryTable(summary: summary),
       pdfRows: StockSummaryTable.pdfRowsFor(summary),
       headers: StockSummaryTable.boxHeaders,
@@ -904,24 +903,32 @@ class _ReportsScreenState extends State<ReportsScreen>
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
               child: hideTitleAndRecords
-                  ? Align(
-                      alignment: Alignment.centerRight,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 10,
-                        ),
-                        color: AppColors.navy,
-                        child: Text(
-                          totalText ?? 'CLOSING: —',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 12,
+                  ? (totalText != null
+                      ? Align(
+                          alignment: Alignment.centerRight,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 10,
+                            ),
+                            color: AppColors.navy,
+                            child: Text(
+                              totalText,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 12,
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-                    )
+                        )
+                      : Text(
+                          title,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.4,
+                          ),
+                        ))
                   : Row(
                       children: [
                         Expanded(
