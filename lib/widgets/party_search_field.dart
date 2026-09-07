@@ -27,6 +27,7 @@ class PartySearchField extends StatefulWidget {
     this.onFieldSubmitted,
     this.onFocus,
     this.onFocusNodeReady,
+    this.readOnly = false,
   });
 
   final String label;
@@ -38,6 +39,7 @@ class PartySearchField extends StatefulWidget {
   final VoidCallback? onFieldSubmitted;
   final VoidCallback? onFocus;
   final ValueChanged<FocusNode>? onFocusNodeReady;
+  final bool readOnly;
 
   @override
   State<PartySearchField> createState() => _PartySearchFieldState();
@@ -72,6 +74,19 @@ class _PartySearchFieldState extends State<PartySearchField> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.readOnly) {
+      return TextFormField(
+        controller: widget.controller,
+        readOnly: true,
+        style: const TextStyle(fontSize: 14),
+        decoration: InputDecoration(
+          label: Text(widget.label),
+          helperText: widget.helperText,
+          helperStyle: const TextStyle(fontSize: 11),
+        ),
+      );
+    }
+
     return Autocomplete<PartySuggestion>(
       optionsViewOpenDirection: OptionsViewOpenDirection.down,
       displayStringForOption: (option) => option.name,

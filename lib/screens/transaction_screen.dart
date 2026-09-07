@@ -1038,13 +1038,18 @@ class _TransactionScreenState extends State<TransactionScreen>
   }
 
   Future<void> _confirmDelete(Map<String, dynamic> row) async {
+    final fromLedger = row['fromLedger'] == true;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(_isVoucher ? 'Delete Voucher' : 'Delete Bill'),
         content: Text(_isVoucher
             ? 'Are you sure you want to delete this voucher?'
-            : 'Are you sure you want to delete this record?'),
+            : fromLedger
+                ? 'Remove this ledger entry from Sales history? '
+                    'This deletes the matching customer/supplier ledger row '
+                    '(bill reference only — not a full saved bill).'
+                : 'Are you sure you want to delete this record?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -1062,10 +1067,28 @@ class _TransactionScreenState extends State<TransactionScreen>
       if (_isVoucher) {
         await DatabaseHelper.instance.deleteVoucher(row['id'] as int);
       } else {
-        await DatabaseHelper.instance.deleteTransaction(row['id'] as int);
+        await _deleteBillRow(row);
       }
       _load();
     }
+  }
+
+  Future<void> _deleteBillRow(Map<String, dynamic> row) async {
+    final billNo = row['billNo'];
+    final storedRef = (row['billRef'] ?? '').toString().trim();
+    final billRef = storedRef.isNotEmpty
+        ? storedRef
+        : '${_isPurchase ? 'PUR' : 'SAL'}-$billNo';
+
+    final id = row['id'] as int?;
+    if (row['fromLedger'] != true && id != null && id > 0) {
+      await DatabaseHelper.instance.deleteTransaction(id);
+    }
+
+    await DatabaseHelper.instance.deleteLedgerByBillRef(
+      billRef,
+      isCustomer: _isCustomerParty,
+    );
   }
 
   void _showBillDetails(Map<String, dynamic> row) {
@@ -1111,31 +1134,46 @@ class _TransactionScreenState extends State<TransactionScreen>
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(dialogContext);
-              _loadBillForEdit(row);
-            },
-            child: const Text('EDIT'),
-          ),
-          TextButton(
-            onPressed: _sharingPdf
-                ? null
-                : () async {
-                    Navigator.pop(dialogContext);
-                    await _sharePdf(row, estimate: true, openAfterSave: false);
-                  },
-            child: const Text("ESTIMATE"),
-          ),
-          TextButton(
-            onPressed: _sharingPdf
-                ? null
-                : () async {
-                    Navigator.pop(dialogContext);
-                    await _sharePdf(row, estimate: false, openAfterSave: false);
-                  },
-            child: const Text("ACCOUNTS BILL"),
-          ),
+          if (row['fromLedger'] != true)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                _loadBillForEdit(row);
+              },
+              child: const Text('EDIT'),
+            ),
+          if (row['fromLedger'] == true)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                _confirmDelete(row);
+              },
+              child: const Text(
+                'DELETE',
+                style: TextStyle(color: Colors.red),
+              ),
+            ),
+          if (row['fromLedger'] != true) ...[
+            TextButton(
+              onPressed: _sharingPdf
+                  ? null
+                  : () async {
+                      Navigator.pop(dialogContext);
+                      await _sharePdf(row, estimate: true, openAfterSave: false);
+                    },
+              child: const Text("ESTIMATE"),
+            ),
+            TextButton(
+              onPressed: _sharingPdf
+                  ? null
+                  : () async {
+                      Navigator.pop(dialogContext);
+                      await _sharePdf(
+                          row, estimate: false, openAfterSave: false);
+                    },
+              child: const Text("ACCOUNTS BILL"),
+            ),
+          ],
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
             child: const Text("CLOSE"),
@@ -1456,6 +1494,7 @@ class _TransactionScreenState extends State<TransactionScreen>
               onFocusNodeReady: _bindPartyFocus,
               parties: _partySuggestions,
               helperText: 'Search saved name, mobile, or city',
+              readOnly: _editingTransactionId != null,
               onFocus: _refreshParties,
               onSelected: _selectParty,
               onFieldSubmitted: () => _advanceFromParty(_partyController.text),
@@ -2273,26 +2312,27 @@ class _TransactionScreenState extends State<TransactionScreen>
                           fontSize: 10.5, color: Colors.black54),
                       overflow: TextOverflow.ellipsis,
                     ),
-                    trailing: row['fromLedger'] == true
-                        ? null
-                        : Row(
+                    trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              IconButton(
-                                icon: const Icon(Icons.edit,
-                                    color: AppColors.navy, size: 16),
-                                onPressed: () => _loadBillForEdit(row),
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(),
-                                tooltip: 'Edit bill',
-                              ),
+                              if (row['fromLedger'] != true)
+                                IconButton(
+                                  icon: const Icon(Icons.edit,
+                                      color: AppColors.navy, size: 16),
+                                  onPressed: () => _loadBillForEdit(row),
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                  tooltip: 'Edit bill',
+                                ),
                               IconButton(
                                 icon: const Icon(Icons.delete,
                                     color: Colors.redAccent, size: 16),
                                 onPressed: () => _confirmDelete(row),
                                 padding: EdgeInsets.zero,
                                 constraints: const BoxConstraints(),
-                                tooltip: 'Delete bill',
+                                tooltip: row['fromLedger'] == true
+                                    ? 'Remove ledger entry'
+                                    : 'Delete bill',
                               ),
                             ],
                           ),

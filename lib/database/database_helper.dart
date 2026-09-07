@@ -420,7 +420,7 @@ class DatabaseHelper {
     }
     try {
       final rows = await getRates();
-      if (rows.isNotEmpty) return rows;
+      if (rows.isNotEmpty) return canonicalRateRows(rows);
     } catch (_) {
       // Offline or server error — fall back to blank local template rows.
     }
@@ -430,20 +430,75 @@ class DatabaseHelper {
     ];
   }
 
+  /// One row per default rate name, in display order.
+  static List<Map<String, dynamic>> canonicalRateRows(
+    List<Map<String, dynamic>> rows,
+  ) {
+    final byName = <String, Map<String, dynamic>>{};
+    for (final row in rows) {
+      final name = (row['rateName'] ?? '').toString();
+      if (!_defaultRateNames.contains(name)) continue;
+      final existing = byName[name];
+      if (existing == null) {
+        byName[name] = row;
+        continue;
+      }
+      final keeper = _pickBestRateRow([existing, row]);
+      if (keeper != null) byName[name] = keeper;
+    }
+    return [
+      for (final name in _defaultRateNames)
+        byName[name] ?? {'id': 0, 'rateName': name, 'rateValue': ''},
+    ];
+  }
+
+  static Map<String, dynamic>? _pickBestRateRow(
+    List<Map<String, dynamic>> rows,
+  ) {
+    if (rows.isEmpty) return null;
+    final sorted = [...rows];
+    sorted.sort((a, b) {
+      final aHas = (a['rateValue'] ?? '').toString().trim().isNotEmpty;
+      final bHas = (b['rateValue'] ?? '').toString().trim().isNotEmpty;
+      if (aHas != bHas) return aHas ? -1 : 1;
+      final aId = (a['id'] as num?)?.toInt() ?? 0;
+      final bId = (b['id'] as num?)?.toInt() ?? 0;
+      return bId.compareTo(aId);
+    });
+    return sorted.first;
+  }
+
   /// Ensures the four daily rate rows exist (blank values on fresh install).
   Future<void> ensureDefaultRates() async {
     if (ApiConfig.useRemoteApi) {
       await ApiClient.ensureDefaultRates();
       return;
     }
+    await _repairRatesTable();
+  }
+
+  Future<void> _repairRatesTable() async {
     final db = await database;
-    final count = Sqflite.firstIntValue(
-          await db.rawQuery('SELECT COUNT(*) as count FROM rates'),
-        ) ??
-        0;
-    if (count > 0) return;
+    final rows = await db.query('rates', orderBy: 'id DESC');
+
     for (final name in _defaultRateNames) {
-      await db.insert('rates', {'rateName': name, 'rateValue': ''});
+      final matching = rows
+          .where((r) => (r['rateName'] ?? '').toString() == name)
+          .toList();
+      if (matching.isEmpty) {
+        await db.insert('rates', {'rateName': name, 'rateValue': ''});
+        continue;
+      }
+
+      final keeper = _pickBestRateRow(matching);
+      if (keeper == null) continue;
+      final keepId = (keeper['id'] as num?)?.toInt() ?? 0;
+      for (final row in matching) {
+        final id = (row['id'] as num?)?.toInt() ?? 0;
+        if (id > 0 && id != keepId) {
+          await db.delete('rates', where: 'id = ?', whereArgs: [id]);
+        }
+      }
     }
   }
 
@@ -458,7 +513,7 @@ class DatabaseHelper {
   /// A rate that hasn't been set yet (blank) is simply left out of the map.
   Future<Map<String, double>> getRatesMap() async {
     if (ApiConfig.useRemoteApi) return ApiClient.getRatesMap();
-    final rows = await getRates();
+    final rows = canonicalRateRows(await getRates());
     final map = <String, double>{};
     for (final row in rows) {
       final value = double.tryParse((row['rateValue'] ?? '').toString());

@@ -149,6 +149,7 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
   bool _loading = true;
   bool _saving = false;
   bool _nameLocked = false;
+  bool _editingExistingParty = false;
 
   static final RegExp _mobileRegex =
   RegExp(r'^[6-9]\d{9}$');
@@ -307,7 +308,10 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
   void _prefillFromExistingName(String name) {
     for (final summary in _buildSummaries(customers)) {
       if (summary.name == name) {
-        setState(() => _nameLocked = true);
+        setState(() {
+          _nameLocked = true;
+          _editingExistingParty = true;
+        });
         _mobileController.text = summary.mobile;
         _cityController.text = summary.city;
         _prefillOpeningBalance(summary);
@@ -315,7 +319,10 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
         return;
       }
     }
-    setState(() => _nameLocked = false);
+    setState(() {
+      _nameLocked = false;
+      _editingExistingParty = false;
+    });
     _pureWeightController.clear();
     _goldWeightController.clear();
     FocusChain.focusNextFrame(_mobileFocus, controller: _mobileController);
@@ -328,7 +335,10 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
     _pureWeightController.clear();
     _goldWeightController.clear();
     _narrationController.clear();
-    setState(() => _nameLocked = false);
+    setState(() {
+      _nameLocked = false;
+      _editingExistingParty = false;
+    });
     _formKey.currentState?.reset();
   }
 
@@ -497,7 +507,10 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
     _cityController.text = summary.city;
     _prefillOpeningBalance(summary);
     _narrationController.clear();
-    setState(() => _nameLocked = true);
+    setState(() {
+      _nameLocked = true;
+      _editingExistingParty = true;
+    });
     FocusChain.focusNextFrame(_mobileFocus, controller: _mobileController);
   }
 
@@ -956,6 +969,7 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
                     onFocusNodeReady: _bindNameFocus,
                     onSelected: _prefillFromExistingName,
                     onChanged: (value) {
+                      if (_editingExistingParty) return;
                       final exists =
                           _summaries.any((s) => s.name == value.trim());
                       if (exists != _nameLocked) {
