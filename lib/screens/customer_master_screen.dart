@@ -148,6 +148,7 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
 
   bool _loading = true;
   bool _saving = false;
+  bool _nameLocked = false;
 
   static final RegExp _mobileRegex =
   RegExp(r'^[6-9]\d{9}$');
@@ -306,6 +307,7 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
   void _prefillFromExistingName(String name) {
     for (final summary in _buildSummaries(customers)) {
       if (summary.name == name) {
+        setState(() => _nameLocked = true);
         _mobileController.text = summary.mobile;
         _cityController.text = summary.city;
         _prefillOpeningBalance(summary);
@@ -313,6 +315,7 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
         return;
       }
     }
+    setState(() => _nameLocked = false);
     _pureWeightController.clear();
     _goldWeightController.clear();
     FocusChain.focusNextFrame(_mobileFocus, controller: _mobileController);
@@ -325,6 +328,7 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
     _pureWeightController.clear();
     _goldWeightController.clear();
     _narrationController.clear();
+    setState(() => _nameLocked = false);
     _formKey.currentState?.reset();
   }
 
@@ -488,6 +492,16 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
   }
 
   Future<void> _confirmDeleteAll(String name) async {
+    final hasTransactions = await DatabaseHelper.instance
+        .partyHasLinkedTransactions(name, isCustomer: true);
+    if (!mounted) return;
+    if (hasTransactions) {
+      _showError(
+        'Cannot delete — this customer has existing transactions',
+      );
+      return;
+    }
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) {
@@ -921,8 +935,16 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
                     controller: _nameController,
                     options: _nameOptions,
                     validator: _validateName,
+                    readOnly: _nameLocked,
                     onFocusNodeReady: _bindNameFocus,
                     onSelected: _prefillFromExistingName,
+                    onChanged: (value) {
+                      final exists =
+                          _summaries.any((s) => s.name == value.trim());
+                      if (exists != _nameLocked) {
+                        setState(() => _nameLocked = exists);
+                      }
+                    },
                     onFieldSubmitted: () => _focusNext(_mobileFocus),
                     onFocus: loadCustomers,
                   ),

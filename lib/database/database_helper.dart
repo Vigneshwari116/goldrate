@@ -629,6 +629,53 @@ class DatabaseHelper {
     );
   }
 
+  /// True when the party has purchase/sale bills, vouchers, or ledger rows
+  /// posted from bills (non-empty billRef). Master-only rows may still delete.
+  Future<bool> partyHasLinkedTransactions(
+    String name, {
+    required bool isCustomer,
+  }) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.partyHasLinkedTransactions(
+        name,
+        isCustomer: isCustomer,
+      );
+    }
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return false;
+    final lower = trimmed.toLowerCase();
+    final db = await database;
+
+    final txnCount = Sqflite.firstIntValue(
+          await db.rawQuery(
+            'SELECT COUNT(*) FROM transactions WHERE LOWER(partyName) = ?',
+            [lower],
+          ),
+        ) ??
+        0;
+    if (txnCount > 0) return true;
+
+    final voucherCount = Sqflite.firstIntValue(
+          await db.rawQuery(
+            'SELECT COUNT(*) FROM vouchers WHERE LOWER(partyName) = ?',
+            [lower],
+          ),
+        ) ??
+        0;
+    if (voucherCount > 0) return true;
+
+    final table = isCustomer ? 'customers' : 'suppliers';
+    final ledgerCount = Sqflite.firstIntValue(
+          await db.rawQuery(
+            'SELECT COUNT(*) FROM $table '
+            'WHERE LOWER(name) = ? AND billRef IS NOT NULL AND TRIM(billRef) != ?',
+            [lower, ''],
+          ),
+        ) ??
+        0;
+    return ledgerCount > 0;
+  }
+
   Future<Map<String, dynamic>?> getOpeningWeight() async {
     if (ApiConfig.useRemoteApi) return ApiClient.getOpeningWeight();
     final db = await database;

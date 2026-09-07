@@ -86,6 +86,8 @@ void main() {
         rows.indexWhere((row) => row.isNotEmpty && row.first == 'SALES');
     expect(salesHeaderIndex, greaterThan(0));
     final salesOpening = rows[salesHeaderIndex + 2];
+    final purchaseClosing = rows[rows.indexWhere((row) => row.first == 'Closing Stock')];
+    final salesClosing = rows.last;
 
     for (final openingRow in [purchaseOpening, salesOpening]) {
       expect(openingRow[0], 'Opening Stock');
@@ -96,5 +98,10 @@ void main() {
       expect(openingRow[5], '202');
       expect(openingRow[6], '5000');
     }
+
+    expect(purchaseClosing[0], 'Closing Stock');
+    expect(salesClosing[0], 'Closing Stock');
+    expect(purchaseClosing[3], purchaseOpening[3]);
+    expect(salesClosing[3], salesOpening[3]);
   });
 }

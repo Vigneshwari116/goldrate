@@ -211,6 +211,35 @@ class ApiClient {
     return data['rowsAffected'] as int? ?? 0;
   }
 
+  static Future<bool> partyHasLinkedTransactions(
+    String name, {
+    required bool isCustomer,
+  }) async {
+    final lower = name.trim().toLowerCase();
+    if (lower.isEmpty) return false;
+
+    final txns = await getAllTransactions();
+    for (final row in txns) {
+      final party = (row['partyName'] ?? '').toString().trim().toLowerCase();
+      if (party == lower) return true;
+    }
+
+    final vouchers = await getVouchers();
+    for (final row in vouchers) {
+      final party = (row['partyName'] ?? '').toString().trim().toLowerCase();
+      if (party == lower) return true;
+    }
+
+    final ledger = isCustomer ? await getCustomers() : await getSuppliers();
+    for (final row in ledger) {
+      final rowName = (row['name'] ?? '').toString().trim().toLowerCase();
+      final billRef = (row['billRef'] ?? '').toString().trim();
+      if (rowName == lower && billRef.isNotEmpty) return true;
+    }
+
+    return false;
+  }
+
   // ---------- Opening weight ----------
   static Future<Map<String, dynamic>?> getOpeningWeight() async {
     final res = await http.get(_uri('/opening-weight'));

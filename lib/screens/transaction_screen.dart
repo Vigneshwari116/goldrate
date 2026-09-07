@@ -141,9 +141,9 @@ class _TransactionScreenState extends State<TransactionScreen>
   String _billEntryType = _itemTypes.first;
   String _paymentEntryType = _paymentItemTypes.first;
   final _billEntryWeight = TextEditingController(text: '0.000');
-  final _billEntryTouch = TextEditingController(text: '0.00');
+  final _billEntryTouch = TextEditingController();
   final _paymentEntryWeight = TextEditingController(text: '0.000');
-  final _paymentEntryTouch = TextEditingController(text: '0.00');
+  final _paymentEntryTouch = TextEditingController();
   final _paymentEntryAmount = TextEditingController(text: '0.00');
 
   final _billEntryWeightFocus = FocusNode();
@@ -162,6 +162,8 @@ class _TransactionScreenState extends State<TransactionScreen>
   List<PartySuggestion> _partySuggestions = [];
   Map<String, double>? _partyOutstanding;
   Timer? _partyRefreshTimer;
+  String? _billTouchError;
+  String? _paymentTouchError;
 
   /// Purchase looks up Suppliers (stock coming in from them); Sales
   /// looks up Customers (stock going out to them).
@@ -294,6 +296,35 @@ class _TransactionScreenState extends State<TransactionScreen>
     _partyController
       ..addListener(_onPartyControllerChanged)
       ..addListener(() => _onPartyTextChanged());
+    _billEntryTouchFocus.addListener(_onBillTouchFocusChange);
+    _paymentEntryTouchFocus.addListener(_onPaymentTouchFocusChange);
+  }
+
+  void _onBillTouchFocusChange() {
+    if (!_billEntryTouchFocus.hasFocus) {
+      _validateBillTouchOnBlur();
+    }
+  }
+
+  void _onPaymentTouchFocusChange() {
+    if (!_paymentEntryTouchFocus.hasFocus) {
+      _validatePaymentTouchOnBlur();
+    }
+  }
+
+  void _validateBillTouchOnBlur() {
+    final message = touchPercentValidationMessage(_billEntryTouch.text);
+    if (_billTouchError != message) {
+      setState(() => _billTouchError = message);
+    }
+  }
+
+  void _validatePaymentTouchOnBlur() {
+    if (_paymentEntryType == 'CASH') return;
+    final message = touchPercentValidationMessage(_paymentEntryTouch.text);
+    if (_paymentTouchError != message) {
+      setState(() => _paymentTouchError = message);
+    }
   }
 
   void _onPartyControllerChanged() {
@@ -333,30 +364,29 @@ class _TransactionScreenState extends State<TransactionScreen>
   void _resetBillEntry({bool resetType = true}) {
     if (resetType) _billEntryType = _itemTypes.first;
     _billEntryWeight.text = '0.000';
-    _billEntryTouch.text = '0.00';
+    _billEntryTouch.clear();
+    _billTouchError = null;
   }
 
   void _resetPaymentEntry({bool resetType = true}) {
     if (resetType) _paymentEntryType = _paymentItemTypes.first;
     _paymentEntryWeight.text = '0.000';
-    _paymentEntryTouch.text = '0.00';
+    _paymentEntryTouch.clear();
     _paymentEntryAmount.text = '0.00';
+    _paymentTouchError = null;
   }
 
   _TransactionItem? _validatedBillEntry() {
     final weight = double.tryParse(_billEntryWeight.text.trim());
-    final touch = double.tryParse(_billEntryTouch.text.trim());
     if (weight == null ||
         !_numberRegex.hasMatch(_billEntryWeight.text.trim()) ||
         weight <= 0) {
       return null;
     }
-    if (touch == null ||
-        !_numberRegex.hasMatch(_billEntryTouch.text.trim()) ||
-        touch < 0 ||
-        touch > 99.99) {
+    if (!isValidTouchPercent(_billEntryTouch.text)) {
       return null;
     }
+    final touch = double.parse(_billEntryTouch.text.trim());
     final rateName = kItemTypeToRateName[_billEntryType];
     final rate = _rates[rateName] ?? 0;
     return _TransactionItem(
@@ -378,18 +408,15 @@ class _TransactionScreenState extends State<TransactionScreen>
       return _PanelLine.cash(amount);
     }
     final weight = double.tryParse(_paymentEntryWeight.text.trim());
-    final touch = double.tryParse(_paymentEntryTouch.text.trim());
     if (weight == null ||
         !_numberRegex.hasMatch(_paymentEntryWeight.text.trim()) ||
         weight <= 0) {
       return null;
     }
-    if (touch == null ||
-        !_numberRegex.hasMatch(_paymentEntryTouch.text.trim()) ||
-        touch < 0 ||
-        touch > 99.99) {
+    if (!isValidTouchPercent(_paymentEntryTouch.text)) {
       return null;
     }
+    final touch = double.parse(_paymentEntryTouch.text.trim());
     return _PanelLine.metal(
       type: _paymentEntryType,
       weight: weight,
@@ -398,6 +425,11 @@ class _TransactionScreenState extends State<TransactionScreen>
   }
 
   void _commitBillEntry() {
+    final touchMessage = touchPercentValidationMessage(_billEntryTouch.text);
+    if (touchMessage != null) {
+      setState(() => _billTouchError = touchMessage);
+      return;
+    }
     final item = _validatedBillEntry();
     if (item == null) {
       _showMessage('Enter weight and touch before continuing');
@@ -420,6 +452,14 @@ class _TransactionScreenState extends State<TransactionScreen>
   }
 
   void _commitPaymentEntry() {
+    if (_paymentEntryType != 'CASH') {
+      final touchMessage =
+          touchPercentValidationMessage(_paymentEntryTouch.text);
+      if (touchMessage != null) {
+        setState(() => _paymentTouchError = touchMessage);
+        return;
+      }
+    }
     final line = _validatedPaymentEntry();
     if (line == null) {
       _showMessage(_paymentEntryType == 'CASH'
@@ -449,7 +489,10 @@ class _TransactionScreenState extends State<TransactionScreen>
   }
 
   void _onPaymentTypeChanged(String type) {
-    setState(() => _paymentEntryType = type);
+    setState(() {
+      _paymentEntryType = type;
+      if (type == 'CASH') _paymentTouchError = null;
+    });
     if (type == 'CASH') {
       FocusChain.focusNextFrame(
         _paymentEntryAmountFocus,
@@ -467,6 +510,8 @@ class _TransactionScreenState extends State<TransactionScreen>
   void dispose() {
     _partyRefreshTimer?.cancel();
     _partyFocus?.removeListener(_onPartyFocus);
+    _billEntryTouchFocus.removeListener(_onBillTouchFocusChange);
+    _paymentEntryTouchFocus.removeListener(_onPaymentTouchFocusChange);
     _partyController.dispose();
     _billEntryWeight.dispose();
     _billEntryTouch.dispose();
@@ -1691,6 +1736,8 @@ class _TransactionScreenState extends State<TransactionScreen>
               decoration: InputDecoration(
                 labelText: '$prefix.Touch %',
                 isDense: true,
+                errorText: _paymentTouchError,
+                errorStyle: const TextStyle(fontSize: 10),
                 contentPadding: const EdgeInsets.symmetric(
                     horizontal: 6, vertical: 8),
               ),
@@ -1699,7 +1746,11 @@ class _TransactionScreenState extends State<TransactionScreen>
                 extentOffset: _paymentEntryTouch.text.length,
               ),
               onFieldSubmitted: (_) => _commitPaymentEntry(),
-              onChanged: (_) => setState(() {}),
+              onChanged: (_) => setState(() {
+                if (isValidTouchPercent(_paymentEntryTouch.text)) {
+                  _paymentTouchError = null;
+                }
+              }),
             ),
           ),
           const SizedBox(width: 6),
@@ -1737,6 +1788,7 @@ class _TransactionScreenState extends State<TransactionScreen>
     required FocusNode weightFocus,
     required FocusNode touchFocus,
     required VoidCallback onTouchSubmitted,
+    String? touchError,
     bool enabled = true,
   }) {
     final pure = _entryPure(weight, touch);
@@ -1821,6 +1873,8 @@ class _TransactionScreenState extends State<TransactionScreen>
             decoration: InputDecoration(
               labelText: '$prefix.Touch %',
               isDense: true,
+              errorText: touchError,
+              errorStyle: const TextStyle(fontSize: 10),
               contentPadding:
                   const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
             ),
@@ -1829,7 +1883,15 @@ class _TransactionScreenState extends State<TransactionScreen>
               extentOffset: touch.text.length,
             ),
             onFieldSubmitted: (_) => onTouchSubmitted(),
-            onChanged: (_) => setState(() {}),
+            onChanged: (_) => setState(() {
+              if (isValidTouchPercent(touch.text)) {
+                if (touch == _billEntryTouch) {
+                  _billTouchError = null;
+                } else if (touch == _paymentEntryTouch) {
+                  _paymentTouchError = null;
+                }
+              }
+            }),
           ),
         ),
         const SizedBox(width: 6),
@@ -1886,6 +1948,7 @@ class _TransactionScreenState extends State<TransactionScreen>
           touch: _billEntryTouch,
           weightFocus: _billEntryWeightFocus,
           touchFocus: _billEntryTouchFocus,
+          touchError: _billTouchError,
           onTouchSubmitted: _commitBillEntry,
         ),
         _linesTable(

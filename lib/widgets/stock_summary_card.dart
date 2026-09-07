@@ -42,6 +42,7 @@ class StockSummaryTable extends StatelessWidget {
   /// Flat rows for PDF export.
   static List<List<String>> pdfRowsFor(StockLedgerSummary summary) {
     final openingRow = _openingRowValues(summary.opening);
+    final closingRow = _closingRowValues(summary.closing);
     final rows = <List<String>>[];
     rows.add(['PURCHASE', '', '', '', '', '', '']);
     rows.add(boxHeaders);
@@ -50,6 +51,7 @@ class StockSummaryTable extends StatelessWidget {
       rows.add(_pdfBillRow(bill));
     }
     rows.add(_pdfTotalRow('Total', summary.purchaseTotals));
+    rows.add(closingRow);
     rows.add(['', '', '', '', '', '', '']);
     rows.add(['SALES', '', '', '', '', '', '']);
     rows.add(boxHeaders);
@@ -58,6 +60,7 @@ class StockSummaryTable extends StatelessWidget {
       rows.add(_pdfBillRow(bill));
     }
     rows.add(_pdfTotalRow('Total', summary.salesTotals));
+    rows.add(closingRow);
     return rows;
   }
 
@@ -88,6 +91,15 @@ class StockSummaryTable extends StatelessWidget {
         ),
       ];
 
+  static List<String> _closingRowValues(Map<String, double> closing) => [
+        'Closing Stock',
+        '',
+        '',
+        ...kStockWeightTypes.map(
+          (t) => formatStockWeight(closing[t] ?? 0, blankWhenZero: false),
+        ),
+      ];
+
   static bool _sideBySideLayout(double availableWidth) {
     final minBoxWidth = scrollColumnWidth * boxHeaders.length;
     return availableWidth >= minBoxWidth * 2 + _boxGap;
@@ -112,6 +124,7 @@ class StockSummaryTable extends StatelessWidget {
             rows: rows,
             totals: totals,
             opening: summary.opening,
+            closing: summary.closing,
           );
         }
 
@@ -144,6 +157,7 @@ class StockSummaryTable extends StatelessWidget {
     required List<DailySalesBillRow> rows,
     required Map<String, double> totals,
     required Map<String, double> opening,
+    required Map<String, double> closing,
   }) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -157,6 +171,7 @@ class StockSummaryTable extends StatelessWidget {
           rows: rows,
           totals: totals,
           opening: opening,
+          closing: closing,
           columnWidth: columnWidth,
           tableWidth: tableWidth,
         );
@@ -169,6 +184,7 @@ class StockSummaryTable extends StatelessWidget {
     required List<DailySalesBillRow> rows,
     required Map<String, double> totals,
     required Map<String, double> opening,
+    required Map<String, double> closing,
     required double columnWidth,
     required double tableWidth,
   }) {
@@ -178,6 +194,7 @@ class StockSummaryTable extends StatelessWidget {
       required bool header,
       required bool bold,
       required bool openingRow,
+      required bool summaryRow,
       TextAlign align = TextAlign.left,
     }) {
       return SizedBox(
@@ -190,8 +207,14 @@ class StockSummaryTable extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             textAlign: align,
             style: TextStyle(
-              fontSize: header ? 10 : 11,
-              fontWeight: header || bold ? FontWeight.w700 : FontWeight.normal,
+              fontSize: summaryRow
+                  ? 12.5
+                  : header
+                      ? 10
+                      : 11,
+              fontWeight: header || bold || summaryRow
+                  ? FontWeight.w700
+                  : FontWeight.normal,
               color: header
                   ? AppColors.mutedBlue
                   : openingRow
@@ -208,10 +231,13 @@ class StockSummaryTable extends StatelessWidget {
       bool header = false,
       bool bold = false,
       bool openingRow = false,
+      bool summaryRow = false,
     }) {
       return Container(
         decoration: BoxDecoration(
-          color: openingRow || bold ? AppColors.headerBand : Colors.white,
+          color: openingRow || bold || summaryRow
+              ? AppColors.headerBand
+              : Colors.white,
           border: const Border(bottom: BorderSide(color: AppColors.border)),
         ),
         child: Row(
@@ -223,6 +249,7 @@ class StockSummaryTable extends StatelessWidget {
                 header: header,
                 bold: bold,
                 openingRow: openingRow,
+                summaryRow: summaryRow,
                 align: i >= _infoColCount ? TextAlign.right : TextAlign.left,
               ),
           ],
@@ -269,7 +296,8 @@ class StockSummaryTable extends StatelessWidget {
           rowWidget(['—', 'No bills', '', '', '', '', ''])
         else
           for (final bill in rows) rowWidget(billValues(bill)),
-        rowWidget(totalValues(), bold: true),
+        rowWidget(totalValues(), summaryRow: true),
+        rowWidget(_closingRowValues(closing), summaryRow: true),
       ],
     );
 
