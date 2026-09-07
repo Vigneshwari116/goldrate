@@ -1456,6 +1456,7 @@ class _TransactionScreenState extends State<TransactionScreen>
               onFocusNodeReady: _bindPartyFocus,
               parties: _partySuggestions,
               helperText: 'Search saved name, mobile, or city',
+              readOnly: _editingTransactionId != null,
               onFocus: _refreshParties,
               onSelected: _selectParty,
               onFieldSubmitted: () => _advanceFromParty(_partyController.text),
