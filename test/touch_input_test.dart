@@ -42,4 +42,10 @@ void main() {
     expect(touchPercentValidationMessage(''), kTouchPercentError);
     expect(touchPercentValidationMessage('91'), isNull);
   });
+
+  test('touchPercentBlurValidationMessage allows empty until add', () {
+    expect(touchPercentBlurValidationMessage(''), isNull);
+    expect(touchPercentBlurValidationMessage('0'), kTouchPercentError);
+    expect(touchPercentBlurValidationMessage('91'), isNull);
+  });
 }

@@ -676,6 +676,27 @@ class DatabaseHelper {
     return ledgerCount > 0;
   }
 
+  Future<int> deleteLedgerByBillRef(
+    String billRef, {
+    required bool isCustomer,
+  }) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.deleteLedgerByBillRef(
+        billRef,
+        isCustomer: isCustomer,
+      );
+    }
+    final trimmed = billRef.trim();
+    if (trimmed.isEmpty) return 0;
+    final db = await database;
+    final table = isCustomer ? 'customers' : 'suppliers';
+    return await db.delete(
+      table,
+      where: 'billRef = ?',
+      whereArgs: [trimmed],
+    );
+  }
+
   Future<Map<String, dynamic>?> getOpeningWeight() async {
     if (ApiConfig.useRemoteApi) return ApiClient.getOpeningWeight();
     final db = await database;
