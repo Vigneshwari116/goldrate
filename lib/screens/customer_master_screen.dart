@@ -491,6 +491,16 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
     );
   }
 
+  void _editPartySummary(_PartySummary summary) {
+    _nameController.text = summary.name;
+    _mobileController.text = summary.mobile;
+    _cityController.text = summary.city;
+    _prefillOpeningBalance(summary);
+    _narrationController.clear();
+    setState(() => _nameLocked = true);
+    FocusChain.focusNextFrame(_mobileFocus, controller: _mobileController);
+  }
+
   Future<void> _confirmDeleteAll(String name) async {
     final hasTransactions = await DatabaseHelper.instance
         .partyHasLinkedTransactions(name, isCustomer: true);
@@ -624,6 +634,13 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
             ),
           ),
           actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _editPartySummary(summary);
+              },
+              child: const Text('EDIT'),
+            ),
             TextButton(
               onPressed: () => _confirmDeleteAll(summary.name),
               child: const Text(
@@ -1180,26 +1197,34 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
                     ),
                   ),
                   isThreeLine: true,
-                  trailing:
-                  summary.mobile.isNotEmpty
-                      ? IconButton(
-                    icon:
-                    const Icon(
-                      Icons.call,
-                      color:
-                      Colors.green,
-                      size: 18,
-                    ),
-                    onPressed: () =>
-                        _callCustomer(
-                          summary.mobile,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(
+                          Icons.edit,
+                          color: AppColors.navy,
+                          size: 18,
                         ),
-                  )
-                      : const Icon(
-                    Icons.chevron_right,
-                    color:
-                    AppColors.mutedBlue,
-                    size: 20,
+                        tooltip: 'Edit customer',
+                        onPressed: () => _editPartySummary(summary),
+                      ),
+                      if (summary.mobile.isNotEmpty)
+                        IconButton(
+                          icon: const Icon(
+                            Icons.call,
+                            color: Colors.green,
+                            size: 18,
+                          ),
+                          onPressed: () => _callCustomer(summary.mobile),
+                        )
+                      else
+                        const Icon(
+                          Icons.chevron_right,
+                          color: AppColors.mutedBlue,
+                          size: 20,
+                        ),
+                    ],
                   ),
                 ),
               );

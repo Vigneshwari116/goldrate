@@ -240,6 +240,19 @@ class ApiClient {
     return false;
   }
 
+  static Future<int> deleteLedgerByBillRef(
+    String billRef, {
+    required bool isCustomer,
+  }) async {
+    final table = isCustomer ? 'customers' : 'suppliers';
+    final encoded = Uri.encodeComponent(billRef.trim());
+    final res = await http.delete(
+      _uri('/$table/by-bill-ref/$encoded'),
+    );
+    final data = await _decodeObject(res);
+    return data['rowsAffected'] as int? ?? 0;
+  }
+
   // ---------- Opening weight ----------
   static Future<Map<String, dynamic>?> getOpeningWeight() async {
     final res = await http.get(_uri('/opening-weight'));

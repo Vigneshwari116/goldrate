@@ -656,6 +656,16 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen>
     }
   }
 
+  void _editPartySummary(_PartySummary summary) {
+    _nameController.text = summary.name;
+    _mobileController.text = summary.mobile;
+    _cityController.text = summary.city;
+    _prefillOpeningBalance(summary);
+    _narrationController.clear();
+    setState(() => _nameLocked = true);
+    FocusChain.focusNextFrame(_mobileFocus, controller: _mobileController);
+  }
+
   Future<void> _confirmDeleteAll(String name) async {
     final hasTransactions = await DatabaseHelper.instance
         .partyHasLinkedTransactions(name, isCustomer: false);
@@ -844,6 +854,13 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen>
           ),
         ),
         actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _editPartySummary(summary);
+            },
+            child: const Text('EDIT'),
+          ),
           TextButton(
             onPressed: () => _confirmDeleteAll(summary.name),
             child: const Text(
@@ -1468,35 +1485,34 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen>
                       ),
                       isThreeLine:
                       true,
-                      trailing:
-                      summary.mobile
-                          .isNotEmpty
-                          ? IconButton(
-                        icon:
-                        const Icon(
-                          Icons
-                              .call,
-                          color:
-                          Colors
-                              .green,
-                          size:
-                          18,
-                        ),
-                        onPressed:
-                            () =>
-                            _callSupplier(
-                              summary
-                                  .mobile,
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(
+                              Icons.edit,
+                              color: AppColors.navy,
+                              size: 18,
                             ),
-                      )
-                          : const Icon(
-                        Icons
-                            .chevron_right,
-                        color:
-                        AppColors
-                            .mutedBlue,
-                        size:
-                        20,
+                            tooltip: 'Edit supplier',
+                            onPressed: () => _editPartySummary(summary),
+                          ),
+                          if (summary.mobile.isNotEmpty)
+                            IconButton(
+                              icon: const Icon(
+                                Icons.call,
+                                color: Colors.green,
+                                size: 18,
+                              ),
+                              onPressed: () => _callSupplier(summary.mobile),
+                            )
+                          else
+                            const Icon(
+                              Icons.chevron_right,
+                              color: AppColors.mutedBlue,
+                              size: 20,
+                            ),
+                        ],
                       ),
                     ),
                   );

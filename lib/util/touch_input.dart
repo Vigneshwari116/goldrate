@@ -17,6 +17,13 @@ String? touchPercentValidationMessage(String text) {
   return isValidTouchPercent(text) ? null : kTouchPercentError;
 }
 
+/// Blur validation: empty is allowed until the user tries to add a row.
+String? touchPercentBlurValidationMessage(String text) {
+  final trimmed = text.trim();
+  if (trimmed.isEmpty) return null;
+  return isValidTouchPercent(trimmed) ? null : kTouchPercentError;
+}
+
 /// Touch % entry: up to 2 digits before decimal, 2 after; max [kTouchPercentMax].
 class TouchPercentInputFormatter extends TextInputFormatter {
   static final RegExp _pattern = RegExp(r'^\d{0,2}(\.\d{0,2})?$');

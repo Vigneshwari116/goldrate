@@ -164,6 +164,8 @@ class _TransactionScreenState extends State<TransactionScreen>
   Timer? _partyRefreshTimer;
   String? _billTouchError;
   String? _paymentTouchError;
+  int? _editingTransactionId;
+  int? _editingBillNo;
 
   /// Purchase looks up Suppliers (stock coming in from them); Sales
   /// looks up Customers (stock going out to them).
@@ -211,8 +213,15 @@ class _TransactionScreenState extends State<TransactionScreen>
   String get _numberLabel => _isVoucher ? 'VOUCHER NO' : 'BILL NO';
 
   String get _saveButtonLabel {
-    if (_isReceiptVoucher) return 'SAVE RECEIPT';
-    if (_isPaymentVoucher) return 'SAVE PAYMENT';
+    if (_isReceiptVoucher) {
+      return _editingTransactionId != null ? 'UPDATE RECEIPT' : 'SAVE RECEIPT';
+    }
+    if (_isPaymentVoucher) {
+      return _editingTransactionId != null ? 'UPDATE PAYMENT' : 'SAVE PAYMENT';
+    }
+    if (_editingTransactionId != null) {
+      return _isPurchase ? 'UPDATE PURCHASE' : 'UPDATE SALE';
+    }
     return _isPurchase ? 'SAVE PURCHASE' : 'SAVE SALE';
   }
 
@@ -313,7 +322,7 @@ class _TransactionScreenState extends State<TransactionScreen>
   }
 
   void _validateBillTouchOnBlur() {
-    final message = touchPercentValidationMessage(_billEntryTouch.text);
+    final message = touchPercentBlurValidationMessage(_billEntryTouch.text);
     if (_billTouchError != message) {
       setState(() => _billTouchError = message);
     }
@@ -321,7 +330,7 @@ class _TransactionScreenState extends State<TransactionScreen>
 
   void _validatePaymentTouchOnBlur() {
     if (_paymentEntryType == 'CASH') return;
-    final message = touchPercentValidationMessage(_paymentEntryTouch.text);
+    final message = touchPercentBlurValidationMessage(_paymentEntryTouch.text);
     if (_paymentTouchError != message) {
       setState(() => _paymentTouchError = message);
     }
@@ -672,7 +681,104 @@ class _TransactionScreenState extends State<TransactionScreen>
   void _clearForm() {
     _partyController.clear();
     _clearPanels();
-    setState(() => _partyOutstanding = null);
+    setState(() {
+      _partyOutstanding = null;
+      _editingTransactionId = null;
+      _editingBillNo = null;
+    });
+  }
+
+  void _editBillLine(int index) {
+    final item = _billLines[index];
+    setState(() {
+      _billEntryType = item.type;
+      _billEntryWeight.text = item.weight.toStringAsFixed(3);
+      _billEntryTouch.text = item.touch.toStringAsFixed(2);
+      _billTouchError = null;
+      _billLines.removeAt(index);
+    });
+    FocusChain.focusNextFrame(
+      _billEntryWeightFocus,
+      controller: _billEntryWeight,
+    );
+  }
+
+  void _editPaymentLine(int index) {
+    final line = _paymentLines[index];
+    setState(() {
+      if (line.isCash) {
+        _paymentEntryType = 'CASH';
+        _paymentEntryAmount.text = (line.cashAmount ?? 0).toStringAsFixed(2);
+        _paymentTouchError = null;
+      } else {
+        _paymentEntryType = line.type;
+        _paymentEntryWeight.text = line.weight.toStringAsFixed(3);
+        _paymentEntryTouch.text = line.touch.toStringAsFixed(2);
+        _paymentTouchError = null;
+      }
+      _paymentLines.removeAt(index);
+    });
+    if (line.isCash) {
+      FocusChain.focusNextFrame(
+        _paymentEntryAmountFocus,
+        controller: _paymentEntryAmount,
+      );
+    } else {
+      FocusChain.focusNextFrame(
+        _paymentEntryWeightFocus,
+        controller: _paymentEntryWeight,
+      );
+    }
+  }
+
+  List<_PanelLine> _paymentLinesFromRow(Map<String, dynamic> row) {
+    final raw = row['paymentItems'];
+    if (raw == null || raw.toString().isEmpty || raw.toString() == '[]') {
+      return [];
+    }
+    final list = jsonDecode(raw.toString()) as List<dynamic>;
+    return list.map((entry) {
+      final map = Map<String, dynamic>.from(entry as Map);
+      if ((map['type'] ?? '').toString() == 'CASH') {
+        return _PanelLine.cash(
+          (map['cashAmount'] as num?)?.toDouble() ?? 0,
+        );
+      }
+      return _PanelLine.metal(
+        type: map['type'].toString(),
+        weight: (map['weight'] as num).toDouble(),
+        touch: (map['touch'] as num).toDouble(),
+      );
+    }).toList();
+  }
+
+  void _loadBillForEdit(Map<String, dynamic> row) {
+    if (row['fromLedger'] == true) {
+      _showMessage('This bill was imported from the ledger and cannot be edited here');
+      return;
+    }
+
+    final billNo = row['billNo'] as int? ?? _nextBillNo;
+    setState(() {
+      _editingTransactionId = row['id'] as int?;
+      _editingBillNo = billNo;
+      _nextBillNo = billNo;
+      _partyController.text = (row['partyName'] ?? '').toString();
+      _billLines
+        ..clear()
+        ..addAll(_itemsFromRow(row));
+      _paymentLines
+        ..clear()
+        ..addAll(_paymentLinesFromRow(row));
+      _resetBillEntry();
+      _resetPaymentEntry();
+      _billTouchError = null;
+      _paymentTouchError = null;
+    });
+    _onPartyTextChanged(_partyController.text.trim());
+    if (_partyFocus != null) {
+      FocusChain.focusNextFrame(_partyFocus!, controller: _partyController);
+    }
   }
 
   void _showMessage(String message) {
@@ -748,9 +854,10 @@ class _TransactionScreenState extends State<TransactionScreen>
     final items = _billItems;
     final s = _settlement;
     final paymentMode = _paymentIsCashOnly ? 'CASH' : 'GOLD';
+    final billNo = _editingBillNo ?? _nextBillNo;
     final record = {
       'transactionType': _transactionType,
-      'billNo': _nextBillNo,
+      'billNo': billNo,
       'partyName': _partyController.text.trim(),
       'items': jsonEncode(items.map((i) => i.toJson()).toList()),
       if (_paymentLines.isNotEmpty)
@@ -777,6 +884,15 @@ class _TransactionScreenState extends State<TransactionScreen>
       'goldRateUsed': s.ratePerGram.toStringAsFixed(2),
     };
 
+    if (_editingTransactionId != null) {
+      final billRef = '${_isPurchase ? 'PUR' : 'SAL'}-$billNo';
+      await DatabaseHelper.instance.deleteLedgerByBillRef(
+        billRef,
+        isCustomer: _isCustomerParty,
+      );
+      await DatabaseHelper.instance.deleteTransaction(_editingTransactionId!);
+    }
+
     await DatabaseHelper.instance.insertTransaction(record);
     await _postToLedger(date, time, s);
 
@@ -785,14 +901,17 @@ class _TransactionScreenState extends State<TransactionScreen>
     setState(() => _saving = false);
 
     final savedRow = Map<String, dynamic>.from(record);
-    final billNoSaved = _nextBillNo;
+    final billNoSaved = billNo;
     final partyName = _partyController.text.trim();
+    final wasEdit = _editingTransactionId != null;
     _clearForm();
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
           content: Text(
-              "Bill #$billNoSaved saved and posted to $partyName's ledger")),
+              wasEdit
+                  ? "Bill #$billNoSaved updated for $partyName"
+                  : "Bill #$billNoSaved saved and posted to $partyName's ledger")),
     );
 
     await _load();
@@ -898,7 +1017,7 @@ class _TransactionScreenState extends State<TransactionScreen>
       'dr': deltaG > 0 ? deltaG.toStringAsFixed(3) : '0',
       'narration': narration,
       'balanceUnit': 'GRAMS',
-      'billRef': '${_isPurchase ? 'PUR' : 'SAL'}-$_nextBillNo',
+      'billRef': '${_isPurchase ? 'PUR' : 'SAL'}-${_editingBillNo ?? _nextBillNo}',
       'date': date,
       'time': time,
     };
@@ -992,6 +1111,13 @@ class _TransactionScreenState extends State<TransactionScreen>
           ),
         ),
         actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              _loadBillForEdit(row);
+            },
+            child: const Text('EDIT'),
+          ),
           TextButton(
             onPressed: _sharingPdf
                 ? null
@@ -1532,7 +1658,7 @@ class _TransactionScreenState extends State<TransactionScreen>
                 head('TOUCH %', flex: 2, align: TextAlign.right),
                 head('PURE WT', flex: 2, align: TextAlign.right),
                 if (showRate) head('RATE', flex: 2, align: TextAlign.right),
-                const SizedBox(width: 24),
+                const SizedBox(width: 48),
               ],
             ),
           ),
@@ -1551,6 +1677,7 @@ class _TransactionScreenState extends State<TransactionScreen>
     double? cashAmount,
     double? rate,
     required VoidCallback onRemove,
+    VoidCallback? onEdit,
     int index = 0,
   }) {
     const cellStyle = TextStyle(fontSize: 12);
@@ -1582,12 +1709,26 @@ class _TransactionScreenState extends State<TransactionScreen>
           if (rate != null)
             cell(rate.toStringAsFixed(0), flex: 2, align: TextAlign.right),
           SizedBox(
-            width: 24,
-            child: IconButton(
-              icon: const Icon(Icons.close, size: 15, color: Colors.redAccent),
-              onPressed: onRemove,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
+            width: 48,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                if (onEdit != null)
+                  IconButton(
+                    icon: const Icon(Icons.edit, size: 15, color: AppColors.navy),
+                    onPressed: onEdit,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    tooltip: 'Edit row',
+                  ),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 15, color: Colors.redAccent),
+                  onPressed: onRemove,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  tooltip: 'Remove row',
+                ),
+              ],
             ),
           ),
         ],
@@ -1961,6 +2102,7 @@ class _TransactionScreenState extends State<TransactionScreen>
                 weight: _billLines[i].weight,
                 touch: _billLines[i].touch,
                 pureWt: _billLines[i].pureWt,
+                onEdit: () => _editBillLine(i),
                 onRemove: () => setState(() => _billLines.removeAt(i)),
               ),
           ],
@@ -1991,6 +2133,7 @@ class _TransactionScreenState extends State<TransactionScreen>
                 touch: _paymentLines[i].touch,
                 cashAmount: _paymentLines[i].cashAmount,
                 pureWt: _paymentLines[i].pureWtAtRate(_goldRate),
+                onEdit: () => _editPaymentLine(i),
                 onRemove: () => setState(() => _paymentLines.removeAt(i)),
               ),
           ],
@@ -2132,12 +2275,26 @@ class _TransactionScreenState extends State<TransactionScreen>
                     ),
                     trailing: row['fromLedger'] == true
                         ? null
-                        : IconButton(
-                            icon: const Icon(Icons.delete,
-                                color: Colors.redAccent, size: 16),
-                            onPressed: () => _confirmDelete(row),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
+                        : Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.edit,
+                                    color: AppColors.navy, size: 16),
+                                onPressed: () => _loadBillForEdit(row),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                                tooltip: 'Edit bill',
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete,
+                                    color: Colors.redAccent, size: 16),
+                                onPressed: () => _confirmDelete(row),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                                tooltip: 'Delete bill',
+                              ),
+                            ],
                           ),
                   ),
                 );
