@@ -5,6 +5,7 @@ import 'package:pdf/widgets.dart' as pw;
 
 import '../database/database_helper.dart';
 import '../logic/gold_ledger.dart';
+import '../logic/report_columns.dart';
 import '../logic/stock_ledger.dart';
 import '../logic/transaction_records.dart';
 import '../pdf/pdf_kit.dart';
@@ -476,6 +477,7 @@ class _ReportsScreenState extends State<ReportsScreen>
 
     double totalReceipt = 0;
     double totalIssue = 0;
+    double totalCash = 0;
     final totalReceiptWeights = emptyStockWeights();
     final totalIssueWeights = emptyStockWeights();
     final table = <List<String>>[];
@@ -484,48 +486,45 @@ class _ReportsScreenState extends State<ReportsScreen>
           normalizeTransactionType((bill['transactionType'] ?? '').toString());
       final isSales = type == 'SALES';
       final weights = billLedgerWeightsByType(bill, isSales: isSales);
+      final cash = billCashRupees(bill);
       addStockWeights(totalReceiptWeights, weights.receipt);
       addStockWeights(totalIssueWeights, weights.issue);
       totalReceipt += sumStockWeights(weights.receipt);
       totalIssue += sumStockWeights(weights.issue);
+      totalCash += cash;
       final billNo =
           '${isSales ? 'SAL' : 'PUR'}-${bill['billNo']}';
       final name = '${bill['partyName'] ?? ''}';
-      final mode = paymentModeLabel(bill['paymentMode']?.toString());
-      final particular = billParticulars(bill);
-      table.add([
-        billNo,
-        bill['date']?.toString() ?? '',
-        name,
-        particular,
-        mode,
-        ...formatReceiptIssueWeightCells(weights.receipt, weights.issue),
-      ]);
+      final mode = billReportModeLabel(bill);
+      table.add(
+        ReportColumns.billRowCells(
+          infoCells: [
+            billNo,
+            bill['date']?.toString() ?? '',
+            name,
+            mode,
+            formatReportCash(cash),
+          ],
+          receiptWeights: weights.receipt,
+          issueWeights: weights.issue,
+        ),
+      );
     }
 
-    final headers = [
-      'BILL NO',
-      'DATE',
-      'NAME',
-      'PARTICULAR',
-      'MODE',
-      ...kStockWeightTypes,
-      ...kStockWeightTypes,
+    final headers = ReportColumns.billListLeafHeaders();
+    final groupHeaders = ReportColumns.billListGroupHeaders();
+    final footerRow = ReportColumns.billFooterCells(
+      label: 'total',
+      labelColumnIndex: 2,
+      columnCount: headers.length,
+      totalCash: totalCash,
+      totalReceiptWeights: totalReceiptWeights,
+      totalIssueWeights: totalIssueWeights,
+    );
+    final pdfRows = [
+      ...table,
+      footerRow,
     ];
-
-    final footerRow = [
-      '',
-      '',
-      '',
-      'total',
-      '',
-      ...formatReceiptIssueWeightCells(
-        totalReceiptWeights,
-        totalIssueWeights,
-        blankWhenZero: false,
-      ),
-    ];
-    final pdfRows = [...table, footerRow];
     final totalPure = totalReceipt + totalIssue;
 
     return _reportShell(
@@ -534,11 +533,13 @@ class _ReportsScreenState extends State<ReportsScreen>
       units: totalPure,
       total: 0,
       totalText:
-          'R.WT: ${totalReceipt.toStringAsFixed(3)} g  |  ISSUE: ${totalIssue.toStringAsFixed(3)} g',
+          'R.WT: ${totalReceipt.toStringAsFixed(3)} g  |  ISSUE: ${totalIssue.toStringAsFixed(3)} g  |  CASH: ${formatReportCash(totalCash, blankWhenZero: false)}',
       child: _billTableWithFooter(
         table,
         headers: headers,
-        columnFlex: const [2, 2, 3, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1],
+        groupHeaders: groupHeaders,
+        columnFlex: ReportColumns.billColumnFlex,
+        totalCash: totalCash,
         totalReceiptWeights: totalReceiptWeights,
         totalIssueWeights: totalIssueWeights,
       ),
@@ -666,16 +667,8 @@ class _ReportsScreenState extends State<ReportsScreen>
       (sum, section) =>
           sum + section.rows.fold(0, (s, row) => s + row.pureGold),
     );
-    final headers = [
-      'BILL NO',
-      'DATE',
-      'NAME',
-      'TYPE',
-      'PARTICULAR',
-      ...kStockWeightTypes,
-      ...kStockWeightTypes,
-      'NARRATION',
-    ];
+    final headers = ReportColumns.billListLeafHeaders(ledger: true);
+    final groupHeaders = ReportColumns.billListGroupHeaders(ledger: true);
     final pdfRows = [
       for (final section in sections) ...[
         section.openingTableRow(),
@@ -719,6 +712,7 @@ class _ReportsScreenState extends State<ReportsScreen>
             child: _partyLedgerSectionsView(
               sections,
               headers: headers,
+              groupHeaders: groupHeaders,
             ),
             pdfRows: pdfRows,
             headers: headers,
@@ -731,6 +725,7 @@ class _ReportsScreenState extends State<ReportsScreen>
   Widget _partyLedgerSectionsView(
     List<PartyLedgerSection> sections, {
     required List<String> headers,
+    List<String>? groupHeaders,
   }) {
     if (sections.isEmpty) {
       return const Center(child: Text('No records in this filter'));
@@ -757,7 +752,11 @@ class _ReportsScreenState extends State<ReportsScreen>
               ),
             ),
           ),
-          _ledgerSectionTable(section, headers: headers),
+          _ledgerSectionTable(
+            section,
+            headers: headers,
+            groupHeaders: groupHeaders,
+          ),
         ],
       ],
     );
@@ -766,12 +765,14 @@ class _ReportsScreenState extends State<ReportsScreen>
   Widget _ledgerSectionTable(
     PartyLedgerSection section, {
     required List<String> headers,
+    List<String>? groupHeaders,
   }) {
     final rows = section.toTableRows();
     return _htmlTable(
       rows,
       headers: headers,
-      columnFlex: const [2, 2, 3, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 3],
+      groupHeaders: groupHeaders,
+      columnFlex: ReportColumns.ledgerColumnFlex,
       includeOuterPadding: false,
       openingRow: section.openingTableRow(),
       footerRow: section.footerTableRow(),
@@ -782,26 +783,96 @@ class _ReportsScreenState extends State<ReportsScreen>
     List<List<String>> rows, {
     required List<String> headers,
     required List<int> columnFlex,
+    List<String>? groupHeaders,
+    required double totalCash,
     required Map<String, double> totalReceiptWeights,
     required Map<String, double> totalIssueWeights,
   }) {
-    final footerRow = [
-      '',
-      '',
-      '',
-      'total',
-      '',
-      ...formatReceiptIssueWeightCells(
-        totalReceiptWeights,
-        totalIssueWeights,
-        blankWhenZero: false,
-      ),
-    ];
+    final footerRow = ReportColumns.billFooterCells(
+      label: 'total',
+      labelColumnIndex: 2,
+      columnCount: headers.length,
+      totalCash: totalCash,
+      totalReceiptWeights: totalReceiptWeights,
+      totalIssueWeights: totalIssueWeights,
+    );
     return _htmlTable(
       rows,
       headers: headers,
+      groupHeaders: groupHeaders,
       columnFlex: columnFlex,
       footerRow: footerRow,
+    );
+  }
+
+  Widget _reportHeaderRows({
+    required List<String> leafHeaders,
+    required List<int> columnFlex,
+    List<String>? groupHeaders,
+  }) {
+    int flexFor(int i) =>
+        i < columnFlex.length ? columnFlex[i] : 2;
+
+    const headerStyle = TextStyle(fontSize: 11, fontWeight: FontWeight.w700);
+
+    Widget leafRow() {
+      final flex = columnFlex.isNotEmpty
+          ? columnFlex
+          : List<int>.filled(leafHeaders.length, 2);
+      return Row(
+        children: [
+          for (var i = 0; i < leafHeaders.length; i++)
+            Expanded(
+              flex: i < flex.length ? flex[i] : 2,
+              child: Text(leafHeaders[i], style: headerStyle),
+            ),
+        ],
+      );
+    }
+
+    if (groupHeaders == null || columnFlex.length < 13) {
+      return leafRow();
+    }
+
+    final infoFlex =
+        columnFlex.take(5).fold<int>(0, (sum, flex) => sum + flex);
+    final receiptFlex =
+        columnFlex.skip(5).take(4).fold<int>(0, (sum, flex) => sum + flex);
+    final issueFlex =
+        columnFlex.skip(9).take(4).fold<int>(0, (sum, flex) => sum + flex);
+    final trailingFlex = columnFlex.length > 13
+        ? columnFlex.skip(13).fold<int>(0, (sum, flex) => sum + flex)
+        : 0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(flex: infoFlex, child: const SizedBox.shrink()),
+            Expanded(
+              flex: receiptFlex,
+              child: Text(
+                'R.WEIGHT',
+                textAlign: TextAlign.center,
+                style: headerStyle,
+              ),
+            ),
+            Expanded(
+              flex: issueFlex,
+              child: Text(
+                'ISSUE WT',
+                textAlign: TextAlign.center,
+                style: headerStyle,
+              ),
+            ),
+            if (trailingFlex > 0)
+              Expanded(flex: trailingFlex, child: const SizedBox.shrink()),
+          ],
+        ),
+        const SizedBox(height: 4),
+        leafRow(),
+      ],
     );
   }
 
@@ -813,6 +884,7 @@ class _ReportsScreenState extends State<ReportsScreen>
         'QTY',
         'AMOUNT',
       ],
+      List<String>? groupHeaders,
       bool evenFlex = false,
       List<int>? columnFlex,
       bool includeOuterPadding = true,
@@ -863,16 +935,10 @@ class _ReportsScreenState extends State<ReportsScreen>
         Container(
           color: AppColors.tableHeader,
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-          child: Row(
-            children: [
-              for (var i = 0; i < headers.length; i++)
-                Expanded(
-                  flex: flexFor(i),
-                  child: Text(headers[i],
-                      style: const TextStyle(
-                          fontSize: 11, fontWeight: FontWeight.w700)),
-                ),
-            ],
+          child: _reportHeaderRows(
+            leafHeaders: headers,
+            groupHeaders: groupHeaders,
+            columnFlex: columnFlex ?? const [],
           ),
         ),
         if (openingRow != null) rowWidget(openingRow, bold: true),

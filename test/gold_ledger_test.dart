@@ -154,9 +154,9 @@ void main() {
     expect(table.first[5], ''); // R.WEIGHT GWT — unpaid cash sale
     expect(table.first[9], '10'); // Issue GWT
     expect(table.first[13], '');
-    expect(sections.first.openingTableRow()[4], 'opening balance');
+    expect(sections.first.openingTableRow()[3], 'opening balance');
     expect(sections.first.openingTableRow()[13], '0.000 g');
-    expect(sections.first.footerTableRow()[4], 'total');
+    expect(sections.first.footerTableRow()[3], 'total');
     expect(
       sections.first.footerTableRow()[13],
       'closing balance: +10.000 g',
@@ -347,6 +347,29 @@ void main() {
     expect(
       ledgerPaymentNarration(paymentMode: 'CASH', paymentAmount: 0),
       '',
+    );
+  });
+
+  test('bill cash rupees reads paymentItems CASH lines', () {
+    expect(
+      billCashRupees({
+        'paymentMode': 'GOLD',
+        'paymentItems': jsonEncode([
+          {'type': 'GWT', 'weight': 2, 'touch': 100, 'pureWt': 2},
+          {'type': 'CASH', 'cashAmount': 15000},
+        ]),
+      }),
+      closeTo(15000, 0.01),
+    );
+    expect(
+      billReportModeLabel({
+        'paymentMode': 'GOLD',
+        'paymentItems': jsonEncode([
+          {'type': 'GWT', 'weight': 2, 'touch': 100, 'pureWt': 2},
+          {'type': 'CASH', 'cashAmount': 15000},
+        ]),
+      }),
+      'MIXED',
     );
   });
 

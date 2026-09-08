@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 
 import '../util/app_date.dart';
 import '../util/party_name_key.dart';
+import 'report_columns.dart';
 import 'stock_ledger.dart';
 import 'transaction_records.dart';
 
@@ -235,7 +236,7 @@ class PartyLedgerRecord {
   final String billRef;
   final String partyName;
   final String typeLabel;
-  final String particular;
+  final double cashRupees;
   final Map<String, double> receiptWeights;
   final Map<String, double> issueWeights;
   final double receiptWeight;
@@ -249,7 +250,7 @@ class PartyLedgerRecord {
     required this.billRef,
     required this.partyName,
     required this.typeLabel,
-    this.particular = '',
+    this.cashRupees = 0,
     required this.receiptWeights,
     required this.issueWeights,
     required this.receiptWeight,
@@ -259,15 +260,18 @@ class PartyLedgerRecord {
     this.narration = '',
   });
 
-  List<String> toTableCells() => [
-        billRef,
-        date,
-        partyName,
-        typeLabel,
-        particular,
-        ...formatReceiptIssueWeightCells(receiptWeights, issueWeights),
-        narration,
-      ];
+  List<String> toTableCells() => ReportColumns.billRowCells(
+        infoCells: [
+          billRef,
+          date,
+          partyName,
+          typeLabel,
+          formatReportCash(cashRupees),
+        ],
+        receiptWeights: receiptWeights,
+        issueWeights: issueWeights,
+        narration: narration,
+      );
 }
 
 /// Ledger rows grouped by party with opening/closing balances.
@@ -291,33 +295,32 @@ class PartyLedgerSection {
   }
 
   /// Opening balance row placed directly under the ledger table header.
-  List<String> openingTableRow() => [
-        '',
-        '',
-        partyName,
-        '',
-        'opening balance',
-        ...formatReceiptIssueWeightCells(
-          emptyStockWeights(),
-          emptyStockWeights(),
-        ),
-        signedLedgerBalance(openingBalance),
-      ];
+  List<String> openingTableRow() => ReportColumns.billRowCells(
+        infoCells: [
+          '',
+          '',
+          partyName,
+          'opening balance',
+          '',
+        ],
+        receiptWeights: emptyStockWeights(),
+        issueWeights: emptyStockWeights(),
+        narration: signedLedgerBalance(openingBalance),
+      );
 
   /// Total / closing balance row at the bottom of the ledger table.
-  List<String> footerTableRow() => [
-        '',
-        '',
-        '',
-        '',
-        'total',
-        ...formatReceiptIssueWeightCells(
-          totalReceiptWeights,
-          totalIssueWeights,
-          blankWhenZero: false,
-        ),
-        'closing balance: ${signedLedgerBalance(closingBalance)}',
-      ];
+  List<String> footerTableRow() => ReportColumns.billFooterCells(
+        label: 'total',
+        labelColumnIndex: 3,
+        columnCount: ReportColumns.ledgerColumnFlex.length,
+        totalCash: totalCash,
+        totalReceiptWeights: totalReceiptWeights,
+        totalIssueWeights: totalIssueWeights,
+        trailing: 'closing balance: ${signedLedgerBalance(closingBalance)}',
+      );
+
+  double get totalCash =>
+      rows.fold(0.0, (sum, row) => sum + row.cashRupees);
 
   Map<String, double> get totalReceiptWeights => sumStockWeightMaps(
         rows.map((row) => row.receiptWeights),
@@ -376,6 +379,48 @@ String billParticulars(Map<String, dynamic> bill) {
       .where(types.contains)
       .followedBy(types.where((t) => !['GWT', 'FWT', 'KWT', 'SWT'].contains(t)));
   return ordered.join('/');
+}
+
+/// Cash rupees paid on a bill or voucher (paymentItems CASH lines or CASH/UPI mode).
+double billCashRupees(Map<String, dynamic> row) {
+  var total = 0.0;
+  for (final item in _decodeItemsField(row['paymentItems'])) {
+    if (item is! Map) continue;
+    if ((item['type'] ?? '').toString().trim().toUpperCase() != 'CASH') {
+      continue;
+    }
+    total += double.tryParse(
+          (item['cashAmount'] ?? item['amount'] ?? '').toString(),
+        ) ??
+        0;
+  }
+  if (total > 0.005) return total;
+
+  final mode = paymentModeLabel(row['paymentMode']?.toString());
+  if (mode == 'CASH' || mode == 'UPI') {
+    return double.tryParse(
+          (row['paymentAmount'] ?? row['amount'] ?? '').toString(),
+        ) ??
+        0;
+  }
+  return 0;
+}
+
+/// Report mode label — GOLD, CASH, UPI, or MIXED when metal and cash both present.
+String billReportModeLabel(Map<String, dynamic> bill) {
+  final cash = billCashRupees(bill);
+  final metal = sumStockWeights(billPaymentBoxWeights(bill));
+  final mode = paymentModeLabel(bill['paymentMode']?.toString());
+
+  if (cash > 0.005 && metal > 0.0005) return 'MIXED';
+  if (cash > 0.005) return mode == 'UPI' ? 'UPI' : 'CASH';
+  if (metal > 0.0005) return 'GOLD';
+  return mode;
+}
+
+List<dynamic> _decodeItemsField(dynamic raw) {
+  if (raw is List) return raw;
+  return _decodeItemsJson((raw ?? '').toString());
 }
 
 List<dynamic> _decodeItemsJson(String raw) {
@@ -667,6 +712,7 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
         billRef: 'SAL-${bill['billNo']}',
         partyName: name,
         typeLabel: transactionTypeLabel('SALES', bill['paymentMode']?.toString()),
+        cashRupees: billCashRupees(bill),
         receiptWeights: weights.receipt,
         issueWeights: weights.issue,
         receiptWeight: sumStockWeights(weights.receipt),
@@ -687,6 +733,7 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
         partyName: name,
         typeLabel:
             transactionTypeLabel('PURCHASE', bill['paymentMode']?.toString()),
+        cashRupees: billCashRupees(bill),
         receiptWeights: weights.receipt,
         issueWeights: weights.issue,
         receiptWeight: sumStockWeights(weights.receipt),
@@ -728,6 +775,7 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
       billRef: '$vType-${v['voucherNo']}',
       partyName: name,
       typeLabel: transactionTypeLabel(vType, v['paymentMode']?.toString()),
+      cashRupees: billCashRupees(v),
       receiptWeights: weights.receipt,
       issueWeights: weights.issue,
       receiptWeight: sumStockWeights(weights.receipt),
