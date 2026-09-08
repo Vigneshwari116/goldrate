@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grate_app/logic/gold_ledger.dart';
+import 'package:grate_app/logic/stock_ledger.dart';
 
 void main() {
   test('cash converts to gold at the given rate', () {
@@ -150,14 +151,14 @@ void main() {
     final table = sections.first.toTableRows();
     expect(table.first[0], 'SAL-1');
     expect(table.first[2], 'Ravi');
-    expect(table.first[5], ''); // R.WEIGHT (receipt) — unpaid cash sale
-    expect(table.first[6], '10.000'); // Issue weight
-    expect(table.first[7], '');
+    expect(table.first[5], ''); // R.WEIGHT GWT — unpaid cash sale
+    expect(table.first[9], '10'); // Issue GWT
+    expect(table.first[13], '');
     expect(sections.first.openingTableRow()[4], 'opening balance');
-    expect(sections.first.openingTableRow()[7], '0.000 g');
+    expect(sections.first.openingTableRow()[13], '0.000 g');
     expect(sections.first.footerTableRow()[4], 'total');
     expect(
-      sections.first.footerTableRow()[7],
+      sections.first.footerTableRow()[13],
       'closing balance: +10.000 g',
     );
   });
@@ -186,9 +187,9 @@ void main() {
     expect(sections.first.openingBalance, closeTo(5.5, 0.0001));
     expect(sections.first.closingBalance, closeTo(5.5, 0.0001));
     expect(sections.first.rows, isEmpty);
-    expect(sections.first.openingTableRow()[7], '+5.500 g');
+    expect(sections.first.openingTableRow()[13], '+5.500 g');
     expect(
-      sections.first.footerTableRow()[7],
+      sections.first.footerTableRow()[13],
       'closing balance: +5.500 g',
     );
   });
@@ -221,7 +222,7 @@ void main() {
     );
     expect(sections.length, 1);
     expect(sections.first.openingBalance, closeTo(102, 0.001));
-    expect(sections.first.openingTableRow()[7], '+102.000 g');
+    expect(sections.first.openingTableRow()[13], '+102.000 g');
   });
 
   test('supplier master opening uses gross gold weight field', () {
@@ -349,12 +350,38 @@ void main() {
     );
   });
 
+  test('bill ledger weights split issue and receipt by type', () {
+    final weights = billLedgerWeightsByType(
+      {
+        'items': jsonEncode([
+          {'type': 'GWT', 'weight': 120.45},
+          {'type': 'FWT', 'weight': 45},
+          {'type': 'KWT', 'weight': 12.3},
+          {'type': 'SWT', 'weight': 156.766},
+        ]),
+        'totalPureWt': '316.754',
+        'paymentMode': 'GOLD',
+        'paymentAmount': '0',
+        'cashToGold': '0',
+      },
+      isSales: true,
+    );
+    expect(weights.issue['GWT'], closeTo(120.45, 0.001));
+    expect(weights.issue['FWT'], closeTo(45, 0.001));
+    expect(weights.issue['KWT'], closeTo(12.3, 0.001));
+    expect(weights.issue['SWT'], closeTo(156.766, 0.001));
+    expect(sumStockWeights(weights.issue), closeTo(334.516, 0.001));
+    expect(weights.receipt['GWT'] ?? 0, 0);
+  });
+
   test('ledger row balance delta for customer sales and receipts', () {
     const sale = PartyLedgerRecord(
       date: '01-08-2026',
       billRef: 'SAL-1',
       partyName: 'Ravi',
       typeLabel: 'SALES(C)',
+      receiptWeights: {'GWT': 2, 'FWT': 0, 'KWT': 0, 'SWT': 0},
+      issueWeights: {'GWT': 10, 'FWT': 0, 'KWT': 0, 'SWT': 0},
       receiptWeight: 2,
       issueWeight: 10,
       pureGold: 10,
@@ -364,6 +391,8 @@ void main() {
       billRef: 'RECEIPT-1',
       partyName: 'Ravi',
       typeLabel: 'RECEIPT(G)',
+      receiptWeights: {'GWT': 3, 'FWT': 0, 'KWT': 0, 'SWT': 0},
+      issueWeights: {'GWT': 0, 'FWT': 0, 'KWT': 0, 'SWT': 0},
       receiptWeight: 3,
       issueWeight: 0,
       pureGold: 3,
@@ -378,6 +407,8 @@ void main() {
       billRef: 'PUR-1',
       partyName: 'Meena',
       typeLabel: 'PURCHASE(G)',
+      receiptWeights: {'GWT': 10, 'FWT': 0, 'KWT': 0, 'SWT': 0},
+      issueWeights: {'GWT': 2, 'FWT': 0, 'KWT': 0, 'SWT': 0},
       receiptWeight: 10,
       issueWeight: 2,
       pureGold: 10,
@@ -387,6 +418,8 @@ void main() {
       billRef: 'PAYMENT-1',
       partyName: 'Meena',
       typeLabel: 'PAYMENT(C)',
+      receiptWeights: {'GWT': 0, 'FWT': 0, 'KWT': 0, 'SWT': 0},
+      issueWeights: {'GWT': 3, 'FWT': 0, 'KWT': 0, 'SWT': 0},
       receiptWeight: 0,
       issueWeight: 3,
       pureGold: 3,
@@ -401,6 +434,8 @@ void main() {
       billRef: 'ADJ-1',
       partyName: 'Ravi',
       typeLabel: 'ADJUSTMENT(G)',
+      receiptWeights: {'GWT': 1, 'FWT': 0, 'KWT': 0, 'SWT': 0},
+      issueWeights: {'GWT': 2, 'FWT': 0, 'KWT': 0, 'SWT': 0},
       receiptWeight: 1,
       issueWeight: 2,
       pureGold: 3,

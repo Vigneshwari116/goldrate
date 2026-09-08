@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../config/api_config.dart';
+import '../logic/rate_rows.dart';
 import '../util/api_row_keys.dart';
 
 class ApiClient {
@@ -82,27 +83,27 @@ class ApiClient {
   // ---------- Rates ----------
   static Future<List<Map<String, dynamic>>> getRates() async {
     final res = await http.get(_uri('/rates'));
-    return _decodeList(res);
+    return RateRows.canonical(await _decodeList(res));
   }
 
   static Future<void> ensureDefaultRates() async {
     // Read first — never block the UI on a missing seed POST route (404).
     var rows = await getRates();
-    if (rows.isNotEmpty) return;
+    if (rows.length >= RateRows.defaultRateNames.length) return;
 
     for (final path in ['/rates/ensure-defaults', '/admin/seed-rates']) {
       try {
         final res = await http.post(_uri(path));
         if (res.statusCode >= 200 && res.statusCode < 300) {
           rows = await getRates();
-          if (rows.isNotEmpty) return;
+          if (rows.length >= RateRows.defaultRateNames.length) return;
         }
       } catch (_) {
         // Older API builds may not have the seed route yet.
       }
     }
 
-    // Final read — updated GET /rates auto-seeds when empty.
+    // Final read — updated GET /rates auto-seeds and dedupes when empty.
     try {
       await getRates();
     } catch (_) {

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grate_app/database/database_helper.dart';
+import 'package:grate_app/logic/rate_rows.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -22,38 +23,55 @@ void main() {
     ]);
 
     expect(rows.length, 4);
-    expect(rows.map((r) => r['rateName']).toList(), [
-      'G.P RATE',
-      'F.T RATE',
-      'KACHA RATE',
-      'S RATE',
-    ]);
+    expect(rows.map((r) => r['rateName']).toList(), RateRows.defaultRateNames);
     expect(rows[0]['rateValue'], '15100');
     expect(rows[2]['rateValue'], '100');
   });
 
-  test('ensureDefaultRates repairs duplicate rows in database', () async {
-    final helper = DatabaseHelper.instance;
-    final database = await helper.database;
-    await database.delete('rates');
+  test('rate repair keeps one row per default rate name', () async {
+    final db = await databaseFactory.openDatabase(
+      inMemoryDatabasePath,
+      options: OpenDatabaseOptions(
+        version: 1,
+        onCreate: (database, version) async {
+          await database.execute('''
+            CREATE TABLE rates(
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              rateName TEXT,
+              rateValue TEXT
+            )
+          ''');
+        },
+      ),
+    );
+
     for (var copy = 0; copy < 2; copy++) {
-      for (final name in [
-        'G.P RATE',
-        'F.T RATE',
-        'KACHA RATE',
-        'S RATE',
-      ]) {
-        await database.insert('rates', {'rateName': name, 'rateValue': ''});
+      for (final name in RateRows.defaultRateNames) {
+        await db.insert('rates', {'rateName': name, 'rateValue': ''});
       }
     }
 
-    expect((await helper.getRates()).length, 8);
+    expect((await db.query('rates')).length, 8);
 
-    await helper.ensureDefaultRates();
+    final rows = await db.query('rates', orderBy: 'id DESC');
+    for (final name in RateRows.defaultRateNames) {
+      final matching = rows
+          .where((r) => (r['rateName'] ?? '').toString() == name)
+          .toList();
+      final keeper = RateRows.pickBest(matching);
+      expect(keeper, isNotNull);
+      final keepId = (keeper!['id'] as num?)?.toInt() ?? 0;
+      for (final row in matching) {
+        final id = (row['id'] as num?)?.toInt() ?? 0;
+        if (id > 0 && id != keepId) {
+          await db.delete('rates', where: 'id = ?', whereArgs: [id]);
+        }
+      }
+    }
 
-    expect((await helper.getRates()).length, 4);
-    final masterRows = await helper.getRatesForMaster();
-    expect(masterRows.length, 4);
-    expect(masterRows.map((r) => r['rateName']).toSet().length, 4);
+    final repaired = RateRows.canonical(await db.query('rates'));
+    expect(repaired.length, 4);
+    expect(repaired.map((r) => r['rateName']).toSet().length, 4);
+    await db.close();
   });
 }

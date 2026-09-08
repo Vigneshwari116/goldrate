@@ -108,8 +108,19 @@ List<dynamic> _decodeItems(dynamic raw) {
 /// Payment / old-gold trade-in lines (`paymentItems`, O.GWT etc.) are
 /// excluded from Purchase/Sales boxes and from Closing Stock.
 Map<String, double> billBoxWeights(Map<String, dynamic> bill) {
+  return _sumItemWeightsByType(bill['items']);
+}
+
+/// Payment / receipt line weights by type (GWT/FWT/KWT/SWT only).
+///
+/// Old-gold trade-in types (`O.GWT` etc.) and cash lines are excluded.
+Map<String, double> billPaymentBoxWeights(Map<String, dynamic> bill) {
+  return _sumItemWeightsByType(bill['paymentItems']);
+}
+
+Map<String, double> _sumItemWeightsByType(dynamic raw) {
   final totals = _emptyWeights();
-  for (final item in _decodeItems(bill['items'])) {
+  for (final item in _decodeItems(raw)) {
     if (item is! Map) continue;
     final type = (item['type'] ?? '').toString().trim().toUpperCase();
     if (!totals.containsKey(type)) continue;
@@ -118,6 +129,60 @@ Map<String, double> billBoxWeights(Map<String, dynamic> bill) {
     totals[type] = totals[type]! + weight;
   }
   return totals;
+}
+
+Map<String, double> emptyStockWeights() => _emptyWeights();
+
+Map<String, double> copyStockWeights(Map<String, double> source) =>
+    _copyWeights(source);
+
+void addStockWeights(Map<String, double> totals, Map<String, double> delta) {
+  _addWeights(totals, delta);
+}
+
+double sumStockWeights(Map<String, double> weights) {
+  var total = 0.0;
+  for (final type in kStockWeightTypes) {
+    total += weights[type] ?? 0;
+  }
+  return total;
+}
+
+Map<String, double> sumStockWeightMaps(
+  Iterable<Map<String, double>> maps,
+) {
+  final totals = _emptyWeights();
+  for (final map in maps) {
+    _addWeights(totals, map);
+  }
+  return totals;
+}
+
+/// Four table cells for GWT/FWT/KWT/SWT columns.
+List<String> formatWeightRowCells(
+  Map<String, double> weights, {
+  bool blankWhenZero = true,
+}) {
+  return kStockWeightTypes
+      .map(
+        (type) => formatStockWeight(
+          weights[type] ?? 0,
+          blankWhenZero: blankWhenZero,
+        ),
+      )
+      .toList();
+}
+
+/// Eight table cells: receipt weights then issue weights.
+List<String> formatReceiptIssueWeightCells(
+  Map<String, double> receipt,
+  Map<String, double> issue, {
+  bool blankWhenZero = true,
+}) {
+  return [
+    ...formatWeightRowCells(receipt, blankWhenZero: blankWhenZero),
+    ...formatWeightRowCells(issue, blankWhenZero: blankWhenZero),
+  ];
 }
 
 void _addWeights(Map<String, double> totals, Map<String, double> delta) {

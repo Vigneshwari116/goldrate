@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grate_app/logic/stock_ledger.dart';
 import 'package:intl/intl.dart';
@@ -253,6 +255,17 @@ void main() {
 
     expect(summary.closing['GWT'], closeTo(100, 0.001));
     expect(summary.purchases.single.weights['GWT'], closeTo(100, 0.001));
+  });
+
+  test('bill payment box weights sum typed payment lines', () {
+    final weights = billPaymentBoxWeights({
+      'paymentItems': jsonEncode([
+        {'type': 'FWT', 'weight': 4},
+        {'type': 'O.GWT', 'weight': 8},
+      ]),
+    });
+    expect(weights['FWT'], closeTo(4, 0.001));
+    expect(weights['GWT'], closeTo(0, 0.001));
   });
 
   test('formatStockWeight trims trailing zeros', () {

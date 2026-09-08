@@ -476,14 +476,18 @@ class _ReportsScreenState extends State<ReportsScreen>
 
     double totalReceipt = 0;
     double totalIssue = 0;
+    final totalReceiptWeights = emptyStockWeights();
+    final totalIssueWeights = emptyStockWeights();
     final table = <List<String>>[];
     for (final bill in rows) {
       final type =
           normalizeTransactionType((bill['transactionType'] ?? '').toString());
       final isSales = type == 'SALES';
-      final weights = billLedgerWeights(bill, isSales: isSales);
-      totalReceipt += weights.receipt;
-      totalIssue += weights.issue;
+      final weights = billLedgerWeightsByType(bill, isSales: isSales);
+      addStockWeights(totalReceiptWeights, weights.receipt);
+      addStockWeights(totalIssueWeights, weights.issue);
+      totalReceipt += sumStockWeights(weights.receipt);
+      totalIssue += sumStockWeights(weights.issue);
       final billNo =
           '${isSales ? 'SAL' : 'PUR'}-${bill['billNo']}';
       final name = '${bill['partyName'] ?? ''}';
@@ -495,19 +499,18 @@ class _ReportsScreenState extends State<ReportsScreen>
         name,
         particular,
         mode,
-        weights.receipt > 0 ? weights.receipt.toStringAsFixed(3) : '',
-        weights.issue > 0 ? weights.issue.toStringAsFixed(3) : '',
+        ...formatReceiptIssueWeightCells(weights.receipt, weights.issue),
       ]);
     }
 
-    const headers = [
+    final headers = [
       'BILL NO',
       'DATE',
       'NAME',
       'PARTICULAR',
       'MODE',
-      'R.WEIGHT',
-      'ISSUE WT',
+      ...kStockWeightTypes,
+      ...kStockWeightTypes,
     ];
 
     final footerRow = [
@@ -516,8 +519,11 @@ class _ReportsScreenState extends State<ReportsScreen>
       '',
       'total',
       '',
-      totalReceipt.toStringAsFixed(3),
-      totalIssue.toStringAsFixed(3),
+      ...formatReceiptIssueWeightCells(
+        totalReceiptWeights,
+        totalIssueWeights,
+        blankWhenZero: false,
+      ),
     ];
     final pdfRows = [...table, footerRow];
     final totalPure = totalReceipt + totalIssue;
@@ -532,9 +538,9 @@ class _ReportsScreenState extends State<ReportsScreen>
       child: _billTableWithFooter(
         table,
         headers: headers,
-        columnFlex: const [2, 2, 3, 2, 2, 2, 2],
-        totalReceipt: totalReceipt,
-        totalIssue: totalIssue,
+        columnFlex: const [2, 2, 3, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1],
+        totalReceiptWeights: totalReceiptWeights,
+        totalIssueWeights: totalIssueWeights,
       ),
       pdfRows: pdfRows,
       headers: headers,
@@ -660,14 +666,14 @@ class _ReportsScreenState extends State<ReportsScreen>
       (sum, section) =>
           sum + section.rows.fold(0, (s, row) => s + row.pureGold),
     );
-    const headers = [
+    final headers = [
       'BILL NO',
       'DATE',
       'NAME',
       'TYPE',
       'PARTICULAR',
-      'R.WEIGHT',
-      'ISSUE WT',
+      ...kStockWeightTypes,
+      ...kStockWeightTypes,
       'NARRATION',
     ];
     final pdfRows = [
@@ -765,7 +771,7 @@ class _ReportsScreenState extends State<ReportsScreen>
     return _htmlTable(
       rows,
       headers: headers,
-      columnFlex: const [2, 2, 3, 2, 2, 2, 2, 3],
+      columnFlex: const [2, 2, 3, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 3],
       includeOuterPadding: false,
       openingRow: section.openingTableRow(),
       footerRow: section.footerTableRow(),
@@ -776,8 +782,8 @@ class _ReportsScreenState extends State<ReportsScreen>
     List<List<String>> rows, {
     required List<String> headers,
     required List<int> columnFlex,
-    required double totalReceipt,
-    required double totalIssue,
+    required Map<String, double> totalReceiptWeights,
+    required Map<String, double> totalIssueWeights,
   }) {
     final footerRow = [
       '',
@@ -785,8 +791,11 @@ class _ReportsScreenState extends State<ReportsScreen>
       '',
       'total',
       '',
-      totalReceipt.toStringAsFixed(3),
-      totalIssue.toStringAsFixed(3),
+      ...formatReceiptIssueWeightCells(
+        totalReceiptWeights,
+        totalIssueWeights,
+        blankWhenZero: false,
+      ),
     ];
     return _htmlTable(
       rows,

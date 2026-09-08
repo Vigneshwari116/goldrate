@@ -72,7 +72,9 @@ class _MasterScreenState extends State<MasterScreen>
   Future<void> loadRates() async {
     setState(() => _loading = true);
     try {
-      final data = await DatabaseHelper.instance.getRatesForMaster();
+      final data = DatabaseHelper.canonicalRateRows(
+        await DatabaseHelper.instance.getRatesForMaster(),
+      );
       final stats = await DatabaseHelper.instance.getUpdateStats();
 
       for (final c in _controllers.values) {

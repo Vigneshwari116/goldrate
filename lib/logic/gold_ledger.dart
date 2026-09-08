@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 
 import '../util/app_date.dart';
 import '../util/party_name_key.dart';
+import 'stock_ledger.dart';
 import 'transaction_records.dart';
 
 /// Cash-to-gold conversion and running party balances.
@@ -235,6 +236,8 @@ class PartyLedgerRecord {
   final String partyName;
   final String typeLabel;
   final String particular;
+  final Map<String, double> receiptWeights;
+  final Map<String, double> issueWeights;
   final double receiptWeight;
   final double issueWeight;
   final double pureGold;
@@ -247,6 +250,8 @@ class PartyLedgerRecord {
     required this.partyName,
     required this.typeLabel,
     this.particular = '',
+    required this.receiptWeights,
+    required this.issueWeights,
     required this.receiptWeight,
     required this.issueWeight,
     required this.pureGold,
@@ -260,8 +265,7 @@ class PartyLedgerRecord {
         partyName,
         typeLabel,
         particular,
-        _formatWeight(receiptWeight),
-        _formatWeight(issueWeight),
+        ...formatReceiptIssueWeightCells(receiptWeights, issueWeights),
         narration,
       ];
 }
@@ -293,8 +297,10 @@ class PartyLedgerSection {
         partyName,
         '',
         'opening balance',
-        '',
-        '',
+        ...formatReceiptIssueWeightCells(
+          emptyStockWeights(),
+          emptyStockWeights(),
+        ),
         signedLedgerBalance(openingBalance),
       ];
 
@@ -305,15 +311,25 @@ class PartyLedgerSection {
         '',
         '',
         'total',
-        totalReceipt.toStringAsFixed(3),
-        totalIssue.toStringAsFixed(3),
+        ...formatReceiptIssueWeightCells(
+          totalReceiptWeights,
+          totalIssueWeights,
+          blankWhenZero: false,
+        ),
         'closing balance: ${signedLedgerBalance(closingBalance)}',
       ];
 
-  double get totalReceipt =>
-      rows.fold(0.0, (sum, row) => sum + row.receiptWeight);
+  Map<String, double> get totalReceiptWeights => sumStockWeightMaps(
+        rows.map((row) => row.receiptWeights),
+      );
 
-  double get totalIssue => rows.fold(0.0, (sum, row) => sum + row.issueWeight);
+  Map<String, double> get totalIssueWeights => sumStockWeightMaps(
+        rows.map((row) => row.issueWeights),
+      );
+
+  double get totalReceipt => sumStockWeights(totalReceiptWeights);
+
+  double get totalIssue => sumStockWeights(totalIssueWeights);
 }
 
 /// Net gold-balance change for one ledger row (running balance per line).
@@ -339,9 +355,6 @@ double ledgerRowBalanceDelta(PartyLedgerRecord row, {required bool customer}) {
   }());
   return 0;
 }
-
-String _formatWeight(double grams) =>
-    grams.abs() < 0.0005 ? '' : grams.toStringAsFixed(3);
 
 /// Comma-separated item types (GWT/FWT/KWT/SWT) from a bill's line items.
 String billParticulars(Map<String, dynamic> bill) {
@@ -461,7 +474,47 @@ double _billPureWeight(Map<String, dynamic> bill) {
   return stored ?? 0;
 }
 
+void _applyLumpPaymentFallback(
+  Map<String, double> weights, {
+  required String paymentMode,
+  required double paymentAmt,
+  required double cashToGold,
+}) {
+  if (sumStockWeights(weights) > 0.0005) return;
+  if (paymentMode == 'GOLD' && paymentAmt > 0) {
+    weights['GWT'] = paymentAmt;
+  } else if (cashToGold > 0) {
+    weights['GWT'] = cashToGold;
+  }
+}
+
+void _applyItemWeightFallback(
+  Map<String, double> weights,
+  double totalPure,
+) {
+  if (sumStockWeights(weights) > 0.0005) return;
+  if (totalPure > 0.0005) {
+    weights['GWT'] = totalPure;
+  }
+}
+
 ({double receipt, double issue, double pure}) billLedgerWeights(
+  Map<String, dynamic> bill, {
+  required bool isSales,
+}) {
+  final byType = billLedgerWeightsByType(bill, isSales: isSales);
+  return (
+    receipt: sumStockWeights(byType.receipt),
+    issue: sumStockWeights(byType.issue),
+    pure: byType.pure,
+  );
+}
+
+({
+  Map<String, double> receipt,
+  Map<String, double> issue,
+  double pure,
+}) billLedgerWeightsByType(
   Map<String, dynamic> bill, {
   required bool isSales,
 }) {
@@ -472,23 +525,31 @@ double _billPureWeight(Map<String, dynamic> bill) {
   final cashToGold =
       double.tryParse((bill['cashToGold'] ?? '').toString()) ?? 0;
 
-  var receipt = 0.0;
-  var issue = 0.0;
+  final itemWeights = billBoxWeights(bill);
+  final paymentWeights = billPaymentBoxWeights(bill);
+  final receipt = copyStockWeights(
+    isSales ? paymentWeights : itemWeights,
+  );
+  final issue = copyStockWeights(
+    isSales ? itemWeights : paymentWeights,
+  );
 
   if (isSales) {
-    issue = totalPure;
-    if (paymentMode == 'GOLD') {
-      receipt = paymentAmt;
-    } else if (cashToGold > 0) {
-      receipt = cashToGold;
-    }
+    _applyItemWeightFallback(issue, totalPure);
+    _applyLumpPaymentFallback(
+      receipt,
+      paymentMode: paymentMode,
+      paymentAmt: paymentAmt,
+      cashToGold: cashToGold,
+    );
   } else {
-    receipt = totalPure;
-    if (paymentMode == 'GOLD') {
-      issue = paymentAmt;
-    } else if (cashToGold > 0) {
-      issue = cashToGold;
-    }
+    _applyItemWeightFallback(receipt, totalPure);
+    _applyLumpPaymentFallback(
+      issue,
+      paymentMode: paymentMode,
+      paymentAmt: paymentAmt,
+      cashToGold: cashToGold,
+    );
   }
 
   return (receipt: receipt, issue: issue, pure: totalPure);
@@ -498,11 +559,51 @@ double _billPureWeight(Map<String, dynamic> bill) {
   Map<String, dynamic> voucher, {
   required bool customer,
 }) {
+  final byType = voucherLedgerWeightsByType(voucher, customer: customer);
+  return (
+    receipt: sumStockWeights(byType.receipt),
+    issue: sumStockWeights(byType.issue),
+    pure: byType.pure,
+  );
+}
+
+({
+  Map<String, double> receipt,
+  Map<String, double> issue,
+  double pure,
+}) voucherLedgerWeightsByType(
+  Map<String, dynamic> voucher, {
+  required bool customer,
+}) {
   final paid = goldPaidOnRow(voucher);
+  final paymentWeights = billPaymentBoxWeights(voucher);
+  final paymentMode = (voucher['paymentMode'] ?? '').toString().toUpperCase();
+  final paymentAmt =
+      double.tryParse((voucher['amount'] ?? voucher['paymentAmount'] ?? '')
+              .toString()) ??
+      0;
+  final cashToGold =
+      double.tryParse((voucher['cashToGold'] ?? '').toString()) ?? 0;
+
   if (customer) {
-    return (receipt: paid, issue: 0.0, pure: paid);
+    final receipt = copyStockWeights(paymentWeights);
+    _applyLumpPaymentFallback(
+      receipt,
+      paymentMode: paymentMode,
+      paymentAmt: paymentAmt,
+      cashToGold: cashToGold > 0 ? cashToGold : paid,
+    );
+    return (receipt: receipt, issue: emptyStockWeights(), pure: paid);
   }
-  return (receipt: 0.0, issue: paid, pure: paid);
+
+  final issue = copyStockWeights(paymentWeights);
+  _applyLumpPaymentFallback(
+    issue,
+    paymentMode: paymentMode,
+    paymentAmt: paymentAmt,
+    cashToGold: cashToGold > 0 ? cashToGold : paid,
+  );
+  return (receipt: emptyStockWeights(), issue: issue, pure: paid);
 }
 
 bool inAppDateRange({
@@ -557,7 +658,7 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
     )) {
       continue;
     }
-    final weights = billLedgerWeights(bill, isSales: type == 'SALES');
+    final weights = billLedgerWeightsByType(bill, isSales: type == 'SALES');
     if (customer && type == 'SALES') {
       final paymentAmt =
           double.tryParse((bill['paymentAmount'] ?? '').toString()) ?? 0;
@@ -566,9 +667,10 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
         billRef: 'SAL-${bill['billNo']}',
         partyName: name,
         typeLabel: transactionTypeLabel('SALES', bill['paymentMode']?.toString()),
-        particular: billParticulars(bill),
-        receiptWeight: weights.receipt,
-        issueWeight: weights.issue,
+        receiptWeights: weights.receipt,
+        issueWeights: weights.issue,
+        receiptWeight: sumStockWeights(weights.receipt),
+        issueWeight: sumStockWeights(weights.issue),
         pureGold: weights.pure,
         goldRate: goldRateOnRow(bill),
         narration: ledgerPaymentNarration(
@@ -585,9 +687,10 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
         partyName: name,
         typeLabel:
             transactionTypeLabel('PURCHASE', bill['paymentMode']?.toString()),
-        particular: billParticulars(bill),
-        receiptWeight: weights.receipt,
-        issueWeight: weights.issue,
+        receiptWeights: weights.receipt,
+        issueWeights: weights.issue,
+        receiptWeight: sumStockWeights(weights.receipt),
+        issueWeight: sumStockWeights(weights.issue),
         pureGold: weights.pure,
         goldRate: goldRateOnRow(bill),
         narration: ledgerPaymentNarration(
@@ -617,7 +720,7 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
       continue;
     }
     final vType = (v['voucherType'] ?? '').toString();
-    final weights = voucherLedgerWeights(v, customer: customer);
+    final weights = voucherLedgerWeightsByType(v, customer: customer);
     final voucherAmt =
         double.tryParse((v['amount'] ?? '').toString()) ?? 0;
     records.add(PartyLedgerRecord(
@@ -625,9 +728,10 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
       billRef: '$vType-${v['voucherNo']}',
       partyName: name,
       typeLabel: transactionTypeLabel(vType, v['paymentMode']?.toString()),
-      particular: '',
-      receiptWeight: weights.receipt,
-      issueWeight: weights.issue,
+      receiptWeights: weights.receipt,
+      issueWeights: weights.issue,
+      receiptWeight: sumStockWeights(weights.receipt),
+      issueWeight: sumStockWeights(weights.issue),
       pureGold: weights.pure,
       goldRate: goldRateOnRow(v),
       narration: ledgerPaymentNarration(

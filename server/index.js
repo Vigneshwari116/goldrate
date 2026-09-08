@@ -59,14 +59,50 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // ---------- Rates ----------
+const DEFAULT_RATE_NAMES = ['G.P RATE', 'F.T RATE', 'KACHA RATE', 'S RATE'];
+
+async function dedupeRates() {
+  for (const name of DEFAULT_RATE_NAMES) {
+    const { rows } = await pool.query(
+      'SELECT * FROM rates WHERE rate_name = $1 ORDER BY id',
+      [name],
+    );
+    if (rows.length === 0) {
+      await pool.query(
+        'INSERT INTO rates (rate_name, rate_value) VALUES ($1, $2)',
+        [name, ''],
+      );
+      continue;
+    }
+    if (rows.length === 1) continue;
+
+    const keeper = rows.reduce((best, row) => {
+      if (!best) return row;
+      const bestVal = (best.rate_value ?? '').toString().trim();
+      const rowVal = (row.rate_value ?? '').toString().trim();
+      if (rowVal && !bestVal) return row;
+      if (bestVal && !rowVal) return best;
+      return row.id > best.id ? row : best;
+    }, null);
+
+    for (const row of rows) {
+      if (row.id !== keeper.id) {
+        await pool.query('DELETE FROM rates WHERE id = $1', [row.id]);
+      }
+    }
+  }
+}
+
 app.get('/api/rates', async (_req, res) => {
   await seedDefaultRates();
+  await dedupeRates();
   const result = await pool.query('SELECT * FROM rates ORDER BY id');
   res.json(toCamelList(result.rows));
 });
 
 app.post('/api/rates/ensure-defaults', async (_req, res) => {
   await seedDefaultRates();
+  await dedupeRates();
   res.json({ ok: true });
 });
 

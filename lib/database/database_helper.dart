@@ -7,6 +7,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../api/api_client.dart';
 import '../config/api_config.dart';
+import '../logic/rate_rows.dart';
 import '../logic/gold_ledger.dart';
 import '../logic/transaction_records.dart';
 import '../util/api_row_keys.dart';
@@ -406,9 +407,13 @@ class DatabaseHelper {
   }
 
   Future<List<Map<String, dynamic>>> getRates() async {
-    if (ApiConfig.useRemoteApi) return ApiClient.getRates();
+    if (ApiConfig.useRemoteApi) {
+      return RateRows.canonical(await ApiClient.getRates());
+    }
+    await ensureDefaultRates();
     final db = await database;
-    return await db.query('rates', orderBy: 'id');
+    final rows = await db.query('rates', orderBy: 'id');
+    return RateRows.canonical(rows);
   }
 
   /// Daily Rate rows for the UI — always returns four named slots.
@@ -420,12 +425,12 @@ class DatabaseHelper {
     }
     try {
       final rows = await getRates();
-      if (rows.isNotEmpty) return canonicalRateRows(rows);
+      if (rows.isNotEmpty) return rows;
     } catch (_) {
       // Offline or server error — fall back to blank local template rows.
     }
     return [
-      for (final name in _defaultRateNames)
+      for (final name in RateRows.defaultRateNames)
         {'id': 0, 'rateName': name, 'rateValue': ''},
     ];
   }
@@ -433,40 +438,13 @@ class DatabaseHelper {
   /// One row per default rate name, in display order.
   static List<Map<String, dynamic>> canonicalRateRows(
     List<Map<String, dynamic>> rows,
-  ) {
-    final byName = <String, Map<String, dynamic>>{};
-    for (final row in rows) {
-      final name = (row['rateName'] ?? '').toString();
-      if (!_defaultRateNames.contains(name)) continue;
-      final existing = byName[name];
-      if (existing == null) {
-        byName[name] = row;
-        continue;
-      }
-      final keeper = _pickBestRateRow([existing, row]);
-      if (keeper != null) byName[name] = keeper;
-    }
-    return [
-      for (final name in _defaultRateNames)
-        byName[name] ?? {'id': 0, 'rateName': name, 'rateValue': ''},
-    ];
-  }
+  ) =>
+      RateRows.canonical(rows);
 
   static Map<String, dynamic>? _pickBestRateRow(
     List<Map<String, dynamic>> rows,
-  ) {
-    if (rows.isEmpty) return null;
-    final sorted = [...rows];
-    sorted.sort((a, b) {
-      final aHas = (a['rateValue'] ?? '').toString().trim().isNotEmpty;
-      final bHas = (b['rateValue'] ?? '').toString().trim().isNotEmpty;
-      if (aHas != bHas) return aHas ? -1 : 1;
-      final aId = (a['id'] as num?)?.toInt() ?? 0;
-      final bId = (b['id'] as num?)?.toInt() ?? 0;
-      return bId.compareTo(aId);
-    });
-    return sorted.first;
-  }
+  ) =>
+      RateRows.pickBest(rows);
 
   /// Ensures the four daily rate rows exist (blank values on fresh install).
   Future<void> ensureDefaultRates() async {
@@ -481,7 +459,7 @@ class DatabaseHelper {
     final db = await database;
     final rows = await db.query('rates', orderBy: 'id DESC');
 
-    for (final name in _defaultRateNames) {
+    for (final name in RateRows.defaultRateNames) {
       final matching = rows
           .where((r) => (r['rateName'] ?? '').toString() == name)
           .toList();
@@ -501,13 +479,6 @@ class DatabaseHelper {
       }
     }
   }
-
-  static const _defaultRateNames = [
-    'G.P RATE',
-    'F.T RATE',
-    'KACHA RATE',
-    'S RATE',
-  ];
 
   /// Rates keyed by rateName (e.g. 'G.P RATE' -> 15100), parsed to double.
   /// A rate that hasn't been set yet (blank) is simply left out of the map.
