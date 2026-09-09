@@ -9,7 +9,9 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../database/database_helper.dart';
+import '../logic/gold_ledger.dart';
 import '../util/focus_chain.dart';
+import '../util/party_name_key.dart';
 import '../util/screen_activation.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
@@ -56,20 +58,17 @@ List<_PartySummary> _buildSummaries(
     String city = '';
 
     for (final e in entries) {
-      final cr =
-          double.tryParse((e['cr'] ?? '0').toString()) ?? 0;
-      final dr =
-          double.tryParse((e['dr'] ?? '0').toString()) ?? 0;
-
       final unit =
       (e['balanceUnit'] ?? 'RUPEES').toString().toUpperCase();
 
-      final net = dr - cr;
-
       if (unit == 'GRAMS') {
-        grams += net;
+        grams += partyLedgerRowGrams(e, isCustomer: true);
       } else {
-        rupees += net;
+        final cr =
+            double.tryParse((e['cr'] ?? '0').toString()) ?? 0;
+        final dr =
+            double.tryParse((e['dr'] ?? '0').toString()) ?? 0;
+        rupees += dr - cr;
       }
 
       if (mobile.isEmpty) {
@@ -149,6 +148,8 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
 
   bool _loading = true;
   bool _saving = false;
+  bool _nameLocked = false;
+  bool _editingExistingParty = false;
 
   static final RegExp _mobileRegex =
   RegExp(r'^[6-9]\d{9}$');
@@ -307,6 +308,10 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
   void _prefillFromExistingName(String name) {
     for (final summary in _buildSummaries(customers)) {
       if (summary.name == name) {
+        setState(() {
+          _nameLocked = true;
+          _editingExistingParty = true;
+        });
         _mobileController.text = summary.mobile;
         _cityController.text = summary.city;
         _prefillOpeningBalance(summary);
@@ -314,6 +319,10 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
         return;
       }
     }
+    setState(() {
+      _nameLocked = false;
+      _editingExistingParty = false;
+    });
     _pureWeightController.clear();
     _goldWeightController.clear();
     FocusChain.focusNextFrame(_mobileFocus, controller: _mobileController);
@@ -326,6 +335,10 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
     _pureWeightController.clear();
     _goldWeightController.clear();
     _narrationController.clear();
+    setState(() {
+      _nameLocked = false;
+      _editingExistingParty = false;
+    });
     _formKey.currentState?.reset();
   }
 
@@ -357,6 +370,38 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
 
       final name =
       _nameController.text.trim();
+
+      final duplicate = findDuplicatePartyName(
+        name,
+        _summaries.map((s) => s.name),
+      );
+      if (duplicate != null) {
+        final proceed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Duplicate customer name'),
+            content: Text(
+              'A customer named "$duplicate" already exists '
+              '(names match regardless of spelling/capitalisation).\n\n'
+              'Save another entry under "$name" anyway?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Save anyway'),
+              ),
+            ],
+          ),
+        );
+        if (proceed != true) {
+          if (mounted) setState(() => _saving = false);
+          return;
+        }
+      }
 
       final mobile =
       _mobileController.text.trim();
@@ -456,26 +501,47 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
     );
   }
 
-  Future<void> _confirmDelete(int id) async {
+  void _editPartySummary(_PartySummary summary) {
+    _nameController.text = summary.name;
+    _mobileController.text = summary.mobile;
+    _cityController.text = summary.city;
+    _prefillOpeningBalance(summary);
+    _narrationController.clear();
+    setState(() {
+      _nameLocked = true;
+      _editingExistingParty = true;
+    });
+    FocusChain.focusNextFrame(_mobileFocus, controller: _mobileController);
+  }
+
+  Future<void> _confirmDeleteAll(String name) async {
+    final hasTransactions = await DatabaseHelper.instance
+        .partyHasLinkedTransactions(name, isCustomer: true);
+    if (!mounted) return;
+    if (hasTransactions) {
+      _showError(
+        'Cannot delete — this customer has existing transactions',
+      );
+      return;
+    }
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Delete Entry'),
-          content: const Text(
-            'Are you sure you want to delete this record?',
+          title: const Text('Delete All Entries'),
+          content: Text(
+            'Delete every ledger entry for "$name"? This cannot be undone.',
           ),
           actions: [
             TextButton(
-              onPressed: () =>
-                  Navigator.pop(context, false),
+              onPressed: () => Navigator.pop(context, false),
               child: const Text('Cancel'),
             ),
             TextButton(
-              onPressed: () =>
-                  Navigator.pop(context, true),
+              onPressed: () => Navigator.pop(context, true),
               child: const Text(
-                'Delete',
+                'Delete All',
                 style: TextStyle(color: Colors.red),
               ),
             ),
@@ -487,23 +553,17 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
     if (confirmed != true) return;
 
     try {
-      await DatabaseHelper.instance.deleteCustomer(id);
-
-      await loadCustomers();
-
+      await DatabaseHelper.instance.deleteCustomersByName(name);
       if (!mounted) return;
-
+      Navigator.pop(context);
+      await loadCustomers();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Customer entry deleted'),
-        ),
+        SnackBar(content: Text('All entries for $name deleted')),
       );
     } catch (e) {
       if (!mounted) return;
-
-      _showError(
-        'Could not delete customer.\n\n$e',
-      );
+      _showError('Could not delete entries.\n\n$e');
     }
   }
 
@@ -581,14 +641,26 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
                     ),
                   ),
                   const SizedBox(height: 6),
-                  ...summary.entries.map(
-                        (e) => _buildEntryTile(e),
-                  ),
+                  ...summary.entries.map(_buildEntryTile),
                 ],
               ),
             ),
           ),
           actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _editPartySummary(summary);
+              },
+              child: const Text('EDIT'),
+            ),
+            TextButton(
+              onPressed: () => _confirmDeleteAll(summary.name),
+              child: const Text(
+                'DELETE ALL',
+                style: TextStyle(color: Colors.red),
+              ),
+            ),
             TextButton(
               onPressed: () =>
                   Navigator.pop(context),
@@ -600,9 +672,7 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
     );
   }
 
-  Widget _buildEntryTile(
-      Map<String, dynamic> e,
-      ) {
+  Widget _buildEntryTile(Map<String, dynamic> e) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(8),
@@ -610,63 +680,28 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
         color: AppColors.headerBand,
         borderRadius: BorderRadius.circular(6),
       ),
-      child: Row(
-        crossAxisAlignment:
-        CrossAxisAlignment.start,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment:
-              CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _entryLine(e),
-                  style: const TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                if ((e['narration'] ?? '')
-                    .toString()
-                    .isNotEmpty)
-                  Text(
-                    e['narration'].toString(),
-                    style: const TextStyle(
-                      fontSize: 11.5,
-                    ),
-                  ),
-                Text(
-                  '${e['date'] ?? ''} ${e['time'] ?? ''}'
-                      '${(e['billRef'] ?? '').toString().isNotEmpty ? '  •  ${e['billRef']}' : ''}',
-                  style: const TextStyle(
-                    fontSize: 10.5,
-                    color: Colors.black54,
-                  ),
-                ),
-              ],
+          Text(
+            _entryLine(e),
+            style: const TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
             ),
           ),
-          IconButton(
-            icon: const Icon(
-              Icons.delete,
-              size: 16,
-              color: Colors.redAccent,
+          if ((e['narration'] ?? '').toString().isNotEmpty)
+            Text(
+              e['narration'].toString(),
+              style: const TextStyle(fontSize: 11.5),
             ),
-            padding: EdgeInsets.zero,
-            constraints:
-            const BoxConstraints(),
-            onPressed: () async {
-              Navigator.pop(context);
-
-              final id =
-              int.tryParse(
-                e['id'].toString(),
-              );
-
-              if (id != null) {
-                await _confirmDelete(id);
-              }
-            },
+          Text(
+            '${e['date'] ?? ''} ${e['time'] ?? ''}'
+                '${(e['billRef'] ?? '').toString().isNotEmpty ? '  •  ${e['billRef']}' : ''}',
+            style: const TextStyle(
+              fontSize: 10.5,
+              color: Colors.black54,
+            ),
           ),
         ],
       ),
@@ -930,8 +965,17 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
                     controller: _nameController,
                     options: _nameOptions,
                     validator: _validateName,
+                    readOnly: _nameLocked,
                     onFocusNodeReady: _bindNameFocus,
                     onSelected: _prefillFromExistingName,
+                    onChanged: (value) {
+                      if (_editingExistingParty) return;
+                      final exists =
+                          _summaries.any((s) => s.name == value.trim());
+                      if (exists != _nameLocked) {
+                        setState(() => _nameLocked = exists);
+                      }
+                    },
                     onFieldSubmitted: () => _focusNext(_mobileFocus),
                     onFocus: loadCustomers,
                   ),
@@ -1167,26 +1211,34 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
                     ),
                   ),
                   isThreeLine: true,
-                  trailing:
-                  summary.mobile.isNotEmpty
-                      ? IconButton(
-                    icon:
-                    const Icon(
-                      Icons.call,
-                      color:
-                      Colors.green,
-                      size: 18,
-                    ),
-                    onPressed: () =>
-                        _callCustomer(
-                          summary.mobile,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(
+                          Icons.edit,
+                          color: AppColors.navy,
+                          size: 18,
                         ),
-                  )
-                      : const Icon(
-                    Icons.chevron_right,
-                    color:
-                    AppColors.mutedBlue,
-                    size: 20,
+                        tooltip: 'Edit customer',
+                        onPressed: () => _editPartySummary(summary),
+                      ),
+                      if (summary.mobile.isNotEmpty)
+                        IconButton(
+                          icon: const Icon(
+                            Icons.call,
+                            color: Colors.green,
+                            size: 18,
+                          ),
+                          onPressed: () => _callCustomer(summary.mobile),
+                        )
+                      else
+                        const Icon(
+                          Icons.chevron_right,
+                          color: AppColors.mutedBlue,
+                          size: 20,
+                        ),
+                    ],
                   ),
                 ),
               );

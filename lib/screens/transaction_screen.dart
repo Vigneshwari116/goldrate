@@ -19,6 +19,7 @@ import '../widgets/party_search_field.dart';
 import '../util/party_save_prompt.dart';
 import '../util/focus_chain.dart';
 import '../util/screen_activation.dart';
+import '../util/touch_input.dart';
 import '../theme/app_theme.dart';
 import '../theme/field_sizes.dart';
 import '../theme/responsive.dart';
@@ -31,6 +32,14 @@ const Map<String, String> kItemTypeToRateName = {
   'FWT': 'F.T RATE',
   'KWT': 'KACHA RATE',
   'SWT': 'S RATE',
+};
+
+/// Receipt-side labels on Sales bills (old gold from customer).
+const Map<String, String> kOldGoldReceiptTypeLabels = {
+  'GWT': 'O.GWT',
+  'FWT': 'O.FWT',
+  'KWT': 'O.KWT',
+  'SWT': 'O.SWT',
 };
 
 class _TransactionItem {
@@ -132,9 +141,9 @@ class _TransactionScreenState extends State<TransactionScreen>
   String _billEntryType = _itemTypes.first;
   String _paymentEntryType = _paymentItemTypes.first;
   final _billEntryWeight = TextEditingController(text: '0.000');
-  final _billEntryTouch = TextEditingController(text: '0.00');
+  final _billEntryTouch = TextEditingController();
   final _paymentEntryWeight = TextEditingController(text: '0.000');
-  final _paymentEntryTouch = TextEditingController(text: '0.00');
+  final _paymentEntryTouch = TextEditingController();
   final _paymentEntryAmount = TextEditingController(text: '0.00');
 
   final _billEntryWeightFocus = FocusNode();
@@ -148,12 +157,15 @@ class _TransactionScreenState extends State<TransactionScreen>
   bool _loading = true;
   bool _saving = false;
   bool _sharingPdf = false;
-
   List<Map<String, dynamic>> _history = [];
   Map<String, double> _rates = {};
   List<PartySuggestion> _partySuggestions = [];
   Map<String, double>? _partyOutstanding;
   Timer? _partyRefreshTimer;
+  String? _billTouchError;
+  String? _paymentTouchError;
+  int? _editingTransactionId;
+  int? _editingBillNo;
 
   /// Purchase looks up Suppliers (stock coming in from them); Sales
   /// looks up Customers (stock going out to them).
@@ -166,6 +178,15 @@ class _TransactionScreenState extends State<TransactionScreen>
   bool get _hideIssuePanel => _isReceiptVoucher;
 
   bool get _hideReceiptPanel => _isPaymentVoucher;
+
+  bool get _isSales => widget.kind == TransactionKind.sales;
+
+  String _receiptTypeLabel(String type) {
+    if (_isSales && kOldGoldReceiptTypeLabels.containsKey(type)) {
+      return kOldGoldReceiptTypeLabels[type]!;
+    }
+    return type;
+  }
 
   bool get _isCustomerParty =>
       widget.kind == TransactionKind.sales || _isReceiptVoucher;
@@ -192,8 +213,15 @@ class _TransactionScreenState extends State<TransactionScreen>
   String get _numberLabel => _isVoucher ? 'VOUCHER NO' : 'BILL NO';
 
   String get _saveButtonLabel {
-    if (_isReceiptVoucher) return 'SAVE RECEIPT';
-    if (_isPaymentVoucher) return 'SAVE PAYMENT';
+    if (_isReceiptVoucher) {
+      return _editingTransactionId != null ? 'UPDATE RECEIPT' : 'SAVE RECEIPT';
+    }
+    if (_isPaymentVoucher) {
+      return _editingTransactionId != null ? 'UPDATE PAYMENT' : 'SAVE PAYMENT';
+    }
+    if (_editingTransactionId != null) {
+      return _isPurchase ? 'UPDATE PURCHASE' : 'UPDATE SALE';
+    }
     return _isPurchase ? 'SAVE PURCHASE' : 'SAVE SALE';
   }
 
@@ -277,6 +305,35 @@ class _TransactionScreenState extends State<TransactionScreen>
     _partyController
       ..addListener(_onPartyControllerChanged)
       ..addListener(() => _onPartyTextChanged());
+    _billEntryTouchFocus.addListener(_onBillTouchFocusChange);
+    _paymentEntryTouchFocus.addListener(_onPaymentTouchFocusChange);
+  }
+
+  void _onBillTouchFocusChange() {
+    if (!_billEntryTouchFocus.hasFocus) {
+      _validateBillTouchOnBlur();
+    }
+  }
+
+  void _onPaymentTouchFocusChange() {
+    if (!_paymentEntryTouchFocus.hasFocus) {
+      _validatePaymentTouchOnBlur();
+    }
+  }
+
+  void _validateBillTouchOnBlur() {
+    final message = touchPercentBlurValidationMessage(_billEntryTouch.text);
+    if (_billTouchError != message) {
+      setState(() => _billTouchError = message);
+    }
+  }
+
+  void _validatePaymentTouchOnBlur() {
+    if (_paymentEntryType == 'CASH') return;
+    final message = touchPercentBlurValidationMessage(_paymentEntryTouch.text);
+    if (_paymentTouchError != message) {
+      setState(() => _paymentTouchError = message);
+    }
   }
 
   void _onPartyControllerChanged() {
@@ -316,27 +373,29 @@ class _TransactionScreenState extends State<TransactionScreen>
   void _resetBillEntry({bool resetType = true}) {
     if (resetType) _billEntryType = _itemTypes.first;
     _billEntryWeight.text = '0.000';
-    _billEntryTouch.text = '0.00';
+    _billEntryTouch.clear();
+    _billTouchError = null;
   }
 
   void _resetPaymentEntry({bool resetType = true}) {
     if (resetType) _paymentEntryType = _paymentItemTypes.first;
     _paymentEntryWeight.text = '0.000';
-    _paymentEntryTouch.text = '0.00';
+    _paymentEntryTouch.clear();
     _paymentEntryAmount.text = '0.00';
+    _paymentTouchError = null;
   }
 
   _TransactionItem? _validatedBillEntry() {
     final weight = double.tryParse(_billEntryWeight.text.trim());
-    final touch = double.tryParse(_billEntryTouch.text.trim());
     if (weight == null ||
         !_numberRegex.hasMatch(_billEntryWeight.text.trim()) ||
         weight <= 0) {
       return null;
     }
-    if (touch == null || !_numberRegex.hasMatch(_billEntryTouch.text.trim())) {
+    if (!isValidTouchPercent(_billEntryTouch.text)) {
       return null;
     }
+    final touch = double.parse(_billEntryTouch.text.trim());
     final rateName = kItemTypeToRateName[_billEntryType];
     final rate = _rates[rateName] ?? 0;
     return _TransactionItem(
@@ -358,16 +417,15 @@ class _TransactionScreenState extends State<TransactionScreen>
       return _PanelLine.cash(amount);
     }
     final weight = double.tryParse(_paymentEntryWeight.text.trim());
-    final touch = double.tryParse(_paymentEntryTouch.text.trim());
     if (weight == null ||
         !_numberRegex.hasMatch(_paymentEntryWeight.text.trim()) ||
         weight <= 0) {
       return null;
     }
-    if (touch == null ||
-        !_numberRegex.hasMatch(_paymentEntryTouch.text.trim())) {
+    if (!isValidTouchPercent(_paymentEntryTouch.text)) {
       return null;
     }
+    final touch = double.parse(_paymentEntryTouch.text.trim());
     return _PanelLine.metal(
       type: _paymentEntryType,
       weight: weight,
@@ -376,6 +434,11 @@ class _TransactionScreenState extends State<TransactionScreen>
   }
 
   void _commitBillEntry() {
+    final touchMessage = touchPercentValidationMessage(_billEntryTouch.text);
+    if (touchMessage != null) {
+      setState(() => _billTouchError = touchMessage);
+      return;
+    }
     final item = _validatedBillEntry();
     if (item == null) {
       _showMessage('Enter weight and touch before continuing');
@@ -398,6 +461,14 @@ class _TransactionScreenState extends State<TransactionScreen>
   }
 
   void _commitPaymentEntry() {
+    if (_paymentEntryType != 'CASH') {
+      final touchMessage =
+          touchPercentValidationMessage(_paymentEntryTouch.text);
+      if (touchMessage != null) {
+        setState(() => _paymentTouchError = touchMessage);
+        return;
+      }
+    }
     final line = _validatedPaymentEntry();
     if (line == null) {
       _showMessage(_paymentEntryType == 'CASH'
@@ -427,7 +498,10 @@ class _TransactionScreenState extends State<TransactionScreen>
   }
 
   void _onPaymentTypeChanged(String type) {
-    setState(() => _paymentEntryType = type);
+    setState(() {
+      _paymentEntryType = type;
+      if (type == 'CASH') _paymentTouchError = null;
+    });
     if (type == 'CASH') {
       FocusChain.focusNextFrame(
         _paymentEntryAmountFocus,
@@ -445,6 +519,8 @@ class _TransactionScreenState extends State<TransactionScreen>
   void dispose() {
     _partyRefreshTimer?.cancel();
     _partyFocus?.removeListener(_onPartyFocus);
+    _billEntryTouchFocus.removeListener(_onBillTouchFocusChange);
+    _paymentEntryTouchFocus.removeListener(_onPaymentTouchFocusChange);
     _partyController.dispose();
     _billEntryWeight.dispose();
     _billEntryTouch.dispose();
@@ -605,7 +681,104 @@ class _TransactionScreenState extends State<TransactionScreen>
   void _clearForm() {
     _partyController.clear();
     _clearPanels();
-    setState(() => _partyOutstanding = null);
+    setState(() {
+      _partyOutstanding = null;
+      _editingTransactionId = null;
+      _editingBillNo = null;
+    });
+  }
+
+  void _editBillLine(int index) {
+    final item = _billLines[index];
+    setState(() {
+      _billEntryType = item.type;
+      _billEntryWeight.text = item.weight.toStringAsFixed(3);
+      _billEntryTouch.text = item.touch.toStringAsFixed(2);
+      _billTouchError = null;
+      _billLines.removeAt(index);
+    });
+    FocusChain.focusNextFrame(
+      _billEntryWeightFocus,
+      controller: _billEntryWeight,
+    );
+  }
+
+  void _editPaymentLine(int index) {
+    final line = _paymentLines[index];
+    setState(() {
+      if (line.isCash) {
+        _paymentEntryType = 'CASH';
+        _paymentEntryAmount.text = (line.cashAmount ?? 0).toStringAsFixed(2);
+        _paymentTouchError = null;
+      } else {
+        _paymentEntryType = line.type;
+        _paymentEntryWeight.text = line.weight.toStringAsFixed(3);
+        _paymentEntryTouch.text = line.touch.toStringAsFixed(2);
+        _paymentTouchError = null;
+      }
+      _paymentLines.removeAt(index);
+    });
+    if (line.isCash) {
+      FocusChain.focusNextFrame(
+        _paymentEntryAmountFocus,
+        controller: _paymentEntryAmount,
+      );
+    } else {
+      FocusChain.focusNextFrame(
+        _paymentEntryWeightFocus,
+        controller: _paymentEntryWeight,
+      );
+    }
+  }
+
+  List<_PanelLine> _paymentLinesFromRow(Map<String, dynamic> row) {
+    final raw = row['paymentItems'];
+    if (raw == null || raw.toString().isEmpty || raw.toString() == '[]') {
+      return [];
+    }
+    final list = jsonDecode(raw.toString()) as List<dynamic>;
+    return list.map((entry) {
+      final map = Map<String, dynamic>.from(entry as Map);
+      if ((map['type'] ?? '').toString() == 'CASH') {
+        return _PanelLine.cash(
+          (map['cashAmount'] as num?)?.toDouble() ?? 0,
+        );
+      }
+      return _PanelLine.metal(
+        type: map['type'].toString(),
+        weight: (map['weight'] as num).toDouble(),
+        touch: (map['touch'] as num).toDouble(),
+      );
+    }).toList();
+  }
+
+  void _loadBillForEdit(Map<String, dynamic> row) {
+    if (row['fromLedger'] == true) {
+      _showMessage('This bill was imported from the ledger and cannot be edited here');
+      return;
+    }
+
+    final billNo = row['billNo'] as int? ?? _nextBillNo;
+    setState(() {
+      _editingTransactionId = row['id'] as int?;
+      _editingBillNo = billNo;
+      _nextBillNo = billNo;
+      _partyController.text = (row['partyName'] ?? '').toString();
+      _billLines
+        ..clear()
+        ..addAll(_itemsFromRow(row));
+      _paymentLines
+        ..clear()
+        ..addAll(_paymentLinesFromRow(row));
+      _resetBillEntry();
+      _resetPaymentEntry();
+      _billTouchError = null;
+      _paymentTouchError = null;
+    });
+    _onPartyTextChanged(_partyController.text.trim());
+    if (_partyFocus != null) {
+      FocusChain.focusNextFrame(_partyFocus!, controller: _partyController);
+    }
   }
 
   void _showMessage(String message) {
@@ -622,6 +795,27 @@ class _TransactionScreenState extends State<TransactionScreen>
       }
     }
     return true;
+  }
+
+  Map<String, dynamic> _paymentLineToJson(_PanelLine line) {
+    if (line.isCash) {
+      return {
+        'type': 'CASH',
+        'weight': 0,
+        'touch': 0,
+        'pureWt': 0,
+        'cashAmount': line.cashAmount ?? 0,
+      };
+    }
+    final rateName = kItemTypeToRateName[line.type];
+    final rate = _rates[rateName] ?? 0;
+    return {
+      'type': line.type,
+      'weight': line.weight,
+      'touch': line.touch,
+      'pureWt': double.parse(line.metalPureWt.toStringAsFixed(3)),
+      'rate': rate,
+    };
   }
 
   Future<void> _saveTransaction() async {
@@ -660,11 +854,15 @@ class _TransactionScreenState extends State<TransactionScreen>
     final items = _billItems;
     final s = _settlement;
     final paymentMode = _paymentIsCashOnly ? 'CASH' : 'GOLD';
+    final billNo = _editingBillNo ?? _nextBillNo;
     final record = {
       'transactionType': _transactionType,
-      'billNo': _nextBillNo,
+      'billNo': billNo,
       'partyName': _partyController.text.trim(),
       'items': jsonEncode(items.map((i) => i.toJson()).toList()),
+      if (_paymentLines.isNotEmpty)
+        'paymentItems': jsonEncode(
+            _paymentLines.map(_paymentLineToJson).toList()),
       'totalWt': _totalWt.toStringAsFixed(2),
       'totalPureWt': _totalPureWt.toStringAsFixed(3),
       'totalValue': _totalValue.toStringAsFixed(2),
@@ -686,6 +884,15 @@ class _TransactionScreenState extends State<TransactionScreen>
       'goldRateUsed': s.ratePerGram.toStringAsFixed(2),
     };
 
+    if (_editingTransactionId != null) {
+      final billRef = '${_isPurchase ? 'PUR' : 'SAL'}-$billNo';
+      await DatabaseHelper.instance.deleteLedgerByBillRef(
+        billRef,
+        isCustomer: _isCustomerParty,
+      );
+      await DatabaseHelper.instance.deleteTransaction(_editingTransactionId!);
+    }
+
     await DatabaseHelper.instance.insertTransaction(record);
     await _postToLedger(date, time, s);
 
@@ -694,14 +901,17 @@ class _TransactionScreenState extends State<TransactionScreen>
     setState(() => _saving = false);
 
     final savedRow = Map<String, dynamic>.from(record);
-    final billNoSaved = _nextBillNo;
+    final billNoSaved = billNo;
     final partyName = _partyController.text.trim();
+    final wasEdit = _editingTransactionId != null;
     _clearForm();
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
           content: Text(
-              "Bill #$billNoSaved saved and posted to $partyName's ledger")),
+              wasEdit
+                  ? "Bill #$billNoSaved updated for $partyName"
+                  : "Bill #$billNoSaved saved and posted to $partyName's ledger")),
     );
 
     await _load();
@@ -807,7 +1017,7 @@ class _TransactionScreenState extends State<TransactionScreen>
       'dr': deltaG > 0 ? deltaG.toStringAsFixed(3) : '0',
       'narration': narration,
       'balanceUnit': 'GRAMS',
-      'billRef': '${_isPurchase ? 'PUR' : 'SAL'}-$_nextBillNo',
+      'billRef': '${_isPurchase ? 'PUR' : 'SAL'}-${_editingBillNo ?? _nextBillNo}',
       'date': date,
       'time': time,
     };
@@ -828,13 +1038,18 @@ class _TransactionScreenState extends State<TransactionScreen>
   }
 
   Future<void> _confirmDelete(Map<String, dynamic> row) async {
+    final fromLedger = row['fromLedger'] == true;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(_isVoucher ? 'Delete Voucher' : 'Delete Bill'),
         content: Text(_isVoucher
             ? 'Are you sure you want to delete this voucher?'
-            : 'Are you sure you want to delete this record?'),
+            : fromLedger
+                ? 'Remove this ledger entry from Sales history? '
+                    'This deletes the matching customer/supplier ledger row '
+                    '(bill reference only — not a full saved bill).'
+                : 'Are you sure you want to delete this record?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -852,10 +1067,28 @@ class _TransactionScreenState extends State<TransactionScreen>
       if (_isVoucher) {
         await DatabaseHelper.instance.deleteVoucher(row['id'] as int);
       } else {
-        await DatabaseHelper.instance.deleteTransaction(row['id'] as int);
+        await _deleteBillRow(row);
       }
       _load();
     }
+  }
+
+  Future<void> _deleteBillRow(Map<String, dynamic> row) async {
+    final billNo = row['billNo'];
+    final storedRef = (row['billRef'] ?? '').toString().trim();
+    final billRef = storedRef.isNotEmpty
+        ? storedRef
+        : '${_isPurchase ? 'PUR' : 'SAL'}-$billNo';
+
+    final id = row['id'] as int?;
+    if (row['fromLedger'] != true && id != null && id > 0) {
+      await DatabaseHelper.instance.deleteTransaction(id);
+    }
+
+    await DatabaseHelper.instance.deleteLedgerByBillRef(
+      billRef,
+      isCustomer: _isCustomerParty,
+    );
   }
 
   void _showBillDetails(Map<String, dynamic> row) {
@@ -901,24 +1134,46 @@ class _TransactionScreenState extends State<TransactionScreen>
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: _sharingPdf
-                ? null
-                : () async {
-                    Navigator.pop(dialogContext);
-                    await _sharePdf(row, estimate: true, openAfterSave: false);
-                  },
-            child: const Text("ESTIMATE"),
-          ),
-          TextButton(
-            onPressed: _sharingPdf
-                ? null
-                : () async {
-                    Navigator.pop(dialogContext);
-                    await _sharePdf(row, estimate: false, openAfterSave: false);
-                  },
-            child: const Text("ACCOUNTS BILL"),
-          ),
+          if (row['fromLedger'] != true)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                _loadBillForEdit(row);
+              },
+              child: const Text('EDIT'),
+            ),
+          if (row['fromLedger'] == true)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                _confirmDelete(row);
+              },
+              child: const Text(
+                'DELETE',
+                style: TextStyle(color: Colors.red),
+              ),
+            ),
+          if (row['fromLedger'] != true) ...[
+            TextButton(
+              onPressed: _sharingPdf
+                  ? null
+                  : () async {
+                      Navigator.pop(dialogContext);
+                      await _sharePdf(row, estimate: true, openAfterSave: false);
+                    },
+              child: const Text("ESTIMATE"),
+            ),
+            TextButton(
+              onPressed: _sharingPdf
+                  ? null
+                  : () async {
+                      Navigator.pop(dialogContext);
+                      await _sharePdf(
+                          row, estimate: false, openAfterSave: false);
+                    },
+              child: const Text("ACCOUNTS BILL"),
+            ),
+          ],
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
             child: const Text("CLOSE"),
@@ -1239,6 +1494,7 @@ class _TransactionScreenState extends State<TransactionScreen>
               onFocusNodeReady: _bindPartyFocus,
               parties: _partySuggestions,
               helperText: 'Search saved name, mobile, or city',
+              readOnly: _editingTransactionId != null,
               onFocus: _refreshParties,
               onSelected: _selectParty,
               onFieldSubmitted: () => _advanceFromParty(_partyController.text),
@@ -1256,7 +1512,19 @@ class _TransactionScreenState extends State<TransactionScreen>
               builder: (context, constraints) {
                 final singlePanel = _hideIssuePanel || _hideReceiptPanel;
                 final stacked = constraints.maxWidth < 720 || singlePanel;
-                if (stacked) {
+                final receiptFirst = _isPurchase;
+
+                Widget panelColumn() {
+                  if (receiptFirst) {
+                    return Column(
+                      children: [
+                        if (!_hideReceiptPanel) _receiptPanel(),
+                        if (!_hideIssuePanel && !_hideReceiptPanel)
+                          const SizedBox(height: 10),
+                        if (!_hideIssuePanel) _issuePanel(),
+                      ],
+                    );
+                  }
                   return Column(
                     children: [
                       if (!_hideIssuePanel) _issuePanel(),
@@ -1266,15 +1534,34 @@ class _TransactionScreenState extends State<TransactionScreen>
                     ],
                   );
                 }
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (!_hideIssuePanel) Expanded(child: _issuePanel()),
-                    if (!_hideIssuePanel && !_hideReceiptPanel)
-                      const SizedBox(width: 10),
-                    if (!_hideReceiptPanel) Expanded(child: _receiptPanel()),
-                  ],
-                );
+
+                Widget panelRow() {
+                  if (receiptFirst) {
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (!_hideReceiptPanel) Expanded(child: _receiptPanel()),
+                        if (!_hideIssuePanel && !_hideReceiptPanel)
+                          const SizedBox(width: 10),
+                        if (!_hideIssuePanel) Expanded(child: _issuePanel()),
+                      ],
+                    );
+                  }
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (!_hideIssuePanel) Expanded(child: _issuePanel()),
+                      if (!_hideIssuePanel && !_hideReceiptPanel)
+                        const SizedBox(width: 10),
+                      if (!_hideReceiptPanel) Expanded(child: _receiptPanel()),
+                    ],
+                  );
+                }
+
+                if (stacked) {
+                  return panelColumn();
+                }
+                return panelRow();
               },
             ),
             if (_hasBillOrPaymentData) ...[
@@ -1410,7 +1697,7 @@ class _TransactionScreenState extends State<TransactionScreen>
                 head('TOUCH %', flex: 2, align: TextAlign.right),
                 head('PURE WT', flex: 2, align: TextAlign.right),
                 if (showRate) head('RATE', flex: 2, align: TextAlign.right),
-                const SizedBox(width: 24),
+                const SizedBox(width: 48),
               ],
             ),
           ),
@@ -1422,12 +1709,14 @@ class _TransactionScreenState extends State<TransactionScreen>
 
   Widget _lineDataRow({
     required String type,
+    String? displayType,
     required double weight,
     required double touch,
     required double pureWt,
     double? cashAmount,
     double? rate,
     required VoidCallback onRemove,
+    VoidCallback? onEdit,
     int index = 0,
   }) {
     const cellStyle = TextStyle(fontSize: 12);
@@ -1448,7 +1737,7 @@ class _TransactionScreenState extends State<TransactionScreen>
       ),
       child: Row(
         children: [
-          cell(type, flex: 2),
+          cell(displayType ?? type, flex: 2),
           cell(
             isCash ? '₹${(cashAmount ?? 0).toStringAsFixed(2)}' : weight.toStringAsFixed(3),
             flex: 2,
@@ -1459,12 +1748,26 @@ class _TransactionScreenState extends State<TransactionScreen>
           if (rate != null)
             cell(rate.toStringAsFixed(0), flex: 2, align: TextAlign.right),
           SizedBox(
-            width: 24,
-            child: IconButton(
-              icon: const Icon(Icons.close, size: 15, color: Colors.redAccent),
-              onPressed: onRemove,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
+            width: 48,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                if (onEdit != null)
+                  IconButton(
+                    icon: const Icon(Icons.edit, size: 15, color: AppColors.navy),
+                    onPressed: onEdit,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    tooltip: 'Edit row',
+                  ),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 15, color: Colors.redAccent),
+                  onPressed: onRemove,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  tooltip: 'Remove row',
+                ),
+              ],
             ),
           ),
         ],
@@ -1500,7 +1803,7 @@ class _TransactionScreenState extends State<TransactionScreen>
                 .map(
                   (t) => DropdownMenuItem(
                     value: t,
-                    child: Text(t),
+                    child: Text(_receiptTypeLabel(t)),
                   ),
                 )
                 .toList(),
@@ -1605,7 +1908,7 @@ class _TransactionScreenState extends State<TransactionScreen>
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
               inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                TouchPercentInputFormatter(),
               ],
               textAlign: TextAlign.right,
               style: const TextStyle(fontSize: 13),
@@ -1613,6 +1916,8 @@ class _TransactionScreenState extends State<TransactionScreen>
               decoration: InputDecoration(
                 labelText: '$prefix.Touch %',
                 isDense: true,
+                errorText: _paymentTouchError,
+                errorStyle: const TextStyle(fontSize: 10),
                 contentPadding: const EdgeInsets.symmetric(
                     horizontal: 6, vertical: 8),
               ),
@@ -1621,7 +1926,11 @@ class _TransactionScreenState extends State<TransactionScreen>
                 extentOffset: _paymentEntryTouch.text.length,
               ),
               onFieldSubmitted: (_) => _commitPaymentEntry(),
-              onChanged: (_) => setState(() {}),
+              onChanged: (_) => setState(() {
+                if (isValidTouchPercent(_paymentEntryTouch.text)) {
+                  _paymentTouchError = null;
+                }
+              }),
             ),
           ),
           const SizedBox(width: 6),
@@ -1659,6 +1968,7 @@ class _TransactionScreenState extends State<TransactionScreen>
     required FocusNode weightFocus,
     required FocusNode touchFocus,
     required VoidCallback onTouchSubmitted,
+    String? touchError,
     bool enabled = true,
   }) {
     final pure = _entryPure(weight, touch);
@@ -1735,7 +2045,7 @@ class _TransactionScreenState extends State<TransactionScreen>
             keyboardType:
                 const TextInputType.numberWithOptions(decimal: true),
             inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+              TouchPercentInputFormatter(),
             ],
             textAlign: TextAlign.right,
             style: const TextStyle(fontSize: 13),
@@ -1743,6 +2053,8 @@ class _TransactionScreenState extends State<TransactionScreen>
             decoration: InputDecoration(
               labelText: '$prefix.Touch %',
               isDense: true,
+              errorText: touchError,
+              errorStyle: const TextStyle(fontSize: 10),
               contentPadding:
                   const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
             ),
@@ -1751,7 +2063,15 @@ class _TransactionScreenState extends State<TransactionScreen>
               extentOffset: touch.text.length,
             ),
             onFieldSubmitted: (_) => onTouchSubmitted(),
-            onChanged: (_) => setState(() {}),
+            onChanged: (_) => setState(() {
+              if (isValidTouchPercent(touch.text)) {
+                if (touch == _billEntryTouch) {
+                  _billTouchError = null;
+                } else if (touch == _paymentEntryTouch) {
+                  _paymentTouchError = null;
+                }
+              }
+            }),
           ),
         ),
         const SizedBox(width: 6),
@@ -1808,6 +2128,7 @@ class _TransactionScreenState extends State<TransactionScreen>
           touch: _billEntryTouch,
           weightFocus: _billEntryWeightFocus,
           touchFocus: _billEntryTouchFocus,
+          touchError: _billTouchError,
           onTouchSubmitted: _commitBillEntry,
         ),
         _linesTable(
@@ -1820,6 +2141,7 @@ class _TransactionScreenState extends State<TransactionScreen>
                 weight: _billLines[i].weight,
                 touch: _billLines[i].touch,
                 pureWt: _billLines[i].pureWt,
+                onEdit: () => _editBillLine(i),
                 onRemove: () => setState(() => _billLines.removeAt(i)),
               ),
           ],
@@ -1845,10 +2167,12 @@ class _TransactionScreenState extends State<TransactionScreen>
               _lineDataRow(
                 index: i,
                 type: _paymentLines[i].type,
+                displayType: _receiptTypeLabel(_paymentLines[i].type),
                 weight: _paymentLines[i].weight,
                 touch: _paymentLines[i].touch,
                 cashAmount: _paymentLines[i].cashAmount,
                 pureWt: _paymentLines[i].pureWtAtRate(_goldRate),
+                onEdit: () => _editPaymentLine(i),
                 onRemove: () => setState(() => _paymentLines.removeAt(i)),
               ),
           ],
@@ -1988,14 +2312,29 @@ class _TransactionScreenState extends State<TransactionScreen>
                           fontSize: 10.5, color: Colors.black54),
                       overflow: TextOverflow.ellipsis,
                     ),
-                    trailing: row['fromLedger'] == true
-                        ? null
-                        : IconButton(
-                            icon: const Icon(Icons.delete,
-                                color: Colors.redAccent, size: 16),
-                            onPressed: () => _confirmDelete(row),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
+                    trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (row['fromLedger'] != true)
+                                IconButton(
+                                  icon: const Icon(Icons.edit,
+                                      color: AppColors.navy, size: 16),
+                                  onPressed: () => _loadBillForEdit(row),
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                  tooltip: 'Edit bill',
+                                ),
+                              IconButton(
+                                icon: const Icon(Icons.delete,
+                                    color: Colors.redAccent, size: 16),
+                                onPressed: () => _confirmDelete(row),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                                tooltip: row['fromLedger'] == true
+                                    ? 'Remove ledger entry'
+                                    : 'Delete bill',
+                              ),
+                            ],
                           ),
                   ),
                 );

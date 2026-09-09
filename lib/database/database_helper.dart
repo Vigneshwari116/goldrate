@@ -7,6 +7,8 @@ import 'package:sqflite/sqflite.dart';
 
 import '../api/api_client.dart';
 import '../config/api_config.dart';
+import '../logic/rate_rows.dart';
+import '../logic/gold_ledger.dart';
 import '../logic/transaction_records.dart';
 import '../util/api_row_keys.dart';
 
@@ -28,7 +30,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 11,
+      version: 13,
       onCreate: _createDatabase,
       onUpgrade: _upgradeDatabase,
     );
@@ -136,7 +138,9 @@ class DatabaseHelper {
         newGrams TEXT,
         newRupees TEXT,
         cashToGold TEXT,
-        goldRateUsed TEXT
+        goldRateUsed TEXT,
+        paymentItems TEXT,
+        receiptPurpose TEXT
       )
     ''');
 
@@ -338,6 +342,53 @@ class DatabaseHelper {
         )
       ''');
     }
+    if (oldVersion < 12) {
+      await db.execute('ALTER TABLE transactions ADD COLUMN paymentItems TEXT');
+      await db.execute(
+          'ALTER TABLE transactions ADD COLUMN receiptPurpose TEXT');
+    }
+    if (oldVersion < 13) {
+      // Full data reset: clears business data for a fresh start. Keeps
+      // ADMIN login and blank rate rows; paymentItems/receiptPurpose
+      // columns remain on transactions (unused receiptPurpose).
+      await db.delete('transactions');
+      await db.delete('vouchers');
+      await db.delete('opening_weight');
+      await db.delete('rate_history');
+      await db.delete('rates');
+      await db.delete('suppliers');
+      await db.delete('customers');
+
+      await db.insert('rates', {'rateName': 'G.P RATE', 'rateValue': ''});
+      await db.insert('rates', {'rateName': 'F.T RATE', 'rateValue': ''});
+      await db.insert('rates', {'rateName': 'KACHA RATE', 'rateValue': ''});
+      await db.insert('rates', {'rateName': 'S RATE', 'rateValue': ''});
+
+      final userCount = Sqflite.firstIntValue(
+        await db.rawQuery('SELECT COUNT(*) as count FROM users'),
+      ) ??
+          0;
+      if (userCount == 0) {
+        await db.insert('users', {
+          'username': 'ADMIN',
+          'password': 'SVENSKA',
+        });
+      }
+
+      await db.delete(
+        'sqlite_sequence',
+        where: 'name IN (?, ?, ?, ?, ?, ?, ?)',
+        whereArgs: [
+          'transactions',
+          'vouchers',
+          'opening_weight',
+          'rate_history',
+          'rates',
+          'suppliers',
+          'customers',
+        ],
+      );
+    }
   }
 
   Future<bool> checkLogin(String username, String password) async {
@@ -356,16 +407,84 @@ class DatabaseHelper {
   }
 
   Future<List<Map<String, dynamic>>> getRates() async {
-    if (ApiConfig.useRemoteApi) return ApiClient.getRates();
+    if (ApiConfig.useRemoteApi) {
+      return RateRows.canonical(await ApiClient.getRates());
+    }
+    await ensureDefaultRates();
     final db = await database;
-    return await db.query('rates');
+    final rows = await db.query('rates', orderBy: 'id');
+    return RateRows.canonical(rows);
+  }
+
+  /// Daily Rate rows for the UI — always returns four named slots.
+  Future<List<Map<String, dynamic>>> getRatesForMaster() async {
+    try {
+      await ensureDefaultRates();
+    } catch (_) {
+      // Older API builds may lack seed routes; still show the four fields.
+    }
+    try {
+      final rows = await getRates();
+      if (rows.isNotEmpty) return rows;
+    } catch (_) {
+      // Offline or server error — fall back to blank local template rows.
+    }
+    return [
+      for (final name in RateRows.defaultRateNames)
+        {'id': 0, 'rateName': name, 'rateValue': ''},
+    ];
+  }
+
+  /// One row per default rate name, in display order.
+  static List<Map<String, dynamic>> canonicalRateRows(
+    List<Map<String, dynamic>> rows,
+  ) =>
+      RateRows.canonical(rows);
+
+  static Map<String, dynamic>? _pickBestRateRow(
+    List<Map<String, dynamic>> rows,
+  ) =>
+      RateRows.pickBest(rows);
+
+  /// Ensures the four daily rate rows exist (blank values on fresh install).
+  Future<void> ensureDefaultRates() async {
+    if (ApiConfig.useRemoteApi) {
+      await ApiClient.ensureDefaultRates();
+      return;
+    }
+    await _repairRatesTable();
+  }
+
+  Future<void> _repairRatesTable() async {
+    final db = await database;
+    final rows = await db.query('rates', orderBy: 'id DESC');
+
+    for (final name in RateRows.defaultRateNames) {
+      final matching = rows
+          .where((r) => (r['rateName'] ?? '').toString() == name)
+          .toList();
+      if (matching.isEmpty) {
+        await db.insert('rates', {'rateName': name, 'rateValue': ''});
+        continue;
+      }
+
+      final keeper = _pickBestRateRow(matching);
+      if (keeper == null) continue;
+      final keepId = (keeper['id'] as num?)?.toInt() ?? 0;
+      for (final row in matching) {
+        final id = (row['id'] as num?)?.toInt() ?? 0;
+        if (id > 0 && id != keepId) {
+          await db.delete('rates', where: 'id = ?', whereArgs: [id]);
+        }
+      }
+    }
   }
 
   /// Rates keyed by rateName (e.g. 'G.P RATE' -> 15100), parsed to double.
   /// A rate that hasn't been set yet (blank) is simply left out of the map.
   Future<Map<String, double>> getRatesMap() async {
     if (ApiConfig.useRemoteApi) return ApiClient.getRatesMap();
-    final rows = await getRates();
+    final rows = canonicalRateRows(await getRates());
     final map = <String, double>{};
     for (final row in rows) {
       final value = double.tryParse((row['rateValue'] ?? '').toString());
@@ -489,6 +608,18 @@ class DatabaseHelper {
     );
   }
 
+  Future<int> deleteCustomersByName(String name) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.deleteCustomersByName(name);
+    }
+    final db = await database;
+    return await db.delete(
+      'customers',
+      where: 'LOWER(name) = ?',
+      whereArgs: [name.trim().toLowerCase()],
+    );
+  }
+
 
   Future<int> insertSupplier(Map<String, dynamic> supplier) async {
     if (ApiConfig.useRemoteApi) return ApiClient.insertSupplier(supplier);
@@ -509,6 +640,86 @@ class DatabaseHelper {
       'suppliers',
       where: 'id = ?',
       whereArgs: [id],
+    );
+  }
+
+  Future<int> deleteSuppliersByName(String name) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.deleteSuppliersByName(name);
+    }
+    final db = await database;
+    return await db.delete(
+      'suppliers',
+      where: 'LOWER(name) = ?',
+      whereArgs: [name.trim().toLowerCase()],
+    );
+  }
+
+  /// True when the party has purchase/sale bills, vouchers, or ledger rows
+  /// posted from bills (non-empty billRef). Master-only rows may still delete.
+  Future<bool> partyHasLinkedTransactions(
+    String name, {
+    required bool isCustomer,
+  }) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.partyHasLinkedTransactions(
+        name,
+        isCustomer: isCustomer,
+      );
+    }
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return false;
+    final lower = trimmed.toLowerCase();
+    final db = await database;
+
+    final txnCount = Sqflite.firstIntValue(
+          await db.rawQuery(
+            'SELECT COUNT(*) FROM transactions WHERE LOWER(partyName) = ?',
+            [lower],
+          ),
+        ) ??
+        0;
+    if (txnCount > 0) return true;
+
+    final voucherCount = Sqflite.firstIntValue(
+          await db.rawQuery(
+            'SELECT COUNT(*) FROM vouchers WHERE LOWER(partyName) = ?',
+            [lower],
+          ),
+        ) ??
+        0;
+    if (voucherCount > 0) return true;
+
+    final table = isCustomer ? 'customers' : 'suppliers';
+    final ledgerCount = Sqflite.firstIntValue(
+          await db.rawQuery(
+            'SELECT COUNT(*) FROM $table '
+            'WHERE LOWER(name) = ? AND billRef IS NOT NULL AND TRIM(billRef) != ?',
+            [lower, ''],
+          ),
+        ) ??
+        0;
+    return ledgerCount > 0;
+  }
+
+  Future<int> deleteLedgerByBillRef(
+    String billRef, {
+    required bool isCustomer,
+  }) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.deleteLedgerByBillRef(
+        billRef,
+        isCustomer: isCustomer,
+      );
+    }
+    final trimmed = billRef.trim();
+    if (trimmed.isEmpty) return 0;
+    final db = await database;
+    final table = isCustomer ? 'customers' : 'suppliers';
+    return await db.delete(
+      table,
+      where: 'billRef = ?',
+      whereArgs: [trimmed],
     );
   }
 
@@ -584,9 +795,13 @@ class DatabaseHelper {
 
   Future<List<Map<String, dynamic>>> getTransactions(
       String transactionType) async {
+    final wanted = transactionType.trim().toUpperCase();
     final all = await getAllTransactions();
     return all
-        .where((row) => apiStr(row, 'transactionType') == transactionType)
+        .where(
+          (row) =>
+              normalizeTransactionType(apiStr(row, 'transactionType')) == wanted,
+        )
         .toList();
   }
 
@@ -678,7 +893,9 @@ class DatabaseHelper {
       final cr = double.tryParse((row['cr'] ?? '').toString()) ?? 0;
       final dr = double.tryParse((row['dr'] ?? '').toString()) ?? 0;
       final unit = (row['balanceUnit'] ?? 'RUPEES').toString();
-      final net = dr - cr;
+      final net = unit == 'GRAMS'
+          ? partyLedgerRowGrams(row, isCustomer: isCustomer)
+          : dr - cr;
       if (unit == 'GRAMS') {
         grams += net;
         crGrams += cr;
@@ -725,13 +942,11 @@ class DatabaseHelper {
   // ---------- Live current stock ----------
 
   /// Current stock, per metal type, calculated live as:
-  ///   opening weight (the locked one-time baseline)
-  ///   + everything bought in on Purchase bills
-  ///   - everything sold out on Sales bills
-  /// Nothing is re-entered daily — this always reflects "right now"
-  /// because it's computed fresh from the opening baseline plus every
-  /// transaction ever saved, not stored as its own row anywhere.
-  /// Keys match the item type codes used on the bill: GWT, FWT, KWT, SWT.
+  ///   opening weight (the locked one-time baseline, gross weight)
+  ///   + everything bought in on Purchase bills (gross weight per line)
+  ///   - everything sold out on Sales bills (gross weight per line)
+  /// Uses raw [weight] from each bill line, not pureWt — consistent with the
+  /// Daily Sales Report stock summary in [buildStockLedgerSummary].
   Future<Map<String, double>> getCurrentStock() async {
     if (ApiConfig.useRemoteApi) return ApiClient.getCurrentStock();
     final opening = await getOpeningWeight();
@@ -760,9 +975,10 @@ class DatabaseHelper {
       for (final item in items) {
         if (item is! Map) continue;
         final type = (item['type'] ?? '').toString();
-        final pureWt = (item['pureWt'] as num?)?.toDouble() ?? 0;
+        final weight = (item['weight'] as num?)?.toDouble() ??
+            (double.tryParse((item['weight'] ?? '').toString()) ?? 0);
         if (stock.containsKey(type)) {
-          stock[type] = stock[type]! + (sign * pureWt);
+          stock[type] = stock[type]! + (sign * weight);
         }
       }
     }

@@ -1,7 +1,6 @@
 enum AppPage {
   home,
   openingWeight,
-  stock,
   sales,
   purchase,
   receipt,

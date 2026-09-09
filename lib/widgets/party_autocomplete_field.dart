@@ -16,6 +16,7 @@ class PartyAutocompleteField extends StatefulWidget {
     this.onFieldSubmitted,
     this.onFocus,
     this.onFocusNodeReady,
+    this.readOnly = false,
   });
 
   final String label;
@@ -28,6 +29,7 @@ class PartyAutocompleteField extends StatefulWidget {
   final VoidCallback? onFieldSubmitted;
   final VoidCallback? onFocus;
   final ValueChanged<FocusNode>? onFocusNodeReady;
+  final bool readOnly;
 
   @override
   State<PartyAutocompleteField> createState() => _PartyAutocompleteFieldState();
@@ -58,6 +60,20 @@ class _PartyAutocompleteFieldState extends State<PartyAutocompleteField> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.readOnly) {
+      return TextFormField(
+        controller: widget.controller,
+        readOnly: true,
+        style: const TextStyle(fontSize: 14),
+        validator: widget.validator,
+        decoration: InputDecoration(
+          label: Text(widget.label),
+          helperText: widget.helperText,
+          helperStyle: const TextStyle(fontSize: 11),
+        ),
+      );
+    }
+
     return Autocomplete<String>(
       optionsViewOpenDirection: OptionsViewOpenDirection.down,
       optionsBuilder: (value) => widget.options(value.text),
@@ -104,6 +120,7 @@ class _PartyAutocompleteFieldState extends State<PartyAutocompleteField> {
         return TextFormField(
           controller: fieldController,
           focusNode: focusNode,
+          readOnly: widget.readOnly,
           style: const TextStyle(fontSize: 14),
           textInputAction: TextInputAction.next,
           validator: widget.validator,
