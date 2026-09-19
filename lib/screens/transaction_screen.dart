@@ -642,29 +642,58 @@ class _TransactionScreenState extends State<TransactionScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Text(
-                "BILL NO",
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.mutedBlue),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                "$_nextBillNo",
-                style: const TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.bold),
-              ),
-              const Spacer(),
-              Text(
-                DateFormat("dd-MM-yyyy  hh:mm a").format(DateTime.now()),
-                style: const TextStyle(
-                    fontSize: 11.5, color: Colors.black54),
-              ),
-            ],
-          ),
+          Responsive.isCompact(context)
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Text(
+                          "BILL NO",
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.mutedBlue),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          "$_nextBillNo",
+                          style: const TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      DateFormat("dd-MM-yyyy  hh:mm a").format(DateTime.now()),
+                      style: const TextStyle(
+                          fontSize: 11.5, color: Colors.black54),
+                    ),
+                  ],
+                )
+              : Row(
+                  children: [
+                    const Text(
+                      "BILL NO",
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.mutedBlue),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      "$_nextBillNo",
+                      style: const TextStyle(
+                          fontSize: 15, fontWeight: FontWeight.bold),
+                    ),
+                    const Spacer(),
+                    Text(
+                      DateFormat("dd-MM-yyyy  hh:mm a").format(DateTime.now()),
+                      style: const TextStyle(
+                          fontSize: 11.5, color: Colors.black54),
+                    ),
+                  ],
+                ),
           const SizedBox(height: 12),
           TextFormField(
             controller: _partyController,
@@ -997,7 +1026,7 @@ class _TransactionScreenState extends State<TransactionScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
-        padding: const EdgeInsets.all(12),
+        padding: Responsive.screenPadding(context),
         child: SplitLayout(
           primaryWidth: 420,
           primary: _buildFormCard(),

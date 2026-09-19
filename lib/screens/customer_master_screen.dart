@@ -713,7 +713,7 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
-        padding: const EdgeInsets.all(12),
+        padding: Responsive.screenPadding(context),
         child: SplitLayout(
           primaryWidth: 380,
           primary: _buildFormCard(),

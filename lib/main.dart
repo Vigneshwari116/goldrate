@@ -27,9 +27,15 @@ class JewelleryApp extends StatelessWidget {
       theme: AppTheme.theme,
       home: const LoginScreen(),
       builder: (context, child) {
+        final mq = MediaQuery.of(context);
         return MediaQuery(
-          data: MediaQuery.of(context).copyWith(
-            textScaler: TextScaler.noScaling,
+          data: mq.copyWith(
+            // Respect system font size on phones, but avoid broken layouts
+            // when accessibility text is extremely large.
+            textScaler: mq.textScaler.clamp(
+              minScaleFactor: 0.85,
+              maxScaleFactor: 1.3,
+            ),
           ),
           child: child!,
         );

@@ -200,7 +200,7 @@ class _HomeScreenState extends State<HomeScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
-        padding: const EdgeInsets.all(12),
+        padding: Responsive.screenPadding(context),
         child: SplitLayout(
           primaryWidth: 420,
           primary: _buildPrimaryColumn(),
@@ -282,12 +282,12 @@ class _SecondaryTile extends StatelessWidget {
         border: Border.all(color: AppColors.border),
       ),
       child: ListTile(
-        dense: true,
-        leading: Icon(icon, color: AppColors.navy, size: 20),
+        minVerticalPadding: 12,
+        leading: Icon(icon, color: AppColors.navy, size: 22),
         title: Text(label,
             style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
         trailing:
-        const Icon(Icons.chevron_right, color: AppColors.mutedBlue, size: 20),
+        const Icon(Icons.chevron_right, color: AppColors.mutedBlue, size: 22),
         onTap: onTap,
       ),
     );

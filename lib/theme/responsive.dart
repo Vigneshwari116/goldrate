@@ -16,8 +16,36 @@ class Responsive {
   /// At or above: desktop behavior (side-by-side panels).
   static const double breakpoint = 900;
 
+  /// Very narrow phones (e.g. 320px logical width) need tighter stacking.
+  static const double compactBreakpoint = 360;
+
+  static const double minScreenPadding = 12;
+
   static bool isWide(BuildContext context) =>
-      MediaQuery.of(context).size.width >= breakpoint;
+      MediaQuery.sizeOf(context).width >= breakpoint;
+
+  static bool isCompact(BuildContext context) =>
+      MediaQuery.sizeOf(context).width < compactBreakpoint;
+
+  /// Horizontal padding that respects display cutouts / system insets.
+  static EdgeInsets screenPadding(BuildContext context) {
+    final inset = MediaQuery.paddingOf(context);
+    return EdgeInsets.fromLTRB(
+      inset.left + minScreenPadding,
+      minScreenPadding,
+      inset.right + minScreenPadding,
+      minScreenPadding,
+    );
+  }
+
+  /// Max width for login / narrow forms — never wider than the screen.
+  static double formMaxWidth(BuildContext context, {double cap = 400}) {
+    final width = MediaQuery.sizeOf(context).width;
+    final horizontal = screenPadding(context).horizontal;
+    final available = width - horizontal;
+    if (available <= 0) return cap;
+    return available < cap ? available : cap;
+  }
 }
 
 /// Puts `primary` (usually the entry form / main actions) and
