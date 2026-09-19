@@ -167,7 +167,7 @@ class _OpeningWeightScreenState extends State<OpeningWeightScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
-        padding: const EdgeInsets.all(12),
+        padding: Responsive.screenPadding(context),
         child: CenteredMaxWidth(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
