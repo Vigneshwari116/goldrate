@@ -122,36 +122,45 @@ class _MasterScreenState extends State<MasterScreen>
   /// simply skipped (not overwritten), so you can update just the
   /// ones that changed if you want, or all four at once.
   Future<void> saveAllRates() async {
-    setState(() => _saving = true);
+    if (_saving) return;
+    _saving = true;
+    if (mounted) setState(() {});
 
     final date = DateFormat('dd-MM-yyyy').format(DateTime.now());
     final time = DateFormat('hh:mm a').format(DateTime.now());
-    final idsByName = await _rateIdsByName();
 
     var savedCount = 0;
 
-    for (final item in rates) {
-      final rateName = _rateName(item);
-      final id = idsByName[rateName] ?? _rateId(item);
-      if (id == 0) continue;
-      final controller = _controllers[rateName];
-      if (controller == null) continue;
-      final parsed = double.tryParse(controller.text.trim());
-      if (parsed == null) continue;
+    try {
+      final idsByName = await _rateIdsByName();
 
-      await DatabaseHelper.instance.updateRate(
-        id,
-        rateName,
-        parsed.toString(),
-        date,
-        time,
-      );
-      savedCount++;
+      for (final item in rates) {
+        final rateName = _rateName(item);
+        final id = idsByName[rateName] ?? _rateId(item);
+        if (id == 0) continue;
+        final controller = _controllers[rateName];
+        if (controller == null) continue;
+        final parsed = double.tryParse(controller.text.trim());
+        if (parsed == null) continue;
+
+        final rowsAffected = await DatabaseHelper.instance.updateRate(
+          id,
+          rateName,
+          parsed.toString(),
+          date,
+          time,
+        );
+        if (rowsAffected > 0) savedCount++;
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      } else {
+        _saving = false;
+      }
     }
 
     if (!mounted) return;
-
-    setState(() => _saving = false);
 
     if (savedCount == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -247,7 +256,7 @@ class _MasterScreenState extends State<MasterScreen>
                                       _focusNodes[nextName]!,
                                       controller: _controllers[nextName],
                                     );
-                                  } else {
+                                  } else if (!_saving) {
                                     saveAllRates();
                                   }
                                 },

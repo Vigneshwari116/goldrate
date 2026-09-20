@@ -74,4 +74,54 @@ void main() {
     expect(repaired.map((r) => r['rateName']).toSet().length, 4);
     await db.close();
   });
+
+  test('insertRateHistoryIfNew writes once for identical rows', () async {
+    final db = await databaseFactory.openDatabase(
+      inMemoryDatabasePath,
+      options: OpenDatabaseOptions(
+        version: 1,
+        onCreate: (database, version) async {
+          await database.execute('''
+            CREATE TABLE rate_history(
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              rateName TEXT,
+              rateValue TEXT,
+              date TEXT,
+              time TEXT
+            )
+          ''');
+        },
+      ),
+    );
+
+    const name = 'G.P RATE';
+    const value = '15100';
+    const date = '07-09-2026';
+    const time = '08:18 PM';
+
+    final first = await DatabaseHelper.insertRateHistoryIfNew(
+      db,
+      rateName: name,
+      rateValue: value,
+      date: date,
+      time: time,
+    );
+    final second = await DatabaseHelper.insertRateHistoryIfNew(
+      db,
+      rateName: name,
+      rateValue: value,
+      date: date,
+      time: time,
+    );
+
+    expect(first, greaterThan(0));
+    expect(second, 0);
+    expect((await db.query('rate_history')).length, 1);
+    await db.close();
+  });
+
+  test('rateValueUnchanged treats numeric strings as equal', () {
+    expect(DatabaseHelper.rateValueUnchanged('15100', '15100.0'), isTrue);
+    expect(DatabaseHelper.rateValueUnchanged('15100', '15200'), isFalse);
+  });
 }

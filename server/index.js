@@ -126,15 +126,39 @@ async function seedDefaultRates() {
 app.put('/api/rates/:id', async (req, res) => {
   const id = parsePositiveInt(req.params.id, 'rate id');
   const { rateName, rateValue, date, time } = req.body;
+
+  const existing = await pool.query('SELECT rate_value FROM rates WHERE id = $1', [
+    id,
+  ]);
+  if (existing.rows.length === 0) {
+    res.json({ rowsAffected: 0 });
+    return;
+  }
+
+  const currentValue = (existing.rows[0].rate_value ?? '').toString().trim();
+  const nextValue = (rateValue ?? '').toString().trim();
+  if (currentValue === nextValue) {
+    res.json({ rowsAffected: 0 });
+    return;
+  }
+
   const updated = await pool.query(
     'UPDATE rates SET rate_value = $1 WHERE id = $2 RETURNING *',
     [rateValue, id],
   );
   if (updated.rows.length > 0) {
-    await pool.query(
-      'INSERT INTO rate_history (rate_name, rate_value, date, time) VALUES ($1, $2, $3, $4)',
+    const dup = await pool.query(
+      `SELECT id FROM rate_history
+       WHERE rate_name = $1 AND rate_value = $2 AND date = $3 AND time = $4
+       LIMIT 1`,
       [rateName, rateValue, date, time],
     );
+    if (dup.rows.length === 0) {
+      await pool.query(
+        'INSERT INTO rate_history (rate_name, rate_value, date, time) VALUES ($1, $2, $3, $4)',
+        [rateName, rateValue, date, time],
+      );
+    }
   }
   res.json({ rowsAffected: updated.rowCount });
 });
