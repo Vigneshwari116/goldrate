@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -30,7 +31,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 13,
+      version: 14,
       onCreate: _createDatabase,
       onUpgrade: _upgradeDatabase,
     );
@@ -389,6 +390,25 @@ class DatabaseHelper {
         ],
       );
     }
+    if (oldVersion < 14) {
+      // Drops exact duplicate rate_history rows (same name, value, date,
+      // time) left by double-save or duplicate rates-table rows. Keeps
+      // the oldest id in each group.
+      await db.rawDelete('''
+        DELETE FROM rate_history
+        WHERE id IN (
+          SELECT rh.id FROM rate_history rh
+          WHERE EXISTS (
+            SELECT 1 FROM rate_history rh2
+            WHERE rh2.rateName = rh.rateName
+              AND rh2.rateValue = rh.rateValue
+              AND rh2.date = rh.date
+              AND rh2.time = rh.time
+              AND rh2.id < rh.id
+          )
+        )
+      ''');
+    }
   }
 
   Future<bool> checkLogin(String username, String password) async {
@@ -495,6 +515,58 @@ class DatabaseHelper {
     return map;
   }
 
+  /// True when [rateValue] is unchanged — skip update/history on re-save.
+  static bool rateValueUnchanged(String current, String next) {
+    final cur = current.trim();
+    final nxt = next.trim();
+    if (cur == nxt) return true;
+    final curNum = double.tryParse(cur);
+    final nextNum = double.tryParse(nxt);
+    if (curNum != null && nextNum != null) return curNum == nextNum;
+    return false;
+  }
+
+  /// Inserts one history row unless an identical row already exists.
+  static Future<int> insertRateHistoryIfNew(
+    Database db, {
+    required String rateName,
+    required String rateValue,
+    required String date,
+    required String time,
+  }) async {
+    assert(() {
+      debugPrint(
+        '[rate_history] insertRateHistoryIfNew: '
+        '$rateName=$rateValue @ $date $time',
+      );
+      return true;
+    }());
+
+    final existing = await db.query(
+      'rate_history',
+      where: 'rateName = ? AND rateValue = ? AND date = ? AND time = ?',
+      whereArgs: [rateName, rateValue, date, time],
+      limit: 1,
+    );
+    if (existing.isNotEmpty) {
+      assert(() {
+        debugPrint(
+          '[rate_history] skipped duplicate '
+          '$rateName=$rateValue @ $date $time',
+        );
+        return true;
+      }());
+      return 0;
+    }
+
+    return db.insert('rate_history', {
+      'rateName': rateName,
+      'rateValue': rateValue,
+      'date': date,
+      'time': time,
+    });
+  }
+
   Future<int> updateRate(
       int id,
       String rateName,
@@ -507,6 +579,20 @@ class DatabaseHelper {
     }
     final db = await database;
 
+    final currentRows = await db.query(
+      'rates',
+      columns: ['rateValue'],
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (currentRows.isEmpty) return 0;
+
+    final currentValue = (currentRows.first['rateValue'] ?? '').toString();
+    if (rateValueUnchanged(currentValue, value)) {
+      return 0;
+    }
+
     final rowsAffected = await db.update(
       'rates',
       {'rateValue': value},
@@ -515,12 +601,13 @@ class DatabaseHelper {
     );
 
     if (rowsAffected > 0) {
-      await db.insert('rate_history', {
-        'rateName': rateName,
-        'rateValue': value,
-        'date': date,
-        'time': time,
-      });
+      await insertRateHistoryIfNew(
+        db,
+        rateName: rateName,
+        rateValue: value,
+        date: date,
+        time: time,
+      );
     }
 
     return rowsAffected;
