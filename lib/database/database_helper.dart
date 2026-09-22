@@ -1323,7 +1323,9 @@ class DatabaseHelper {
   // ---------- Party billing profiles / shop / HSN ----------
 
   Future<void> upsertPartyProfile(PartyBillingProfile profile) async {
-    if (ApiConfig.useRemoteApi) return;
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.upsertPartyProfile(profile);
+    }
     final trimmed = profile.name.trim();
     if (trimmed.isEmpty) return;
     final db = await database;
@@ -1339,7 +1341,7 @@ class DatabaseHelper {
     required bool isCustomer,
   }) async {
     if (ApiConfig.useRemoteApi) {
-      return PartyBillingProfile(name: name.trim(), isCustomer: isCustomer);
+      return ApiClient.getPartyProfile(name, isCustomer: isCustomer);
     }
     final db = await database;
     final key = partyNameKey(name);
@@ -1356,14 +1358,16 @@ class DatabaseHelper {
   }
 
   Future<ShopSettings> getShopSettings() async {
-    if (ApiConfig.useRemoteApi) return const ShopSettings();
+    if (ApiConfig.useRemoteApi) return ApiClient.getShopSettings();
     final db = await database;
     final rows = await db.query('shop_settings', where: 'id = ?', whereArgs: [1]);
     return ShopSettings.fromDbRow(rows.isEmpty ? null : rows.first);
   }
 
   Future<void> saveShopSettings(ShopSettings settings) async {
-    if (ApiConfig.useRemoteApi) return;
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.saveShopSettings(settings);
+    }
     final db = await database;
     await db.insert(
       'shop_settings',
@@ -1374,7 +1378,7 @@ class DatabaseHelper {
 
   Future<Map<String, String>> getItemTypeHsnMap() async {
     if (ApiConfig.useRemoteApi) {
-      return Map<String, String>.from(kDefaultHsnByItemType);
+      return ApiClient.getItemTypeHsnMap();
     }
     final db = await database;
     final rows = await db.query('item_type_hsn');
@@ -1390,7 +1394,9 @@ class DatabaseHelper {
   }
 
   Future<void> saveItemTypeHsn(String itemType, String hsnCode) async {
-    if (ApiConfig.useRemoteApi) return;
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.saveItemTypeHsn(itemType, hsnCode);
+    }
     final db = await database;
     await db.insert(
       'item_type_hsn',

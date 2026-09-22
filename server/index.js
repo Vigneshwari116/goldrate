@@ -1,4 +1,6 @@
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
@@ -14,6 +16,13 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 pool.on('error', (err) => {
   console.error('Unexpected database pool error:', err);
 });
+
+/** Idempotent GST billing schema (party_profiles, shop_settings, HSN, txn columns). */
+async function ensureGstBillingSchema() {
+  const migrationPath = path.join(__dirname, 'migrations', '015_gst_billing.sql');
+  const sql = fs.readFileSync(migrationPath, 'utf8');
+  await pool.query(sql);
+}
 
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled promise rejection:', reason);
@@ -378,15 +387,161 @@ app.post('/api/transactions', async (req, res) => {
       (transaction_type, bill_no, party_name, items, total_wt, total_pure_wt, total_value,
        payment_mode, payment_amount, balance, balance_unit, staff_name, date, time,
        old_grams, old_rupees, new_grams, new_rupees, cash_to_gold, gold_rate_used,
-       payment_items, receipt_purpose)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+       payment_items, receipt_purpose,
+       party_address, party_city, party_pincode, party_gstin, party_state,
+       eway_bill, tds_applicable, tds_amount, tcs_applicable, tcs_amount,
+       total_taxable, total_inclusive, round_off, grand_total)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,
+             $23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36)
      RETURNING id`,
-    [t.transactionType, t.billNo, t.partyName, t.items, t.totalWt, t.totalPureWt,
-     t.totalValue, t.paymentMode, t.paymentAmount, t.balance, t.balanceUnit,
-     t.staffName, t.date, t.time, t.oldGrams, t.oldRupees, t.newGrams, t.newRupees,
-     t.cashToGold, t.goldRateUsed, t.paymentItems, t.receiptPurpose],
+    [
+      t.transactionType, t.billNo, t.partyName, t.items, t.totalWt, t.totalPureWt,
+      t.totalValue, t.paymentMode, t.paymentAmount, t.balance, t.balanceUnit,
+      t.staffName, t.date, t.time, t.oldGrams, t.oldRupees, t.newGrams, t.newRupees,
+      t.cashToGold, t.goldRateUsed, t.paymentItems, t.receiptPurpose,
+      t.partyAddress ?? null, t.partyCity ?? null, t.partyPincode ?? null,
+      t.partyGstin ?? null, t.partyState ?? null, t.ewayBill ?? null,
+      t.tdsApplicable ?? null, t.tdsAmount ?? null, t.tcsApplicable ?? null,
+      t.tcsAmount ?? null, t.totalTaxable ?? null, t.totalInclusive ?? null,
+      t.roundOff ?? null, t.grandTotal ?? null,
+    ],
   );
   res.json({ id: result.rows[0].id });
+});
+
+// ---------- GST billing settings ----------
+app.get('/api/party-profile', async (req, res) => {
+  const name = (req.query.name ?? '').toString().trim();
+  const isCustomer = req.query.isCustomer === 'true';
+  if (!name) {
+    return res.status(400).json({ error: 'name is required' });
+  }
+  const nameKey = name.trim().toLowerCase();
+  const result = await pool.query(
+    `SELECT * FROM party_profiles
+     WHERE name_key = $1 AND is_customer = $2`,
+    [nameKey, isCustomer ? 1 : 0],
+  );
+  if (result.rows.length === 0) {
+    return res.json({
+      displayName: name,
+      isCustomer,
+      mobile: '',
+      address: '',
+      city: '',
+      pincode: '',
+      gstin: '',
+      state: '',
+    });
+  }
+  res.json(toCamel(result.rows[0]));
+});
+
+app.put('/api/party-profile', async (req, res) => {
+  const p = req.body;
+  const nameKey = (p.nameKey ?? p.displayName ?? p.name ?? '').toString().trim().toLowerCase();
+  const displayName = (p.displayName ?? p.name ?? '').toString().trim();
+  const isCustomer = p.isCustomer === true || p.isCustomer === 1 || p.isCustomer === '1';
+  if (!nameKey || !displayName) {
+    return res.status(400).json({ error: 'nameKey and displayName are required' });
+  }
+  await pool.query(
+    `INSERT INTO party_profiles
+      (name_key, is_customer, display_name, mobile, address, city, pincode, gstin, state)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+     ON CONFLICT (name_key, is_customer) DO UPDATE SET
+      display_name = EXCLUDED.display_name,
+      mobile = EXCLUDED.mobile,
+      address = EXCLUDED.address,
+      city = EXCLUDED.city,
+      pincode = EXCLUDED.pincode,
+      gstin = EXCLUDED.gstin,
+      state = EXCLUDED.state`,
+    [
+      nameKey,
+      isCustomer ? 1 : 0,
+      displayName,
+      p.mobile ?? '',
+      p.address ?? '',
+      p.city ?? '',
+      p.pincode ?? '',
+      (p.gstin ?? '').toString().toUpperCase(),
+      p.state ?? '',
+    ],
+  );
+  res.json({ ok: true });
+});
+
+app.get('/api/settings/shop', async (_req, res) => {
+  const result = await pool.query('SELECT * FROM shop_settings WHERE id = 1');
+  if (result.rows.length === 0) {
+    return res.json({
+      shopName: '',
+      address: '',
+      phone: '',
+      gstin: '',
+      state: '',
+      stateCode: '',
+    });
+  }
+  res.json(toCamel(result.rows[0]));
+});
+
+app.put('/api/settings/shop', async (req, res) => {
+  const s = req.body;
+  await pool.query(
+    `INSERT INTO shop_settings
+      (id, shop_name, address, phone, gstin, state, state_code)
+     VALUES (1,$1,$2,$3,$4,$5,$6)
+     ON CONFLICT (id) DO UPDATE SET
+      shop_name = EXCLUDED.shop_name,
+      address = EXCLUDED.address,
+      phone = EXCLUDED.phone,
+      gstin = EXCLUDED.gstin,
+      state = EXCLUDED.state,
+      state_code = EXCLUDED.state_code`,
+    [
+      s.shopName ?? '',
+      s.address ?? '',
+      s.phone ?? '',
+      (s.gstin ?? '').toString().toUpperCase(),
+      s.state ?? '',
+      s.stateCode ?? '',
+    ],
+  );
+  res.json({ ok: true });
+});
+
+app.get('/api/settings/hsn', async (_req, res) => {
+  const result = await pool.query('SELECT item_type, hsn_code FROM item_type_hsn');
+  const map = {
+    GWT: '7113',
+    FWT: '7113',
+    KWT: '7113',
+    SWT: '7114',
+  };
+  for (const row of result.rows) {
+    map[row.item_type] = row.hsn_code;
+  }
+  res.json(map);
+});
+
+app.put('/api/settings/hsn', async (req, res) => {
+  const map = req.body.map ?? req.body;
+  if (!map || typeof map !== 'object') {
+    return res.status(400).json({ error: 'map object required' });
+  }
+  for (const [itemType, hsnCode] of Object.entries(map)) {
+    const code = (hsnCode ?? '').toString().trim();
+    if (!itemType || !code) continue;
+    await pool.query(
+      `INSERT INTO item_type_hsn (item_type, hsn_code)
+       VALUES ($1,$2)
+       ON CONFLICT (item_type) DO UPDATE SET hsn_code = EXCLUDED.hsn_code`,
+      [itemType, code],
+    );
+  }
+  res.json({ ok: true });
 });
 
 app.delete('/api/transactions/:id', async (req, res) => {
@@ -495,6 +650,10 @@ app.post('/api/admin/reset', async (_req, res) => {
     await pool.query('DELETE FROM rates');
     await pool.query('DELETE FROM suppliers');
     await pool.query('DELETE FROM customers');
+    await pool.query('DELETE FROM party_profiles');
+    await pool.query('DELETE FROM item_type_hsn');
+    await pool.query('DELETE FROM shop_settings');
+    await ensureGstBillingSchema();
     await pool.query(
       `INSERT INTO rates (rate_name, rate_value) VALUES
         ('G.P RATE', ''),
@@ -522,6 +681,14 @@ app.use('/api', (_req, res) => {
 });
 
 const port = process.env.PORT || 3000;
-app.listen(port, '0.0.0.0', () => {
-  console.log(`Jewellery API listening on port ${port}`);
-});
+
+ensureGstBillingSchema()
+  .then(() => {
+    app.listen(port, '0.0.0.0', () => {
+      console.log(`Jewellery API listening on port ${port}`);
+    });
+  })
+  .catch((err) => {
+    console.error('GST billing schema migration failed:', err);
+    process.exit(1);
+  });

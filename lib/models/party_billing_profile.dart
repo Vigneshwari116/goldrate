@@ -44,10 +44,16 @@ class PartyBillingProfile {
         'state': state.trim(),
       };
 
+  static bool _parseIsCustomer(dynamic value, {bool fallback = true}) {
+    if (value == true || value == 1 || value == '1') return true;
+    if (value == false || value == 0 || value == '0') return false;
+    return fallback;
+  }
+
   factory PartyBillingProfile.fromDbRow(Map<String, dynamic> row) {
     return PartyBillingProfile(
       name: (row['displayName'] ?? row['name'] ?? '').toString(),
-      isCustomer: (row['isCustomer'] as int? ?? 1) == 1,
+      isCustomer: _parseIsCustomer(row['isCustomer']),
       mobile: (row['mobile'] ?? '').toString(),
       address: (row['address'] ?? '').toString(),
       city: (row['city'] ?? '').toString(),
