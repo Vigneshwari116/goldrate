@@ -11,7 +11,10 @@ import '../config/api_config.dart';
 import '../logic/rate_rows.dart';
 import '../logic/gold_ledger.dart';
 import '../logic/transaction_records.dart';
+import '../logic/bill_tax.dart';
+import '../models/party_billing_profile.dart';
 import '../util/api_row_keys.dart';
+import '../util/party_name_key.dart';
 
 class DatabaseHelper {
   DatabaseHelper._();
@@ -31,7 +34,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 14,
+      version: 15,
       onCreate: _createDatabase,
       onUpgrade: _upgradeDatabase,
     );
@@ -141,7 +144,21 @@ class DatabaseHelper {
         cashToGold TEXT,
         goldRateUsed TEXT,
         paymentItems TEXT,
-        receiptPurpose TEXT
+        receiptPurpose TEXT,
+        partyAddress TEXT,
+        partyCity TEXT,
+        partyPincode TEXT,
+        partyGstin TEXT,
+        partyState TEXT,
+        ewayBill TEXT,
+        tdsApplicable INTEGER,
+        tdsAmount TEXT,
+        tcsApplicable INTEGER,
+        tcsAmount TEXT,
+        totalTaxable TEXT,
+        totalInclusive TEXT,
+        roundOff TEXT,
+        grandTotal TEXT
       )
     ''');
 
@@ -176,6 +193,66 @@ class DatabaseHelper {
     await db.insert('rates', {'rateName': 'F.T RATE', 'rateValue': ''});
     await db.insert('rates', {'rateName': 'KACHA RATE', 'rateValue': ''});
     await db.insert('rates', {'rateName': 'S RATE', 'rateValue': ''});
+
+    await _createBillingSettingsTables(db);
+  }
+
+  Future<void> _createBillingSettingsTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE party_profiles(
+        nameKey TEXT NOT NULL,
+        isCustomer INTEGER NOT NULL,
+        displayName TEXT NOT NULL,
+        mobile TEXT,
+        address TEXT,
+        city TEXT,
+        pincode TEXT,
+        gstin TEXT,
+        state TEXT,
+        PRIMARY KEY (nameKey, isCustomer)
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE shop_settings(
+        id INTEGER PRIMARY KEY,
+        shopName TEXT,
+        address TEXT,
+        phone TEXT,
+        gstin TEXT,
+        state TEXT,
+        stateCode TEXT
+      )
+    ''');
+
+    await db.insert('shop_settings', {
+      'id': 1,
+      'shopName': '',
+      'address': '',
+      'phone': '',
+      'gstin': '',
+      'state': '',
+      'stateCode': '',
+    });
+
+    await db.execute('''
+      CREATE TABLE item_type_hsn(
+        itemType TEXT PRIMARY KEY,
+        hsnCode TEXT NOT NULL
+      )
+    ''');
+
+    for (final entry in {
+      'GWT': '7113',
+      'FWT': '7113',
+      'KWT': '7113',
+      'SWT': '7114',
+    }.entries) {
+      await db.insert('item_type_hsn', {
+        'itemType': entry.key,
+        'hsnCode': entry.value,
+      });
+    }
   }
 
   Future<void> _upgradeDatabase(
@@ -408,6 +485,26 @@ class DatabaseHelper {
           )
         )
       ''');
+    }
+    if (oldVersion < 15) {
+      await _createBillingSettingsTables(db);
+      await db.execute('ALTER TABLE transactions ADD COLUMN partyAddress TEXT');
+      await db.execute('ALTER TABLE transactions ADD COLUMN partyCity TEXT');
+      await db.execute('ALTER TABLE transactions ADD COLUMN partyPincode TEXT');
+      await db.execute('ALTER TABLE transactions ADD COLUMN partyGstin TEXT');
+      await db.execute('ALTER TABLE transactions ADD COLUMN partyState TEXT');
+      await db.execute('ALTER TABLE transactions ADD COLUMN ewayBill TEXT');
+      await db.execute(
+          'ALTER TABLE transactions ADD COLUMN tdsApplicable INTEGER');
+      await db.execute('ALTER TABLE transactions ADD COLUMN tdsAmount TEXT');
+      await db.execute(
+          'ALTER TABLE transactions ADD COLUMN tcsApplicable INTEGER');
+      await db.execute('ALTER TABLE transactions ADD COLUMN tcsAmount TEXT');
+      await db.execute('ALTER TABLE transactions ADD COLUMN totalTaxable TEXT');
+      await db.execute(
+          'ALTER TABLE transactions ADD COLUMN totalInclusive TEXT');
+      await db.execute('ALTER TABLE transactions ADD COLUMN roundOff TEXT');
+      await db.execute('ALTER TABLE transactions ADD COLUMN grandTotal TEXT');
     }
   }
 
@@ -1221,5 +1318,89 @@ class DatabaseHelper {
         'customers',
       ],
     );
+  }
+
+  // ---------- Party billing profiles / shop / HSN ----------
+
+  Future<void> upsertPartyProfile(PartyBillingProfile profile) async {
+    if (ApiConfig.useRemoteApi) return;
+    final trimmed = profile.name.trim();
+    if (trimmed.isEmpty) return;
+    final db = await database;
+    await db.insert(
+      'party_profiles',
+      profile.toDbRow(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<PartyBillingProfile> getPartyProfile(
+    String name, {
+    required bool isCustomer,
+  }) async {
+    if (ApiConfig.useRemoteApi) {
+      return PartyBillingProfile(name: name.trim(), isCustomer: isCustomer);
+    }
+    final db = await database;
+    final key = partyNameKey(name);
+    final rows = await db.query(
+      'party_profiles',
+      where: 'nameKey = ? AND isCustomer = ?',
+      whereArgs: [key, isCustomer ? 1 : 0],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return PartyBillingProfile(name: name.trim(), isCustomer: isCustomer);
+    }
+    return PartyBillingProfile.fromDbRow(rows.first);
+  }
+
+  Future<ShopSettings> getShopSettings() async {
+    if (ApiConfig.useRemoteApi) return const ShopSettings();
+    final db = await database;
+    final rows = await db.query('shop_settings', where: 'id = ?', whereArgs: [1]);
+    return ShopSettings.fromDbRow(rows.isEmpty ? null : rows.first);
+  }
+
+  Future<void> saveShopSettings(ShopSettings settings) async {
+    if (ApiConfig.useRemoteApi) return;
+    final db = await database;
+    await db.insert(
+      'shop_settings',
+      settings.toDbRow(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<Map<String, String>> getItemTypeHsnMap() async {
+    if (ApiConfig.useRemoteApi) {
+      return Map<String, String>.from(kDefaultHsnByItemType);
+    }
+    final db = await database;
+    final rows = await db.query('item_type_hsn');
+    final map = Map<String, String>.from(kDefaultHsnByItemType);
+    for (final row in rows) {
+      final type = (row['itemType'] ?? '').toString();
+      final hsn = (row['hsnCode'] ?? '').toString();
+      if (type.isNotEmpty && hsn.isNotEmpty) {
+        map[type] = hsn;
+      }
+    }
+    return map;
+  }
+
+  Future<void> saveItemTypeHsn(String itemType, String hsnCode) async {
+    if (ApiConfig.useRemoteApi) return;
+    final db = await database;
+    await db.insert(
+      'item_type_hsn',
+      {'itemType': itemType, 'hsnCode': hsnCode.trim()},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<String> hsnForItemType(String itemType) async {
+    final map = await getItemTypeHsnMap();
+    return map[itemType] ?? kDefaultHsnByItemType[itemType] ?? '';
   }
 }

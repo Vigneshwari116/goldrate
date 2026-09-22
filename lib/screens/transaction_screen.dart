@@ -11,8 +11,13 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 
 import '../database/database_helper.dart';
+import '../logic/bill_tax.dart';
 import '../logic/gold_ledger.dart';
+import '../models/bill_line_item.dart';
+import '../models/party_billing_profile.dart';
 import '../pdf/estimate_receipt_pdf.dart';
+import '../pdf/sales_tax_invoice_pdf.dart';
+import '../widgets/party_billing_fields.dart';
 import '../pdf/pdf_kit.dart';
 import '../models/party_suggestion.dart';
 import '../widgets/party_search_field.dart';
@@ -41,41 +46,6 @@ const Map<String, String> kOldGoldReceiptTypeLabels = {
   'KWT': 'O.KWT',
   'SWT': 'O.SWT',
 };
-
-class _TransactionItem {
-  final String type;
-  final double weight;
-  final double touch;
-  final double rate;
-
-  _TransactionItem({
-    required this.type,
-    required this.weight,
-    required this.touch,
-    required this.rate,
-  });
-
-  double get pureWt => weight * touch / 100;
-
-  double get value => pureWt * rate;
-
-  Map<String, dynamic> toJson() => {
-    'type': type,
-    'weight': weight,
-    'touch': touch,
-    'pureWt': double.parse(pureWt.toStringAsFixed(3)),
-    'rate': rate,
-    'value': value,
-  };
-
-  factory _TransactionItem.fromJson(Map<String, dynamic> json) =>
-      _TransactionItem(
-        type: json['type'] as String,
-        weight: (json['weight'] as num).toDouble(),
-        touch: (json['touch'] as num).toDouble(),
-        rate: (json['rate'] as num?)?.toDouble() ?? 0,
-      );
-}
 
 class _PanelLine {
   final String type;
@@ -135,7 +105,19 @@ class _TransactionScreenState extends State<TransactionScreen>
   final _partyController = TextEditingController();
   FocusNode? _partyFocus;
 
-  final List<_TransactionItem> _billLines = [];
+  final List<BillLineItem> _billLines = [];
+  Map<String, String> _hsnByType = Map<String, String>.from(kDefaultHsnByItemType);
+
+  final _partyAddressController = TextEditingController();
+  final _partyCityController = TextEditingController();
+  final _partyPincodeController = TextEditingController();
+  final _partyGstinController = TextEditingController();
+  final _partyStateController = TextEditingController();
+  final _ewayBillController = TextEditingController();
+  bool _tdsApplicable = false;
+  final _tdsAmountController = TextEditingController();
+  bool _tcsApplicable = false;
+  final _tcsAmountController = TextEditingController();
   final List<_PanelLine> _paymentLines = [];
 
   String _billEntryType = _itemTypes.first;
@@ -237,7 +219,21 @@ class _TransactionScreenState extends State<TransactionScreen>
   bool get _hasBillOrPaymentData =>
       _billLines.isNotEmpty || _paymentLines.isNotEmpty;
 
-  List<_TransactionItem> get _billItems => _billLines;
+  List<BillLineItem> get _billItems => _billLines;
+
+  BillTaxTotals get _billTaxTotals {
+    final tds = _tdsApplicable
+        ? (double.tryParse(_tdsAmountController.text.trim()) ?? 0)
+        : 0.0;
+    final tcs = _tcsApplicable
+        ? (double.tryParse(_tcsAmountController.text.trim()) ?? 0)
+        : 0.0;
+    return BillTaxTotals.compute(
+      lines: _billItems.map((i) => i.tax).toList(),
+      tdsAmount: tds,
+      tcsAmount: tcs,
+    );
+  }
 
   double get _totalWt =>
       _billItems.fold(0, (sum, item) => sum + item.weight);
@@ -385,7 +381,7 @@ class _TransactionScreenState extends State<TransactionScreen>
     _paymentTouchError = null;
   }
 
-  _TransactionItem? _validatedBillEntry() {
+  BillLineItem? _validatedBillEntry() {
     final weight = double.tryParse(_billEntryWeight.text.trim());
     if (weight == null ||
         !_numberRegex.hasMatch(_billEntryWeight.text.trim()) ||
@@ -398,11 +394,13 @@ class _TransactionScreenState extends State<TransactionScreen>
     final touch = double.parse(_billEntryTouch.text.trim());
     final rateName = kItemTypeToRateName[_billEntryType];
     final rate = _rates[rateName] ?? 0;
-    return _TransactionItem(
+    final hsn = _hsnByType[_billEntryType] ?? kDefaultHsnByItemType[_billEntryType] ?? '';
+    return BillLineItem(
       type: _billEntryType,
       weight: weight,
       touch: touch,
       rate: rate,
+      hsn: hsn,
     );
   }
 
@@ -522,6 +520,14 @@ class _TransactionScreenState extends State<TransactionScreen>
     _billEntryTouchFocus.removeListener(_onBillTouchFocusChange);
     _paymentEntryTouchFocus.removeListener(_onPaymentTouchFocusChange);
     _partyController.dispose();
+    _partyAddressController.dispose();
+    _partyCityController.dispose();
+    _partyPincodeController.dispose();
+    _partyGstinController.dispose();
+    _partyStateController.dispose();
+    _ewayBillController.dispose();
+    _tdsAmountController.dispose();
+    _tcsAmountController.dispose();
     _billEntryWeight.dispose();
     _billEntryTouch.dispose();
     _paymentEntryWeight.dispose();
@@ -544,6 +550,7 @@ class _TransactionScreenState extends State<TransactionScreen>
         ? await DatabaseHelper.instance.getVouchers(voucherType: _transactionType)
         : await DatabaseHelper.instance.getTransactions(_transactionType);
     final rates = await DatabaseHelper.instance.getRatesMap();
+    final hsnMap = await DatabaseHelper.instance.getItemTypeHsnMap();
     final partyRows = _isCustomerParty
         ? await DatabaseHelper.instance.getCustomers()
         : await DatabaseHelper.instance.getSuppliers();
@@ -552,6 +559,7 @@ class _TransactionScreenState extends State<TransactionScreen>
       _nextBillNo = nextNo;
       _history = history;
       _rates = rates;
+      _hsnByType = hsnMap;
       _partySuggestions = PartySuggestion.fromLedgerRows(
         partyRows,
         roleLabel: _isCustomerParty ? 'Customer' : 'Supplier',
@@ -587,6 +595,39 @@ class _TransactionScreenState extends State<TransactionScreen>
       if (!mounted) return;
       setState(() => _partyOutstanding = result);
     });
+
+    if (_partyExactMatch(query)) {
+      _loadPartyBillingProfile(query);
+    }
+  }
+
+  Future<void> _loadPartyBillingProfile(String name) async {
+    final profile = await DatabaseHelper.instance.getPartyProfile(
+      name,
+      isCustomer: _isCustomerParty,
+    );
+    if (!mounted) return;
+    setState(() {
+      _partyAddressController.text = profile.address;
+      _partyCityController.text =
+          profile.city.isNotEmpty ? profile.city : _partyCityController.text;
+      _partyPincodeController.text = profile.pincode;
+      _partyGstinController.text = profile.gstin;
+      _partyStateController.text = profile.state;
+    });
+  }
+
+  void _clearPartyBillingFields() {
+    _partyAddressController.clear();
+    _partyCityController.clear();
+    _partyPincodeController.clear();
+    _partyGstinController.clear();
+    _partyStateController.clear();
+    _ewayBillController.clear();
+    _tdsApplicable = false;
+    _tdsAmountController.clear();
+    _tcsApplicable = false;
+    _tcsAmountController.clear();
   }
 
   void _focusPaymentEntry() {
@@ -680,6 +721,7 @@ class _TransactionScreenState extends State<TransactionScreen>
 
   void _clearForm() {
     _partyController.clear();
+    _clearPartyBillingFields();
     _clearPanels();
     setState(() {
       _partyOutstanding = null;
@@ -701,6 +743,59 @@ class _TransactionScreenState extends State<TransactionScreen>
       _billEntryWeightFocus,
       controller: _billEntryWeight,
     );
+  }
+
+  Future<void> _editBillLineTax(int index) async {
+    final item = _billLines[index];
+    final cgstCtrl =
+        TextEditingController(text: item.cgstPercent.toStringAsFixed(2));
+    final sgstCtrl =
+        TextEditingController(text: item.sgstPercent.toStringAsFixed(2));
+    final updated = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('GST % — ${item.type}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: cgstCtrl,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'CGST %'),
+            ),
+            TextField(
+              controller: sgstCtrl,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'SGST %'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('CANCEL'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('SAVE'),
+          ),
+        ],
+      ),
+    );
+    if (updated != true || !mounted) {
+      cgstCtrl.dispose();
+      sgstCtrl.dispose();
+      return;
+    }
+    final cgst = double.tryParse(cgstCtrl.text.trim()) ?? item.cgstPercent;
+    final sgst = double.tryParse(sgstCtrl.text.trim()) ?? item.sgstPercent;
+    cgstCtrl.dispose();
+    sgstCtrl.dispose();
+    setState(() {
+      _billLines[index] = item.copyWith(cgstPercent: cgst, sgstPercent: sgst);
+    });
   }
 
   void _editPaymentLine(int index) {
@@ -764,6 +859,16 @@ class _TransactionScreenState extends State<TransactionScreen>
       _editingBillNo = billNo;
       _nextBillNo = billNo;
       _partyController.text = (row['partyName'] ?? '').toString();
+      _partyAddressController.text = (row['partyAddress'] ?? '').toString();
+      _partyCityController.text = (row['partyCity'] ?? '').toString();
+      _partyPincodeController.text = (row['partyPincode'] ?? '').toString();
+      _partyGstinController.text = (row['partyGstin'] ?? '').toString();
+      _partyStateController.text = (row['partyState'] ?? '').toString();
+      _ewayBillController.text = (row['ewayBill'] ?? '').toString();
+      _tdsApplicable = (row['tdsApplicable'] as int? ?? 0) == 1;
+      _tdsAmountController.text = (row['tdsAmount'] ?? '').toString();
+      _tcsApplicable = (row['tcsApplicable'] as int? ?? 0) == 1;
+      _tcsAmountController.text = (row['tcsAmount'] ?? '').toString();
       _billLines
         ..clear()
         ..addAll(_itemsFromRow(row));
@@ -853,12 +958,33 @@ class _TransactionScreenState extends State<TransactionScreen>
 
     final items = _billItems;
     final s = _settlement;
+    final taxTotals = _billTaxTotals;
     final paymentMode = _paymentIsCashOnly ? 'CASH' : 'GOLD';
     final billNo = _editingBillNo ?? _nextBillNo;
+    final tdsAmt = _tdsApplicable
+        ? (double.tryParse(_tdsAmountController.text.trim()) ?? 0)
+        : 0.0;
+    final tcsAmt = _tcsApplicable
+        ? (double.tryParse(_tcsAmountController.text.trim()) ?? 0)
+        : 0.0;
     final record = {
       'transactionType': _transactionType,
       'billNo': billNo,
       'partyName': _partyController.text.trim(),
+      'partyAddress': _partyAddressController.text.trim(),
+      'partyCity': _partyCityController.text.trim(),
+      'partyPincode': _partyPincodeController.text.trim(),
+      'partyGstin': _partyGstinController.text.trim(),
+      'partyState': _partyStateController.text.trim(),
+      if (_isSales) 'ewayBill': _ewayBillController.text.trim(),
+      'tdsApplicable': _tdsApplicable ? 1 : 0,
+      'tdsAmount': tdsAmt.toStringAsFixed(2),
+      'tcsApplicable': _tcsApplicable ? 1 : 0,
+      'tcsAmount': tcsAmt.toStringAsFixed(2),
+      'totalTaxable': taxTotals.totalTaxable.toStringAsFixed(2),
+      'totalInclusive': taxTotals.totalInclusive.toStringAsFixed(2),
+      'roundOff': taxTotals.roundOff.toStringAsFixed(2),
+      'grandTotal': taxTotals.grandTotal.toStringAsFixed(2),
       'items': jsonEncode(items.map((i) => i.toJson()).toList()),
       if (_paymentLines.isNotEmpty)
         'paymentItems': jsonEncode(
@@ -1093,7 +1219,7 @@ class _TransactionScreenState extends State<TransactionScreen>
 
   void _showBillDetails(Map<String, dynamic> row) {
     final items = (jsonDecode(row['items'] as String) as List)
-        .map((e) => _TransactionItem.fromJson(e as Map<String, dynamic>))
+        .map((e) => BillLineItem.fromJson(e as Map<String, dynamic>))
         .toList();
 
     showDialog(
@@ -1182,9 +1308,9 @@ class _TransactionScreenState extends State<TransactionScreen>
       ),
     );
   }
-  List<_TransactionItem> _itemsFromRow(Map<String, dynamic> row) {
+  List<BillLineItem> _itemsFromRow(Map<String, dynamic> row) {
     return (jsonDecode((row['items'] ?? '[]').toString()) as List)
-        .map((e) => _TransactionItem.fromJson(e as Map<String, dynamic>))
+        .map((e) => BillLineItem.fromJson(e as Map<String, dynamic>))
         .toList();
   }
 
@@ -1247,6 +1373,53 @@ class _TransactionScreenState extends State<TransactionScreen>
 
   Future<Uint8List> _buildAccountsPdf(Map<String, dynamic> row) async {
     final items = _itemsFromRow(row);
+    final isSalesBill = row['transactionType'] == 'SALES';
+
+    if (isSalesBill) {
+      final shop = await DatabaseHelper.instance.getShopSettings();
+      final buyer = PartyBillingProfile(
+        name: (row['partyName'] ?? '').toString(),
+        isCustomer: true,
+        address: (row['partyAddress'] ?? '').toString(),
+        city: (row['partyCity'] ?? '').toString(),
+        pincode: (row['partyPincode'] ?? '').toString(),
+        gstin: (row['partyGstin'] ?? '').toString(),
+        state: (row['partyState'] ?? '').toString(),
+      );
+      final tdsApplicable = (row['tdsApplicable'] as int? ?? 0) == 1;
+      final tcsApplicable = (row['tcsApplicable'] as int? ?? 0) == 1;
+      final tdsAmount =
+          double.tryParse((row['tdsAmount'] ?? '0').toString()) ?? 0;
+      final tcsAmount =
+          double.tryParse((row['tcsAmount'] ?? '0').toString()) ?? 0;
+      final totals = BillTaxTotals(
+        totalTaxable:
+            double.tryParse((row['totalTaxable'] ?? row['totalValue'] ?? '0').toString()) ??
+                items.fold(0, (s, i) => s + i.tax.taxableValue),
+        totalInclusive: double.tryParse(
+                (row['totalInclusive'] ?? '0').toString()) ??
+            items.fold(0, (s, i) => s + i.tax.inclusiveAmount),
+        roundOff: double.tryParse((row['roundOff'] ?? '0').toString()) ?? 0,
+        grandTotal: double.tryParse((row['grandTotal'] ?? row['totalValue'] ?? '0').toString()) ??
+            items.fold(0, (s, i) => s + i.tax.inclusiveAmount),
+      );
+      final doc = await PdfKit.document();
+      doc.addPage(
+        SalesTaxInvoicePdf.buildPage(
+          shop: shop,
+          row: row,
+          buyer: buyer,
+          items: items,
+          totals: totals,
+          tdsApplicable: tdsApplicable,
+          tcsApplicable: tcsApplicable,
+          tdsAmount: tdsAmount,
+          tcsAmount: tcsAmount,
+        ),
+      );
+      return doc.save();
+    }
+
     final phone = await DatabaseHelper.instance.getPartyPhone(
       (row['partyName'] ?? '').toString(),
       isCustomer: _isCustomerParty,
@@ -1506,6 +1679,19 @@ class _TransactionScreenState extends State<TransactionScreen>
             const SizedBox(height: 8),
             _currentBalanceStrip(),
           ],
+          if (!_isVoucher && _partyController.text.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            PartyBillingFields(
+              compact: true,
+              addressController: _partyAddressController,
+              cityController: _partyCityController,
+              pincodeController: _partyPincodeController,
+              gstinController: _partyGstinController,
+              stateController: _partyStateController,
+              showEwayBill: _isSales,
+              ewayBillController: _ewayBillController,
+            ),
+          ],
           if (_showPanels) ...[
             const SizedBox(height: 12),
             LayoutBuilder(
@@ -1568,6 +1754,10 @@ class _TransactionScreenState extends State<TransactionScreen>
               const SizedBox(height: 10),
               _projectedBalanceBar(),
             ],
+            if (!_isVoucher && _billLines.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              _taxTotalsSection(),
+            ],
           ],
           const SizedBox(height: 10),
           SizedBox(
@@ -1596,6 +1786,95 @@ class _TransactionScreenState extends State<TransactionScreen>
       ),
     );
   }
+  Widget _taxTotalsSection() {
+    final totals = _billTaxTotals;
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppColors.cardWhite,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'GST TOTALS',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: AppColors.navy,
+            ),
+          ),
+          const SizedBox(height: 6),
+          for (var i = 0; i < _billLines.length; i++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${_billLines[i].type} — taxable ₹${_rupee(_billLines[i].tax.taxableValue)} '
+                      '(incl. ₹${_rupee(_billLines[i].tax.inclusiveAmount)}) '
+                      'CGST ${_billLines[i].cgstPercent}% / SGST ${_billLines[i].sgstPercent}%',
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.percent, size: 18),
+                    tooltip: 'Edit GST %',
+                    onPressed: () => _editBillLineTax(i),
+                  ),
+                ],
+              ),
+            ),
+          const Divider(height: 16),
+          _totalRow('Total taxable value', totals.totalTaxable),
+          _totalRow('Total inclusive of tax', totals.totalInclusive),
+          if (_isSales) ...[
+            CheckboxListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('TDS applicable', style: TextStyle(fontSize: 13)),
+              value: _tdsApplicable,
+              onChanged: (v) => setState(() => _tdsApplicable = v ?? false),
+            ),
+            if (_tdsApplicable)
+              TextField(
+                controller: _tdsAmountController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'TDS amount (manual)',
+                  isDense: true,
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+            CheckboxListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('TCS applicable', style: TextStyle(fontSize: 13)),
+              value: _tcsApplicable,
+              onChanged: (v) => setState(() => _tcsApplicable = v ?? false),
+            ),
+            if (_tcsApplicable)
+              TextField(
+                controller: _tcsAmountController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'TCS amount (manual)',
+                  isDense: true,
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+          ],
+          _totalRow('Grand total (invoice)', totals.grandTotal, highlight: true),
+        ],
+      ),
+    );
+  }
+
   Widget _compactField({
     required double width,
     required Widget child,
@@ -2370,6 +2649,34 @@ class _TransactionScreenState extends State<TransactionScreen>
         ],
       ),
       body: content,
+    );
+  }
+
+  Widget _totalRow(String label, double value, {bool highlight = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: highlight ? AppColors.navy : AppColors.mutedBlue,
+              ),
+            ),
+          ),
+          Text(
+            '₹${_rupee(value)}',
+            style: TextStyle(
+              fontSize: highlight ? 15 : 13,
+              fontWeight: FontWeight.bold,
+              color: highlight ? AppColors.navy : Colors.black87,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

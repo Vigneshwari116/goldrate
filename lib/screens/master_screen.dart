@@ -3,6 +3,8 @@ import 'package:intl/intl.dart';
 import '../util/focus_chain.dart';
 import '../util/screen_activation.dart';
 import '../database/database_helper.dart';
+import '../logic/bill_tax.dart';
+import '../models/party_billing_profile.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
 
@@ -35,6 +37,14 @@ class _MasterScreenState extends State<MasterScreen>
   String _lastDate = '';
   String _lastTime = '';
 
+  final Map<String, TextEditingController> _hsnControllers = {};
+  final _shopNameController = TextEditingController();
+  final _shopAddressController = TextEditingController();
+  final _shopPhoneController = TextEditingController();
+  final _shopGstinController = TextEditingController();
+  final _shopStateController = TextEditingController();
+  final _shopStateCodeController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
@@ -60,6 +70,15 @@ class _MasterScreenState extends State<MasterScreen>
     for (final n in _focusNodes.values) {
       n.dispose();
     }
+    for (final c in _hsnControllers.values) {
+      c.dispose();
+    }
+    _shopNameController.dispose();
+    _shopAddressController.dispose();
+    _shopPhoneController.dispose();
+    _shopGstinController.dispose();
+    _shopStateController.dispose();
+    _shopStateCodeController.dispose();
     super.dispose();
   }
 
@@ -76,6 +95,23 @@ class _MasterScreenState extends State<MasterScreen>
         await DatabaseHelper.instance.getRatesForMaster(),
       );
       final stats = await DatabaseHelper.instance.getUpdateStats();
+      final hsnMap = await DatabaseHelper.instance.getItemTypeHsnMap();
+      final shop = await DatabaseHelper.instance.getShopSettings();
+
+      for (final c in _hsnControllers.values) {
+        c.dispose();
+      }
+      _hsnControllers.clear();
+      for (final type in kDefaultHsnByItemType.keys) {
+        _hsnControllers[type] =
+            TextEditingController(text: hsnMap[type] ?? '');
+      }
+      _shopNameController.text = shop.shopName;
+      _shopAddressController.text = shop.address;
+      _shopPhoneController.text = shop.phone;
+      _shopGstinController.text = shop.gstin;
+      _shopStateController.text = shop.state;
+      _shopStateCodeController.text = shop.stateCode;
 
       for (final c in _controllers.values) {
         c.dispose();
@@ -152,6 +188,26 @@ class _MasterScreenState extends State<MasterScreen>
         );
         if (rowsAffected > 0) savedCount++;
       }
+
+      for (final entry in _hsnControllers.entries) {
+        final code = entry.value.text.trim();
+        if (code.isNotEmpty) {
+          await DatabaseHelper.instance.saveItemTypeHsn(entry.key, code);
+          savedCount++;
+        }
+      }
+
+      await DatabaseHelper.instance.saveShopSettings(
+        ShopSettings(
+          shopName: _shopNameController.text.trim(),
+          address: _shopAddressController.text.trim(),
+          phone: _shopPhoneController.text.trim(),
+          gstin: _shopGstinController.text.trim(),
+          state: _shopStateController.text.trim(),
+          stateCode: _shopStateCodeController.text.trim(),
+        ),
+      );
+      savedCount++;
     } finally {
       if (mounted) {
         setState(() => _saving = false);
@@ -208,71 +264,171 @@ class _MasterScreenState extends State<MasterScreen>
                   ),
                 ),
                 Expanded(
-                  child: ListView.builder(
+                  child: ListView(
                     padding: const EdgeInsets.all(12),
-                    itemCount: rates.length,
-                    itemBuilder: (context, index) {
-                      final item = rates[index];
-                      final rateName = _rateName(item);
-                      final controller = _controllers[rateName]!;
-                      final focusNode = _focusNodes[rateName]!;
+                    children: [
+                      for (var index = 0; index < rates.length; index++)
+                        Builder(builder: (context) {
+                          final item = rates[index];
+                          final rateName = _rateName(item);
+                          final controller = _controllers[rateName]!;
+                          final focusNode = _focusNodes[rateName]!;
 
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 10),
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 10),
+                            decoration: BoxDecoration(
+                              color: AppColors.cardWhite,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            padding: const EdgeInsets.all(12),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  flex: 3,
+                                  child: Text(
+                                    rateName,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  flex: 4,
+                                  child: TextField(
+                                    controller: controller,
+                                    focusNode: focusNode,
+                                    style: const TextStyle(fontSize: 14),
+                                    keyboardType: const TextInputType
+                                        .numberWithOptions(decimal: true),
+                                    textInputAction: TextInputAction.next,
+                                    onSubmitted: (_) {
+                                      if (index + 1 < rates.length) {
+                                        final nextName =
+                                            _rateName(rates[index + 1]);
+                                        FocusChain.focus(
+                                          _focusNodes[nextName]!,
+                                          controller:
+                                              _controllers[nextName],
+                                        );
+                                      }
+                                    },
+                                    decoration: const InputDecoration(
+                                      isDense: true,
+                                      contentPadding: EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 10,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'HSN CODE (per item type)',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: AppTextSizes.sectionHeader,
+                          color: AppColors.mutedBlue,
+                        ),
+                      ),
+                      for (final type in kDefaultHsnByItemType.keys)
+                        Container(
+                          margin: const EdgeInsets.only(top: 8),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.cardWhite,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                flex: 2,
+                                child: Text(
+                                  type,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                flex: 3,
+                                child: TextField(
+                                  controller: _hsnControllers[type],
+                                  decoration: const InputDecoration(
+                                    labelText: 'HSN',
+                                    isDense: true,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'SHOP SETTINGS (invoice header)',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: AppTextSizes.sectionHeader,
+                          color: AppColors.mutedBlue,
+                        ),
+                      ),
+                      Container(
+                        margin: const EdgeInsets.only(top: 8),
+                        padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
                           color: AppColors.cardWhite,
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(color: AppColors.border),
                         ),
-                        padding: const EdgeInsets.all(12),
-                        child: Row(
+                        child: Column(
                           children: [
-                            Expanded(
-                              flex: 3,
-                              child: Text(
-                                rateName,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
-                                ),
+                            TextField(
+                              controller: _shopNameController,
+                              decoration: const InputDecoration(
+                                labelText: 'Shop name',
                               ),
                             ),
-                            Expanded(
-                              flex: 4,
-                              child: TextField(
-                                controller: controller,
-                                focusNode: focusNode,
-                                style: const TextStyle(fontSize: 14),
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                  decimal: true,
-                                ),
-                                textInputAction: TextInputAction.next,
-                                onSubmitted: (_) {
-                                  if (index + 1 < rates.length) {
-                                    final nextName =
-                                        _rateName(rates[index + 1]);
-                                    FocusChain.focus(
-                                      _focusNodes[nextName]!,
-                                      controller: _controllers[nextName],
-                                    );
-                                  } else if (!_saving) {
-                                    saveAllRates();
-                                  }
-                                },
-                                decoration: const InputDecoration(
-                                  isDense: true,
-                                  contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 10,
-                                  ),
-                                ),
+                            TextField(
+                              controller: _shopAddressController,
+                              maxLines: 2,
+                              decoration: const InputDecoration(
+                                labelText: 'Address',
+                              ),
+                            ),
+                            TextField(
+                              controller: _shopPhoneController,
+                              decoration: const InputDecoration(
+                                labelText: 'Phone',
+                              ),
+                            ),
+                            TextField(
+                              controller: _shopGstinController,
+                              decoration: const InputDecoration(
+                                labelText: 'GSTIN',
+                              ),
+                            ),
+                            TextField(
+                              controller: _shopStateController,
+                              decoration: const InputDecoration(
+                                labelText: 'State',
+                              ),
+                            ),
+                            TextField(
+                              controller: _shopStateCodeController,
+                              decoration: const InputDecoration(
+                                labelText: 'State code',
                               ),
                             ),
                           ],
                         ),
-                      );
-                    },
+                      ),
+                    ],
                   ),
                 ),
                 Padding(

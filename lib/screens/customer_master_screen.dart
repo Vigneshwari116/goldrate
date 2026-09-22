@@ -9,6 +9,8 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../database/database_helper.dart';
+import '../models/party_billing_profile.dart';
+import '../widgets/party_billing_fields.dart';
 import '../logic/gold_ledger.dart';
 import '../util/focus_chain.dart';
 import '../util/party_name_key.dart';
@@ -129,6 +131,10 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
   final _nameController = TextEditingController();
   final _mobileController = TextEditingController();
   final _cityController = TextEditingController();
+  final _addressController = TextEditingController();
+  final _pincodeController = TextEditingController();
+  final _gstinController = TextEditingController();
+  final _stateController = TextEditingController();
   final _pureWeightController = TextEditingController();
   final _goldWeightController = TextEditingController();
   final _narrationController = TextEditingController();
@@ -188,6 +194,10 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
     _nameController.dispose();
     _mobileController.dispose();
     _cityController.dispose();
+    _addressController.dispose();
+    _pincodeController.dispose();
+    _gstinController.dispose();
+    _stateController.dispose();
     _pureWeightController.dispose();
     _goldWeightController.dispose();
     _narrationController.dispose();
@@ -332,6 +342,10 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
     _nameController.clear();
     _mobileController.clear();
     _cityController.clear();
+    _addressController.clear();
+    _pincodeController.clear();
+    _gstinController.clear();
+    _stateController.clear();
     _pureWeightController.clear();
     _goldWeightController.clear();
     _narrationController.clear();
@@ -448,6 +462,19 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
         record,
       );
 
+      await DatabaseHelper.instance.upsertPartyProfile(
+        PartyBillingProfile(
+          name: name,
+          isCustomer: true,
+          mobile: mobile,
+          address: _addressController.text.trim(),
+          city: city,
+          pincode: _pincodeController.text.trim(),
+          gstin: _gstinController.text.trim(),
+          state: _stateController.text.trim(),
+        ),
+      );
+
       debugPrint(
         'CUSTOMER INSERTED ID: $id',
       );
@@ -501,10 +528,21 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
     );
   }
 
-  void _editPartySummary(_PartySummary summary) {
+  Future<void> _editPartySummary(_PartySummary summary) async {
     _nameController.text = summary.name;
     _mobileController.text = summary.mobile;
     _cityController.text = summary.city;
+    final profile = await DatabaseHelper.instance.getPartyProfile(
+      summary.name,
+      isCustomer: true,
+    );
+    _addressController.text = profile.address;
+    _pincodeController.text = profile.pincode;
+    _gstinController.text = profile.gstin;
+    _stateController.text = profile.state;
+    if (profile.city.isNotEmpty) {
+      _cityController.text = profile.city;
+    }
     _prefillOpeningBalance(summary);
     _narrationController.clear();
     setState(() {
@@ -1003,11 +1041,13 @@ class _CustomerMasterScreenState extends State<CustomerMasterScreen>
               ],
             ),
 
-            _field(
-              'City',
-              _cityController,
-              focusNode: _cityFocus,
-              onFieldSubmitted: () => _focusNext(_pureWeightFocus),
+            PartyBillingFields(
+              addressController: _addressController,
+              cityController: _cityController,
+              pincodeController: _pincodeController,
+              gstinController: _gstinController,
+              stateController: _stateController,
+              compact: true,
             ),
 
             Row(
