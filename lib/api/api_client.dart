@@ -4,7 +4,9 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../config/api_config.dart';
+import '../logic/bill_tax.dart';
 import '../logic/rate_rows.dart';
+import '../models/party_billing_profile.dart';
 import '../util/api_row_keys.dart';
 
 class ApiClient {
@@ -477,6 +479,68 @@ class ApiClient {
 
   /// Removes SAL/PUR/RECEIPT/PAYMENT ledger rows so merged reads stay empty
   /// after reset (covers servers not yet redeployed with ledger deletes).
+  // ---------- GST billing (party profile, shop, HSN) ----------
+  static Future<void> upsertPartyProfile(PartyBillingProfile profile) async {
+    final res = await _put(
+      '/party-profile',
+      body: jsonEncode(profile.toDbRow()),
+    );
+    await _decodeObject(res);
+  }
+
+  static Future<PartyBillingProfile> getPartyProfile(
+    String name, {
+    required bool isCustomer,
+  }) async {
+    final res = await _get('/party-profile', {
+      'name': name.trim(),
+      'isCustomer': isCustomer.toString(),
+    });
+    final data = normalizeApiRow(await _decodeObject(res));
+    return PartyBillingProfile.fromDbRow({
+      ...data,
+      'displayName': data['displayName'] ?? name.trim(),
+      'isCustomer': isCustomer ? 1 : 0,
+    });
+  }
+
+  static Future<ShopSettings> getShopSettings() async {
+    final res = await _get('/settings/shop');
+    final data = normalizeApiRow(await _decodeObject(res));
+    return ShopSettings.fromDbRow(data);
+  }
+
+  static Future<void> saveShopSettings(ShopSettings settings) async {
+    final res = await _put(
+      '/settings/shop',
+      body: jsonEncode(settings.toDbRow()..remove('id')),
+    );
+    await _decodeObject(res);
+  }
+
+  static Future<Map<String, String>> getItemTypeHsnMap() async {
+    final res = await _get('/settings/hsn');
+    final data = await _decodeObject(res);
+    final map = Map<String, String>.from(kDefaultHsnByItemType);
+    if (data is Map) {
+      for (final entry in data.entries) {
+        final code = entry.value?.toString() ?? '';
+        if (code.isNotEmpty) {
+          map[entry.key.toString()] = code;
+        }
+      }
+    }
+    return map;
+  }
+
+  static Future<void> saveItemTypeHsn(String itemType, String hsnCode) async {
+    final res = await _put(
+      '/settings/hsn',
+      body: jsonEncode({itemType: hsnCode.trim()}),
+    );
+    await _decodeObject(res);
+  }
+
   static Future<void> _clearTransactionLedgerRows() async {
     final customers = await getCustomers();
     for (final row in customers) {
