@@ -4,39 +4,90 @@ import 'package:pdf/widgets.dart' as pw;
 
 import '../logic/bill_tax.dart';
 import '../models/bill_line_item.dart';
+import '../models/party_billing_profile.dart';
 
-/// Tally-style GST sales invoice — static seller/buyer from reference NAMITHA #97.
+/// Tally-style GST sales invoice (reference layout; live shop + party data).
 class SalesTaxInvoicePdf {
   SalesTaxInvoicePdf._();
 
   static const double _border = 0.5;
   static const PdfColor _line = PdfColors.black;
+  static const String _placeholder = '—';
 
   static final _inr = NumberFormat('#,##0.00', 'en_IN');
   static final _wt = NumberFormat('#,##0.000', 'en_IN');
   static final _rateFmt = NumberFormat('#,##0.00', 'en_IN');
 
-  // ---------- Hardcoded reference blocks (not from shop_settings / party_profiles) ----------
-  static const _sellerLines = [
-    'Shree Mahalasa Jewellery Works',
-    'No.180, 1st Cross, 9th Main Road,',
-    'Srinivasanagar, BSK 1st Stage,',
-    'Bangalore',
-    'Phone - 9448008065',
-    'GSTIN/UIN: 29ABDPV0313K1ZK',
-    'State Name : Karnataka, Code : 29',
-  ];
+  /// Seller lines for PDF (also used in tests).
+  static List<String> sellerDisplayLines(ShopSettings shop) {
+    final name =
+        shop.shopName.trim().isEmpty ? _placeholder : shop.shopName.trim();
+    final lines = <String>[name];
+    final address = shop.address.trim();
+    if (address.isEmpty) {
+      lines.add(_placeholder);
+    } else {
+      for (final part in address.split('\n')) {
+        final t = part.trim();
+        if (t.isNotEmpty) lines.add(t);
+      }
+    }
+    final phone = shop.phone.trim();
+    lines.add(phone.isEmpty ? 'Phone - $_placeholder' : 'Phone - $phone');
+    final gstin = shop.gstin.trim();
+    lines.add(
+      gstin.isEmpty ? 'GSTIN/UIN: $_placeholder' : 'GSTIN/UIN: $gstin',
+    );
+    final state = shop.state.trim();
+    final code = shop.stateCode.trim();
+    if (state.isEmpty && code.isEmpty) {
+      lines.add('State Name : $_placeholder');
+    } else if (code.isEmpty) {
+      lines.add('State Name : $state');
+    } else {
+      lines.add('State Name : $state, Code : $code');
+    }
+    return lines;
+  }
 
-  static const _buyerHeader = 'Buyer (Bill to)';
-  static const _buyerLines = [
-    'NAMITHA BULLION TRADERS',
-    'D.No. 10-1-58N17 "Jewel Plaza" Maruthi',
-    'Veethika, Road, Udupi -576101',
-    'GSTIN/UIN : 29OZPPS0920H1ZM',
-    'PAN/IT No : OZPPS0920H',
-    'State Name : Karnataka, Code : 29',
-    'Place of Supply : Karnataka',
-  ];
+  /// Buyer lines for PDF (bill snapshot / party profile).
+  static List<String> buyerDisplayLines(PartyBillingProfile buyer) {
+    final lines = <String>['Buyer (Bill to)'];
+    final name = buyer.name.trim().isEmpty ? _placeholder : buyer.name.trim();
+    lines.add(name);
+    final address = buyer.address.trim();
+    if (address.isNotEmpty) {
+      for (final part in address.split('\n')) {
+        final t = part.trim();
+        if (t.isNotEmpty) lines.add(t);
+      }
+    }
+    final city = buyer.city.trim();
+    final pin = buyer.pincode.trim();
+    if (city.isNotEmpty || pin.isNotEmpty) {
+      if (city.isNotEmpty && pin.isNotEmpty) {
+        lines.add('$city -$pin');
+      } else {
+        lines.add(city.isNotEmpty ? city : pin);
+      }
+    }
+    final gstin = buyer.gstin.trim();
+    lines.add(
+      gstin.isEmpty
+          ? 'GSTIN/UIN : $_placeholder'
+          : 'GSTIN/UIN : $gstin',
+    );
+    final state = buyer.state.trim();
+    lines.add(
+      state.isEmpty ? 'State Name : $_placeholder' : 'State Name : $state',
+    );
+    lines.add(
+      state.isEmpty
+          ? 'Place of Supply : $_placeholder'
+          : 'Place of Supply : $state',
+    );
+    return lines;
+  }
 
   static pw.TextStyle _style({
     double size = 8,
@@ -84,13 +135,14 @@ class SalesTaxInvoicePdf {
     );
   }
 
-  static pw.Widget _sellerBlock() {
+  static pw.Widget _sellerBlock(ShopSettings shop) {
+    final lines = sellerDisplayLines(shop);
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        for (var i = 0; i < _sellerLines.length; i++)
+        for (var i = 0; i < lines.length; i++)
           _text(
-            _sellerLines[i],
+            lines[i],
             size: i == 0 ? 10 : 8,
             weight: i == 0 ? pw.FontWeight.bold : pw.FontWeight.normal,
           ),
@@ -98,7 +150,8 @@ class SalesTaxInvoicePdf {
     );
   }
 
-  static pw.Widget _buyerBlock() {
+  static pw.Widget _buyerBlock(PartyBillingProfile buyer) {
+    final lines = buyerDisplayLines(buyer);
     return pw.Container(
       width: double.infinity,
       decoration: pw.BoxDecoration(border: pw.Border.all(color: _line, width: _border)),
@@ -106,17 +159,22 @@ class SalesTaxInvoicePdf {
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          _text(_buyerHeader, size: 8, weight: pw.FontWeight.bold),
-          pw.SizedBox(height: 2),
-          for (var i = 0; i < _buyerLines.length; i++)
+          for (var i = 0; i < lines.length; i++)
             _text(
-              _buyerLines[i],
+              lines[i],
               size: 8,
-              weight: i == 0 ? pw.FontWeight.bold : pw.FontWeight.normal,
+              weight: i == 0 || i == 1
+                  ? pw.FontWeight.bold
+                  : pw.FontWeight.normal,
             ),
         ],
       ),
     );
+  }
+
+  static String _signatureShopName(ShopSettings shop) {
+    final name = shop.shopName.trim();
+    return name.isEmpty ? _placeholder : name;
   }
 
   /// Right-side metadata grid (reference invoice); only invoice no + date filled.
@@ -387,6 +445,8 @@ class SalesTaxInvoicePdf {
   }
 
   static pw.Page buildPage({
+    required ShopSettings shop,
+    required PartyBillingProfile buyer,
     required Map<String, dynamic> row,
     required List<BillLineItem> items,
     required BillTaxTotals totals,
@@ -441,13 +501,13 @@ class SalesTaxInvoicePdf {
           pw.Row(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              pw.Expanded(flex: 5, child: _sellerBlock()),
+              pw.Expanded(flex: 5, child: _sellerBlock(shop)),
               pw.SizedBox(width: 6),
               pw.Expanded(flex: 5, child: _metadataGrid(billNo, date)),
             ],
           ),
           pw.SizedBox(height: 6),
-          _buyerBlock(),
+          _buyerBlock(buyer),
           pw.SizedBox(height: 6),
           _itemsTable(
             items: items,
@@ -511,7 +571,7 @@ class SalesTaxInvoicePdf {
                   children: [
                     pw.SizedBox(height: 28),
                     _text(
-                      'for Shree Mahalasa Jewellery Works',
+                      'for ${_signatureShopName(shop)}',
                       size: 8,
                       weight: pw.FontWeight.bold,
                       align: pw.TextAlign.right,
