@@ -17,6 +17,8 @@ import '../models/bill_line_item.dart';
 import '../models/party_billing_profile.dart';
 import '../pdf/purchase_tax_invoice_pdf.dart';
 import '../pdf/sales_tax_invoice_pdf.dart';
+import '../pdf/simple_sales_tax_invoice_pdf.dart';
+import '../util/sales_invoice_prefs.dart';
 import '../widgets/party_billing_fields.dart';
 import '../pdf/pdf_kit.dart';
 import '../util/pdf_print.dart';
@@ -1615,24 +1617,40 @@ class _TransactionScreenState extends State<TransactionScreen>
     final tcsAmount =
         double.tryParse((row['tcsAmount'] ?? '0').toString()) ?? 0;
     final totals = _taxTotalsFromRow(row, items);
+    final salesFormat =
+        isSalesBill ? await SalesInvoicePrefs.getFormat() : null;
     final doc = await PdfKit.document();
-    for (final copyLabel in [
-      SalesTaxInvoicePdf.copyOriginalForRecipient,
-      SalesTaxInvoicePdf.copyDuplicateForTransporter,
-    ]) {
+    final salesCopyLabels = salesFormat == SalesInvoiceFormat.simple
+        ? [
+            SimpleSalesTaxInvoicePdf.copyOriginalForBuyer,
+            SimpleSalesTaxInvoicePdf.copyDuplicateForTransporter,
+          ]
+        : [
+            SalesTaxInvoicePdf.copyOriginalForRecipient,
+            SalesTaxInvoicePdf.copyDuplicateForTransporter,
+          ];
+    for (final copyLabel in salesCopyLabels) {
       doc.addPage(
         isSalesBill
-            ? SalesTaxInvoicePdf.buildPage(
-                buyer: PartyBillingProfile.fromTransactionRow(row),
-                row: row,
-                items: items,
-                totals: totals,
-                tdsApplicable: tdsApplicable,
-                tcsApplicable: tcsApplicable,
-                tdsAmount: tdsAmount,
-                tcsAmount: tcsAmount,
-                copyLabel: copyLabel,
-              )
+            ? (salesFormat == SalesInvoiceFormat.simple
+                ? SimpleSalesTaxInvoicePdf.buildPage(
+                    buyer: PartyBillingProfile.fromTransactionRow(row),
+                    row: row,
+                    items: items,
+                    totals: totals,
+                    copyLabel: copyLabel,
+                  )
+                : SalesTaxInvoicePdf.buildPage(
+                    buyer: PartyBillingProfile.fromTransactionRow(row),
+                    row: row,
+                    items: items,
+                    totals: totals,
+                    tdsApplicable: tdsApplicable,
+                    tcsApplicable: tcsApplicable,
+                    tdsAmount: tdsAmount,
+                    tcsAmount: tcsAmount,
+                    copyLabel: copyLabel,
+                  ))
             : PurchaseTaxInvoicePdf.buildPage(
                 row: row,
                 items: items,
