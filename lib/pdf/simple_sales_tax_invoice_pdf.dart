@@ -262,9 +262,12 @@ class SimpleSalesTaxInvoicePdf {
     );
   }
 
-  static const _itemColW = [24.0, 38.0, 40.0, 44.0, 54.0]; // sl, hsn, qty, price, amount — desc flex
+  static const _itemColW = [24.0, 38.0, 40.0, 50.0, 54.0]; // sl, hsn, qty, price, amount — desc flex
   static final _rateFmt = NumberFormat('#,##0.00', 'en_IN');
-  static const _taxLineHeight = 13.0;
+  static const _taxLineHeight = 15.5;
+
+  static String _taxPctLabel(double pct) =>
+      '${pct.toStringAsFixed(2)}\u202F%';
   static const _minEmptyBodyHeight = 88.0;
 
   static pw.Widget _blankBodyCell(double height) {
@@ -345,7 +348,7 @@ class SimpleSalesTaxInvoicePdf {
       bool bold = false,
     }) {
       final w = bold ? pw.FontWeight.bold : pw.FontWeight.normal;
-      final mid = pct.isEmpty ? '$label :' : '$label : $pct';
+      final mid = pct.isEmpty ? '$label :' : '$label :\u00A0$pct';
       taxLabels.add(mid);
       taxAmounts.add(amount);
       taxWeights.add(w);
@@ -353,10 +356,10 @@ class SimpleSalesTaxInvoicePdf {
 
     addTaxLine('Total', '', _inr.format(taxable));
     if (cgstSum > 0 || sgstSum > 0) {
-      addTaxLine('SGST', '${sgstPct.toStringAsFixed(2)} %', _inr.format(sgstSum));
-      addTaxLine('CGST', '${cgstPct.toStringAsFixed(2)} %', _inr.format(cgstSum));
+      addTaxLine('SGST', _taxPctLabel(sgstPct), _inr.format(sgstSum));
+      addTaxLine('CGST', _taxPctLabel(cgstPct), _inr.format(cgstSum));
     }
-    addTaxLine('IGST', '${igst.toStringAsFixed(2)} %', _inr.format(igst));
+    addTaxLine('IGST', _taxPctLabel(igst), _inr.format(igst));
     if (roundOff.abs() > 0.0001) {
       final sign = roundOff < 0 ? '(-)' : '(+)';
       addTaxLine('Round Off', sign, _inr.format(roundOff.abs()));

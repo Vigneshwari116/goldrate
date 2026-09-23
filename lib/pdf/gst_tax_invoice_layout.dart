@@ -618,13 +618,23 @@ class GstTaxInvoiceLayout {
                   decoration: pw.BoxDecoration(
                     border: pw.Border(right: _borderSide),
                   ),
-                  child: _text('Rate', size: 6.5, weight: pw.FontWeight.bold),
+                  child: _text(
+                    'Rate',
+                    size: 6.5,
+                    weight: pw.FontWeight.bold,
+                    align: pw.TextAlign.center,
+                  ),
                 ),
                 pw.Container(
                   width: amountW,
                   height: 15,
                   alignment: pw.Alignment.center,
-                  child: _text('Amount', size: 6.5, weight: pw.FontWeight.bold),
+                  child: _text(
+                    'Amount',
+                    size: 6.5,
+                    weight: pw.FontWeight.bold,
+                    align: pw.TextAlign.center,
+                  ),
                 ),
               ],
             ),
@@ -648,12 +658,13 @@ class GstTaxInvoiceLayout {
         children: [
           pw.Container(
             width: rateW,
+            alignment: pw.Alignment.center,
             decoration: pw.BoxDecoration(border: pw.Border(right: _borderSide)),
-            child: _cell(
+            padding: const pw.EdgeInsets.symmetric(horizontal: 1, vertical: 1),
+            child: pw.Text(
               rate,
-              fontSize: 7.5,
-              weight: weight,
-              align: pw.TextAlign.center,
+              style: _style(size: 7.5, weight: weight),
+              textAlign: pw.TextAlign.center,
             ),
           ),
           pw.SizedBox(
@@ -672,7 +683,7 @@ class GstTaxInvoiceLayout {
 
   static String _effectiveTaxRatePercent(double taxAmount, double taxable) {
     if (taxable <= 0 || taxAmount <= 0) return '';
-    return '${((taxAmount / taxable) * 100).toStringAsFixed(2)}%';
+    return '${((taxAmount / taxable) * 100).toStringAsFixed(2)}\u202F%';
   }
 
   static pw.Widget _taxDataCell(
@@ -711,12 +722,12 @@ class GstTaxInvoiceLayout {
             _taxDataCell(1, _inr.format(h.taxable), align: pw.TextAlign.right),
             _taxRateAmountCell(
               w[2],
-              '${h.cgstPercent.toStringAsFixed(2)}%',
+              '${h.cgstPercent.toStringAsFixed(2)}\u202F%',
               _inr.format(h.cgstAmount),
             ),
             _taxRateAmountCell(
               w[3],
-              '${h.sgstPercent.toStringAsFixed(2)}%',
+              '${h.sgstPercent.toStringAsFixed(2)}\u202F%',
               _inr.format(h.sgstAmount),
             ),
             _taxDataCell(4, _inr.format(h.totalTax), align: pw.TextAlign.right),
