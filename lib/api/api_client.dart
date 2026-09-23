@@ -182,6 +182,14 @@ class ApiClient {
     return data['rowsAffected'] as int? ?? 0;
   }
 
+  static Future<void> setRatesLastSaved(String date, String time) async {
+    final res = await _post(
+      '/rates/last-saved',
+      body: jsonEncode({'date': date, 'time': time}),
+    );
+    await _decodeObject(res);
+  }
+
   static Future<Map<String, dynamic>> getUpdateStats() async {
     final res = await _get('/rates/stats');
     return _decodeObject(res);

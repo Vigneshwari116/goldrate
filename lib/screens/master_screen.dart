@@ -143,6 +143,7 @@ class _MasterScreenState extends State<MasterScreen>
     final time = DateFormat('hh:mm a').format(DateTime.now());
 
     var savedCount = 0;
+    var anyRateEntered = false;
 
     try {
       final idsByName = await _rateIdsByName();
@@ -155,6 +156,7 @@ class _MasterScreenState extends State<MasterScreen>
         if (controller == null) continue;
         final parsed = double.tryParse(controller.text.trim());
         if (parsed == null) continue;
+        anyRateEntered = true;
 
         final rowsAffected = await DatabaseHelper.instance.updateRate(
           id,
@@ -174,6 +176,9 @@ class _MasterScreenState extends State<MasterScreen>
         }
       }
 
+      if (anyRateEntered) {
+        await DatabaseHelper.instance.setRatesLastSaved(date, time);
+      }
     } finally {
       if (mounted) {
         setState(() => _saving = false);

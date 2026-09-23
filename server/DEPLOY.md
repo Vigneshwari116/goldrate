@@ -51,6 +51,8 @@ sudo -u postgres psql -d jewellery_db -f schema.sql
 
 Or paste the SQL from `schema.sql` manually in psql.
 
+**Rate “Last Updated” (v16 / `016_rate_meta.sql`):** records the daily-rate SAVE timestamp even when values are unchanged (`POST /api/rates/last-saved`; stats read `rate_meta`).
+
 **GST billing (party profiles, HSN, transaction tax columns):** new API
 deploys run `server/migrations/015_gst_billing.sql` automatically on startup. You can
 also apply it manually:
