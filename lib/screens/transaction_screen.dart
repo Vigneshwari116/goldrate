@@ -1295,7 +1295,11 @@ class _TransactionScreenState extends State<TransactionScreen>
     if (!wasEdit) {
       final txnType = (savedRow['transactionType'] ?? '').toString();
       if (txnType == 'SALES') {
-        await _saveAndPrintBillPdf(savedRow, gstInvoice: true);
+        await _saveAndPrintBillPdf(
+          savedRow,
+          gstInvoice: true,
+          salesInvoiceFormat: SalesInvoiceFormat.detailed,
+        );
       } else {
         await _shareBillPdf(
           savedRow,
@@ -1510,6 +1514,14 @@ class _TransactionScreenState extends State<TransactionScreen>
               _detailRow("Total Wt", row['totalWt']),
               _detailRow("Total Pure Wt", row['totalPureWt']),
               _detailRow("Total Value (₹)", row['totalValue']),
+              if ((row['grandTotal'] ?? '').toString().trim().isNotEmpty)
+                _detailRow('Grand Total (₹)', row['grandTotal']),
+              if (items.isNotEmpty) ...[
+                _detailRow(
+                  'Avg Rate (₹)',
+                  _weightedBillRate(items).toStringAsFixed(2),
+                ),
+              ],
               _detailRow("Payment Mode", row['paymentMode']),
               _detailRow("Payment Amount", row['paymentAmount']),
               _detailRow(
@@ -1561,19 +1573,49 @@ class _TransactionScreenState extends State<TransactionScreen>
                       },
                 child: const Text('ACCOUNTS SLIP'),
               ),
-            TextButton(
-              onPressed: _sharingPdf
-                  ? null
-                  : () async {
-                      Navigator.pop(dialogContext);
-                      await _shareBillPdf(
-                        row,
-                        gstInvoice: true,
-                        openAfterSave: false,
-                      );
-                    },
-              child: const Text('GST INVOICE'),
-            ),
+            if ((row['transactionType'] ?? '').toString() == 'SALES') ...[
+              TextButton(
+                onPressed: _sharingPdf
+                    ? null
+                    : () async {
+                        Navigator.pop(dialogContext);
+                        await _shareBillPdf(
+                          row,
+                          gstInvoice: true,
+                          salesInvoiceFormat: SalesInvoiceFormat.detailed,
+                          openAfterSave: false,
+                        );
+                      },
+                child: const Text('GST INVOICE'),
+              ),
+              TextButton(
+                onPressed: _sharingPdf
+                    ? null
+                    : () async {
+                        Navigator.pop(dialogContext);
+                        await _shareBillPdf(
+                          row,
+                          gstInvoice: true,
+                          salesInvoiceFormat: SalesInvoiceFormat.simple,
+                          openAfterSave: false,
+                        );
+                      },
+                child: const Text('SIMPLE INVOICE'),
+              ),
+            ] else
+              TextButton(
+                onPressed: _sharingPdf
+                    ? null
+                    : () async {
+                        Navigator.pop(dialogContext);
+                        await _shareBillPdf(
+                          row,
+                          gstInvoice: true,
+                          openAfterSave: false,
+                        );
+                      },
+                child: const Text('GST INVOICE'),
+              ),
           ],
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
@@ -1607,7 +1649,20 @@ class _TransactionScreenState extends State<TransactionScreen>
     );
   }
 
-  Future<Uint8List> _buildGstInvoicePdf(Map<String, dynamic> row) async {
+  double _weightedBillRate(List<BillLineItem> items) {
+    var pure = 0.0;
+    var weighted = 0.0;
+    for (final item in items) {
+      pure += item.pureWt;
+      weighted += item.pureWt * item.rate;
+    }
+    return pure > 0 ? weighted / pure : 0;
+  }
+
+  Future<Uint8List> _buildGstInvoicePdf(
+    Map<String, dynamic> row, {
+    SalesInvoiceFormat? salesInvoiceFormat,
+  }) async {
     final items = _itemsFromRow(row);
     final isSalesBill = row['transactionType'] == 'SALES';
     final tdsApplicable = (row['tdsApplicable'] as int? ?? 0) == 1;
@@ -1617,8 +1672,9 @@ class _TransactionScreenState extends State<TransactionScreen>
     final tcsAmount =
         double.tryParse((row['tcsAmount'] ?? '0').toString()) ?? 0;
     final totals = _taxTotalsFromRow(row, items);
-    final salesFormat =
-        isSalesBill ? await SalesInvoicePrefs.getFormat() : null;
+    final salesFormat = isSalesBill
+        ? (salesInvoiceFormat ?? await SalesInvoicePrefs.getFormat())
+        : null;
     final doc = await PdfKit.document();
     final salesCopyLabels = salesFormat == SalesInvoiceFormat.simple
         ? [
@@ -1773,24 +1829,38 @@ class _TransactionScreenState extends State<TransactionScreen>
   String _billPdfFileName(
     Map<String, dynamic> row, {
     required bool gstInvoice,
+    SalesInvoiceFormat? salesInvoiceFormat,
   }) {
     final isSales = row['transactionType'] == 'SALES';
     final kind = isSales ? 'sales' : 'purchase';
-    final type = gstInvoice ? 'gst_invoice' : 'accounts_slip';
-    return '${kind}_${type}_${row['billNo']}.pdf';
+    if (!gstInvoice) {
+      return '${kind}_accounts_slip_${row['billNo']}.pdf';
+    }
+    if (isSales && salesInvoiceFormat == SalesInvoiceFormat.simple) {
+      return '${kind}_simple_invoice_${row['billNo']}.pdf';
+    }
+    return '${kind}_gst_invoice_${row['billNo']}.pdf';
   }
 
   Future<void> _saveAndPrintBillPdf(
     Map<String, dynamic> row, {
     required bool gstInvoice,
+    SalesInvoiceFormat? salesInvoiceFormat,
   }) async {
     if (_sharingPdf) return;
     _sharingPdf = true;
     try {
       final bytes = gstInvoice
-          ? await _buildGstInvoicePdf(row)
+          ? await _buildGstInvoicePdf(
+              row,
+              salesInvoiceFormat: salesInvoiceFormat,
+            )
           : await _buildAccountsSlipPdf(row);
-      final fileName = _billPdfFileName(row, gstInvoice: gstInvoice);
+      final fileName = _billPdfFileName(
+        row,
+        gstInvoice: gstInvoice,
+        salesInvoiceFormat: salesInvoiceFormat,
+      );
       final file = await PdfKit.savePdf(bytes: bytes, fileName: fileName);
       if (!mounted) return;
       _showMessage('PDF saved: ${file.path}');
@@ -1816,18 +1886,30 @@ class _TransactionScreenState extends State<TransactionScreen>
   Future<void> _shareBillPdf(
     Map<String, dynamic> row, {
     required bool gstInvoice,
+    SalesInvoiceFormat? salesInvoiceFormat,
     bool openAfterSave = true,
   }) async {
     if (_sharingPdf) return;
     _sharingPdf = true;
     try {
       final bytes = gstInvoice
-          ? await _buildGstInvoicePdf(row)
+          ? await _buildGstInvoicePdf(
+              row,
+              salesInvoiceFormat: salesInvoiceFormat,
+            )
           : await _buildAccountsSlipPdf(row);
-      final label = gstInvoice ? 'GST invoice' : 'Accounts slip';
+      final label = !gstInvoice
+          ? 'Accounts slip'
+          : (salesInvoiceFormat == SalesInvoiceFormat.simple
+              ? 'Simple invoice'
+              : 'GST invoice');
       final file = await PdfKit.sharePdf(
         bytes: bytes,
-        fileName: _billPdfFileName(row, gstInvoice: gstInvoice),
+        fileName: _billPdfFileName(
+          row,
+          gstInvoice: gstInvoice,
+          salesInvoiceFormat: salesInvoiceFormat,
+        ),
         subject: '$label #${row['billNo']} - ${row['partyName'] ?? ''}',
         text:
             '$label (bill #${row['billNo']}). '

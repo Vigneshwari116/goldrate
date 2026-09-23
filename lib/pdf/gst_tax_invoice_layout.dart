@@ -426,15 +426,11 @@ class GstTaxInvoiceLayout {
             'CGST ${cgstPct.toStringAsFixed(1)}%',
             '',
             '',
-            cgstPct.toStringAsFixed(2),
-            '%',
+            '',
+            '',
             _inr.format(cgstSum),
           ],
-          align: {
-            4: pw.TextAlign.right,
-            5: pw.TextAlign.center,
-            6: pw.TextAlign.right,
-          },
+          align: {6: pw.TextAlign.right},
         ),
         ),
       );
@@ -446,15 +442,11 @@ class GstTaxInvoiceLayout {
             'SGST ${sgstPct.toStringAsFixed(1)}%',
             '',
             '',
-            sgstPct.toStringAsFixed(2),
-            '%',
+            '',
+            '',
             _inr.format(sgstSum),
           ],
-          align: {
-            4: pw.TextAlign.right,
-            5: pw.TextAlign.center,
-            6: pw.TextAlign.right,
-          },
+          align: {6: pw.TextAlign.right},
         ),
         ),
       );
@@ -518,6 +510,15 @@ class GstTaxInvoiceLayout {
       );
     }
 
+    double totalPure = 0;
+    double rateWeighted = 0;
+    for (final item in items) {
+      totalPure += item.pureWt;
+      rateWeighted += item.pureWt * item.rate;
+    }
+    final totalRate =
+        totalPure > 0 ? rateWeighted / totalPure : 0.0;
+
     rows.add(
       pw.TableRow(
         children: itemCells(
@@ -526,13 +527,15 @@ class GstTaxInvoiceLayout {
           'Total',
           '',
           '${_wt.format(totalWt)} GM',
-          '',
-          '',
+          _rateFmt.format(totalRate),
+          'GM',
           '₹${_inr.format(grand)}',
         ],
         weight: pw.FontWeight.bold,
         align: {
           3: pw.TextAlign.right,
+          4: pw.TextAlign.right,
+          5: pw.TextAlign.center,
           6: pw.TextAlign.right,
         },
       ),

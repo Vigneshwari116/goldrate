@@ -66,6 +66,9 @@ class GstSalesLedgerTotals {
     required this.sgst,
     required this.igst,
     required this.grandTotal,
+    required this.totalTaxable,
+    required this.weightedRateNumerator,
+    required this.netWeightSum,
   });
 
   final double totalWeight;
@@ -73,6 +76,12 @@ class GstSalesLedgerTotals {
   final double sgst;
   final double igst;
   final double grandTotal;
+  final double totalTaxable;
+  final double weightedRateNumerator;
+  final double netWeightSum;
+
+  double get averageRate =>
+      netWeightSum > 0 ? weightedRateNumerator / netWeightSum : 0;
 
   static const zero = GstSalesLedgerTotals(
     totalWeight: 0,
@@ -80,6 +89,9 @@ class GstSalesLedgerTotals {
     sgst: 0,
     igst: 0,
     grandTotal: 0,
+    totalTaxable: 0,
+    weightedRateNumerator: 0,
+    netWeightSum: 0,
   );
 
   GstSalesLedgerTotals add(GstSalesLedgerRow row) {
@@ -89,12 +101,16 @@ class GstSalesLedgerTotals {
       sgst: sgst + row.sgst,
       igst: igst + row.igst,
       grandTotal: grandTotal + row.grandTotal,
+      totalTaxable: totalTaxable + row.taxableValue,
+      weightedRateNumerator: weightedRateNumerator + (row.rate * row.netWeight),
+      netWeightSum: netWeightSum + row.netWeight,
     );
   }
 
   List<String> toFooterCells() {
     final inr = GstSalesLedgerRow._inr;
     final wt2 = GstSalesLedgerRow._wt2;
+    final rateFmt = GstSalesLedgerRow._rateFmt;
     return [
       'RANGE TOTAL',
       '',
@@ -103,8 +119,8 @@ class GstSalesLedgerTotals {
       '',
       '',
       '${wt2.format(totalWeight)} GM',
-      '',
-      '',
+      rateFmt.format(averageRate),
+      inr.format(totalTaxable),
       inr.format(cgst),
       inr.format(sgst),
       inr.format(igst),

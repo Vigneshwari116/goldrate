@@ -191,62 +191,67 @@ class _GstSalesLedgerScreenState extends State<GstSalesLedgerScreen>
     2, 2, 4, 3, 2, 2, 2, 2, 3, 2, 2, 2, 3,
   ];
 
+  static const _borderSide = BorderSide(color: AppColors.border, width: 1);
+
+  Widget _gridCell(
+    String text, {
+    bool header = false,
+    bool footer = false,
+    bool boldGrand = false,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+      decoration: BoxDecoration(
+        color: header
+            ? AppColors.tableHeader
+            : footer
+                ? AppColors.headerBand.withValues(alpha: 0.4)
+                : Colors.white,
+        border: const Border(
+          right: _borderSide,
+          bottom: _borderSide,
+        ),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: header ? 11 : 12,
+          fontWeight: header || footer || boldGrand
+              ? FontWeight.w800
+              : FontWeight.normal,
+        ),
+      ),
+    );
+  }
+
   Widget _table() {
     final headers = GstSalesLedgerReport.headers;
     final rows = _rows;
     final footer = _totals.toFooterCells();
     final grandCol = GstSalesLedgerReport.grandTotalColumnIndex;
 
-    Widget headerCell(String text, int index) {
-      final boldGrand = index == grandCol;
-      return Expanded(
-        flex: _columnFlex[index],
-        child: Text(
-          text,
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: boldGrand ? FontWeight.w800 : FontWeight.w700,
-          ),
-        ),
-      );
-    }
-
-    Widget dataRow(List<String> cells, {bool footer = false}) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-              color: footer ? AppColors.navy : AppColors.border,
-              width: footer ? 1.5 : 1,
+    TableRow buildRow(
+      List<String> cells, {
+      bool header = false,
+      bool footer = false,
+    }) {
+      return TableRow(
+        children: [
+          for (var i = 0; i < headers.length; i++)
+            _gridCell(
+              i < cells.length ? cells[i] : '',
+              header: header,
+              footer: footer,
+              boldGrand: !header && i == grandCol,
             ),
-          ),
-          color: footer ? AppColors.headerBand.withOpacity(0.35) : Colors.white,
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            for (var i = 0; i < headers.length; i++)
-              Expanded(
-                flex: _columnFlex[i],
-                child: Text(
-                  i < cells.length ? cells[i] : '',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: (footer || i == grandCol)
-                        ? FontWeight.w800
-                        : FontWeight.normal,
-                  ),
-                ),
-              ),
-          ],
-        ),
+        ],
       );
     }
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final minWidth = constraints.maxWidth < 1100 ? 1100.0 : constraints.maxWidth;
+        final minWidth =
+            constraints.maxWidth < 1200 ? 1200.0 : constraints.maxWidth;
         return SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: SizedBox(
@@ -254,24 +259,68 @@ class _GstSalesLedgerScreenState extends State<GstSalesLedgerScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Container(
-                  color: AppColors.tableHeader,
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                  child: Row(
-                    children: [
-                      for (var i = 0; i < headers.length; i++)
-                        headerCell(headers[i], i),
-                    ],
+                Table(
+                  border: const TableBorder(
+                    left: _borderSide,
+                    top: _borderSide,
+                    right: _borderSide,
+                    verticalInside: _borderSide,
+                    horizontalInside: _borderSide,
                   ),
+                  columnWidths: {
+                    for (var i = 0; i < headers.length; i++)
+                      i: FlexColumnWidth(_columnFlex[i].toDouble()),
+                  },
+                  children: [
+                    buildRow(headers, header: true),
+                    if (rows.isEmpty)
+                      buildRow(
+                        const [
+                          'No sales bills in this date range',
+                          '',
+                          '',
+                          '',
+                          '',
+                          '',
+                          '',
+                          '',
+                          '',
+                          '',
+                          '',
+                          '',
+                          '',
+                        ],
+                      )
+                    else ...[
+                      for (final row in rows) buildRow(row.toCells()),
+                      buildRow(footer, footer: true),
+                    ],
+                  ],
                 ),
-                if (rows.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Center(child: Text('No sales bills in this date range')),
-                  )
-                else ...[
-                  for (final row in rows) dataRow(row.toCells()),
-                  dataRow(footer, footer: true),
+                if (rows.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.navy,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Text(
+                        'GRAND TOTAL: ₹${_totals.grandTotal.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ],
             ),
@@ -428,25 +477,16 @@ class _GstSalesLedgerScreenState extends State<GstSalesLedgerScreen>
                                   ],
                                 ),
                               ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 14,
-                                  vertical: 10,
-                                ),
-                                color: AppColors.navy,
-                                child: Text(
-                                  'GRAND TOTAL: ₹${_totals.grandTotal.toStringAsFixed(2)}',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ),
                             ],
                           ),
                         ),
                         const Divider(height: 1),
-                        Expanded(child: _table()),
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+                            child: _table(),
+                          ),
+                        ),
                         SizedBox(
                           width: double.infinity,
                           height: 46,
