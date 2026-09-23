@@ -1776,10 +1776,20 @@ class _TransactionScreenState extends State<TransactionScreen>
       final file = await PdfKit.savePdf(bytes: bytes, fileName: fileName);
       if (!mounted) return;
       _showMessage('PDF saved: ${file.path}');
-      await PdfPrint.showDialog(
+      final printed = await PdfPrint.showDialog(
         bytes: bytes,
         documentName: fileName,
       );
+      if (!mounted) return;
+      if (!printed) {
+        _showMessage(
+          'Print cancelled or unavailable. PDF is saved — open it from ${file.path}',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        _showMessage('Saved bill PDF but could not open print: $e');
+      }
     } finally {
       _sharingPdf = false;
     }
