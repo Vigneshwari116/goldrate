@@ -51,7 +51,7 @@ sudo -u postgres psql -d jewellery_db -f schema.sql
 
 Or paste the SQL from `schema.sql` manually in psql.
 
-**GST billing (party profiles, shop settings, HSN, transaction tax columns):** new API
+**GST billing (party profiles, HSN, transaction tax columns):** new API
 deploys run `server/migrations/015_gst_billing.sql` automatically on startup. You can
 also apply it manually:
 
