@@ -248,6 +248,15 @@ app.delete('/api/customers/by-name/:name', async (req, res) => {
   res.json({ rowsAffected: result.rowCount });
 });
 
+app.delete('/api/customers/by-bill-ref/:billRef', async (req, res) => {
+  const billRef = decodeURIComponent(req.params.billRef);
+  const result = await pool.query(
+    'DELETE FROM customers WHERE bill_ref = $1',
+    [billRef],
+  );
+  res.json({ rowsAffected: result.rowCount });
+});
+
 app.delete('/api/customers/:id', async (req, res) => {
   const id = parsePositiveInt(req.params.id, 'customer id');
   const result = await pool.query('DELETE FROM customers WHERE id = $1', [id]);
@@ -323,6 +332,15 @@ app.delete('/api/suppliers/by-name/:name', async (req, res) => {
   const result = await pool.query(
     'DELETE FROM suppliers WHERE LOWER(name) = LOWER($1)',
     [name],
+  );
+  res.json({ rowsAffected: result.rowCount });
+});
+
+app.delete('/api/suppliers/by-bill-ref/:billRef', async (req, res) => {
+  const billRef = decodeURIComponent(req.params.billRef);
+  const result = await pool.query(
+    'DELETE FROM suppliers WHERE bill_ref = $1',
+    [billRef],
   );
   res.json({ rowsAffected: result.rowCount });
 });

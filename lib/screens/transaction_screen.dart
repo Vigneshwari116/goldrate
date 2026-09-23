@@ -15,9 +15,11 @@ import '../logic/bill_tax.dart';
 import '../logic/gold_ledger.dart';
 import '../models/bill_line_item.dart';
 import '../models/party_billing_profile.dart';
+import '../pdf/purchase_tax_invoice_pdf.dart';
 import '../pdf/sales_tax_invoice_pdf.dart';
 import '../widgets/party_billing_fields.dart';
 import '../pdf/pdf_kit.dart';
+import '../util/pdf_print.dart';
 import '../models/party_suggestion.dart';
 import '../widgets/party_search_field.dart';
 import '../util/party_save_prompt.dart';
@@ -143,6 +145,7 @@ class _TransactionScreenState extends State<TransactionScreen>
   bool _sharingPdf = false;
   List<Map<String, dynamic>> _history = [];
   Map<String, double> _rates = {};
+  final Map<String, double> _billRateOverrideByType = {};
   List<PartySuggestion> _partySuggestions = [];
   Map<String, double>? _partyOutstanding;
   Timer? _partyRefreshTimer;
@@ -150,6 +153,15 @@ class _TransactionScreenState extends State<TransactionScreen>
   String? _paymentTouchError;
   int? _editingTransactionId;
   int? _editingBillNo;
+  String? _editingPreserveDate;
+  String? _editingPreserveTime;
+
+  int? _transactionRowId(Map<String, dynamic> row) {
+    final id = row['id'];
+    if (id is int) return id;
+    if (id is num) return id.toInt();
+    return int.tryParse(id?.toString() ?? '');
+  }
 
   /// Purchase looks up Suppliers (stock coming in from them); Sales
   /// looks up Customers (stock going out to them).
@@ -264,6 +276,16 @@ class _TransactionScreenState extends State<TransactionScreen>
   double get _paymentTotalPure => _paymentMetalPure + _paymentCashGold;
 
   double get _goldRate => GoldLedger.goldRate(_rates);
+
+  double _masterRateForType(String type) {
+    final rateName = kItemTypeToRateName[type];
+    if (rateName == null) return 0;
+    return _rates[rateName] ?? 0;
+  }
+
+  double _effectiveRateForType(String type) {
+    return _billRateOverrideByType[type] ?? _masterRateForType(type);
+  }
 
   double get _balancePure => _billTotalPure - _paymentTotalPure;
 
@@ -395,8 +417,7 @@ class _TransactionScreenState extends State<TransactionScreen>
       return null;
     }
     final touch = double.parse(_billEntryTouch.text.trim());
-    final rateName = kItemTypeToRateName[_billEntryType];
-    final rate = _rates[rateName] ?? 0;
+    final rate = _effectiveRateForType(_billEntryType);
     final hsn = _hsnByType[_billEntryType] ?? kDefaultHsnByItemType[_billEntryType] ?? '';
     final desc = _billEntryDescription.text.trim();
     return BillLineItem(
@@ -447,8 +468,8 @@ class _TransactionScreenState extends State<TransactionScreen>
       _showMessage('Enter weight and touch before continuing');
       return;
     }
-    final rateName = kItemTypeToRateName[item.type];
-    if ((_rates[rateName] ?? 0) <= 0) {
+    final rateName = kItemTypeToRateName[item.type] ?? item.type;
+    if (_effectiveRateForType(item.type) <= 0) {
       _showMessage(
           "$rateName isn't set yet — update it on the Master screen first");
       return;
@@ -811,6 +832,8 @@ class _TransactionScreenState extends State<TransactionScreen>
       _partyOutstanding = null;
       _editingTransactionId = null;
       _editingBillNo = null;
+      _editingPreserveDate = null;
+      _editingPreserveTime = null;
     });
   }
 
@@ -942,8 +965,10 @@ class _TransactionScreenState extends State<TransactionScreen>
 
     final billNo = row['billNo'] as int? ?? _nextBillNo;
     setState(() {
-      _editingTransactionId = row['id'] as int?;
+      _editingTransactionId = _transactionRowId(row);
       _editingBillNo = billNo;
+      _editingPreserveDate = (row['date'] ?? '').toString();
+      _editingPreserveTime = (row['time'] ?? '').toString();
       _nextBillNo = billNo;
       _partyController.text = (row['partyName'] ?? '').toString();
       _partyAddressController.text = (row['partyAddress'] ?? '').toString();
@@ -981,14 +1006,134 @@ class _TransactionScreenState extends State<TransactionScreen>
 
   bool _validateBillRates() {
     for (final item in _billItems) {
-      final rateName = kItemTypeToRateName[item.type];
-      if ((_rates[rateName] ?? 0) <= 0) {
+      final rateName = kItemTypeToRateName[item.type] ?? item.type;
+      if (item.rate <= 0) {
         _showMessage(
             "$rateName isn't set yet — update it on the Master screen first");
         return false;
       }
     }
     return true;
+  }
+
+  Future<void> _editBillEntryRate() async {
+    final type = _billEntryType;
+    final rateName = kItemTypeToRateName[type] ?? type;
+    final master = _masterRateForType(type);
+    final current = _effectiveRateForType(type);
+    final ctrl = TextEditingController(
+      text: current > 0 ? current.toStringAsFixed(2) : '',
+    );
+    final updated = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Rate — $type ($rateName)'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (master > 0)
+              Text(
+                'Daily Rate: ${master.toStringAsFixed(2)}',
+                style: const TextStyle(fontSize: 12, color: Colors.black54),
+              ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: ctrl,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Rate for this bill line',
+                isDense: true,
+              ),
+              autofocus: true,
+            ),
+          ],
+        ),
+        actions: [
+          if (_billRateOverrideByType.containsKey(type))
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                if (mounted) {
+                  setState(() => _billRateOverrideByType.remove(type));
+                }
+              },
+              child: const Text('USE DAILY RATE'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('CANCEL'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('SAVE'),
+          ),
+        ],
+      ),
+    );
+    if (updated == true && mounted) {
+      final parsed = double.tryParse(ctrl.text.trim());
+      if (parsed != null && parsed > 0) {
+        setState(() => _billRateOverrideByType[type] = parsed);
+      }
+    }
+    ctrl.dispose();
+  }
+
+  /// Compact Daily Rate chip above metal entry (ISSUE on Sales, RECEIPT on Purchase).
+  Widget _billEntryRateChip() {
+    final type = _billEntryType;
+    final rateName = kItemTypeToRateName[type] ?? type;
+    final rate = _effectiveRateForType(type);
+    final overridden = _billRateOverrideByType.containsKey(type);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: _editBillEntryRate,
+            borderRadius: BorderRadius.circular(6),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.cardWhite,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: overridden ? AppColors.mutedBlue : AppColors.border,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    rateName,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.mutedBlue,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    rate > 0 ? rate.toStringAsFixed(2) : '—',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.navy,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.edit_outlined, size: 14, color: Colors.black45),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Map<String, dynamic> _paymentLineToJson(_PanelLine line) {
@@ -1042,8 +1187,16 @@ class _TransactionScreenState extends State<TransactionScreen>
 
     setState(() => _saving = true);
 
-    final date = DateFormat("dd-MM-yyyy").format(DateTime.now());
-    final time = DateFormat("hh:mm a").format(DateTime.now());
+    final date = (_editingTransactionId != null &&
+            _editingPreserveDate != null &&
+            _editingPreserveDate!.isNotEmpty)
+        ? _editingPreserveDate!
+        : DateFormat("dd-MM-yyyy").format(DateTime.now());
+    final time = (_editingTransactionId != null &&
+            _editingPreserveTime != null &&
+            _editingPreserveTime!.isNotEmpty)
+        ? _editingPreserveTime!
+        : DateFormat("hh:mm a").format(DateTime.now());
 
     final items = _billItems;
     final s = _settlement;
@@ -1133,7 +1286,18 @@ class _TransactionScreenState extends State<TransactionScreen>
 
     await _load();
     if (!mounted) return;
-    await _sharePdf(savedRow, openAfterSave: false);
+    if (!wasEdit) {
+      final txnType = (savedRow['transactionType'] ?? '').toString();
+      if (txnType == 'SALES') {
+        await _saveAndPrintBillPdf(savedRow, gstInvoice: true);
+      } else {
+        await _shareBillPdf(
+          savedRow,
+          gstInvoice: true,
+          openAfterSave: false,
+        );
+      }
+    }
   }
 
   Future<void> _saveVoucher() async {
@@ -1297,7 +1461,7 @@ class _TransactionScreenState extends State<TransactionScreen>
         ? storedRef
         : '${_isPurchase ? 'PUR' : 'SAL'}-$billNo';
 
-    final id = row['id'] as int?;
+    final id = _transactionRowId(row);
     if (row['fromLedger'] != true && id != null && id > 0) {
       await DatabaseHelper.instance.deleteTransaction(id);
     }
@@ -1376,16 +1540,35 @@ class _TransactionScreenState extends State<TransactionScreen>
                 style: TextStyle(color: Colors.red),
               ),
             ),
-          if (row['fromLedger'] != true)
+          if (row['fromLedger'] != true) ...[
+            if ((row['transactionType'] ?? '').toString() == 'PURCHASE')
+              TextButton(
+                onPressed: _sharingPdf
+                    ? null
+                    : () async {
+                        Navigator.pop(dialogContext);
+                        await _shareBillPdf(
+                          row,
+                          gstInvoice: false,
+                          openAfterSave: false,
+                        );
+                      },
+                child: const Text('ACCOUNTS SLIP'),
+              ),
             TextButton(
               onPressed: _sharingPdf
                   ? null
                   : () async {
                       Navigator.pop(dialogContext);
-                      await _sharePdf(row, openAfterSave: false);
+                      await _shareBillPdf(
+                        row,
+                        gstInvoice: true,
+                        openAfterSave: false,
+                      );
                     },
-              child: const Text('PDF'),
+              child: const Text('GST INVOICE'),
             ),
+          ],
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
             child: const Text("CLOSE"),
@@ -1400,51 +1583,69 @@ class _TransactionScreenState extends State<TransactionScreen>
         .toList();
   }
 
-  Future<Uint8List> _buildBillPdf(Map<String, dynamic> row) async {
+  BillTaxTotals _taxTotalsFromRow(
+    Map<String, dynamic> row,
+    List<BillLineItem> items,
+  ) {
+    return BillTaxTotals(
+      totalTaxable: double.tryParse(
+              (row['totalTaxable'] ?? row['totalValue'] ?? '0').toString()) ??
+          items.fold(0, (s, i) => s + i.tax.taxableValue),
+      totalInclusive: double.tryParse(
+              (row['totalInclusive'] ?? '0').toString()) ??
+          items.fold(0, (s, i) => s + i.tax.inclusiveAmount),
+      roundOff: double.tryParse((row['roundOff'] ?? '0').toString()) ?? 0,
+      grandTotal: double.tryParse(
+              (row['grandTotal'] ?? row['totalValue'] ?? '0').toString()) ??
+          items.fold(0, (s, i) => s + i.tax.inclusiveAmount),
+    );
+  }
+
+  Future<Uint8List> _buildGstInvoicePdf(Map<String, dynamic> row) async {
     final items = _itemsFromRow(row);
     final isSalesBill = row['transactionType'] == 'SALES';
-
-    if (isSalesBill) {
-      final buyer = PartyBillingProfile.fromTransactionRow(row);
-      final tdsApplicable = (row['tdsApplicable'] as int? ?? 0) == 1;
-      final tcsApplicable = (row['tcsApplicable'] as int? ?? 0) == 1;
-      final tdsAmount =
-          double.tryParse((row['tdsAmount'] ?? '0').toString()) ?? 0;
-      final tcsAmount =
-          double.tryParse((row['tcsAmount'] ?? '0').toString()) ?? 0;
-      final totals = BillTaxTotals(
-        totalTaxable:
-            double.tryParse((row['totalTaxable'] ?? row['totalValue'] ?? '0').toString()) ??
-                items.fold(0, (s, i) => s + i.tax.taxableValue),
-        totalInclusive: double.tryParse(
-                (row['totalInclusive'] ?? '0').toString()) ??
-            items.fold(0, (s, i) => s + i.tax.inclusiveAmount),
-        roundOff: double.tryParse((row['roundOff'] ?? '0').toString()) ?? 0,
-        grandTotal: double.tryParse((row['grandTotal'] ?? row['totalValue'] ?? '0').toString()) ??
-            items.fold(0, (s, i) => s + i.tax.inclusiveAmount),
+    final tdsApplicable = (row['tdsApplicable'] as int? ?? 0) == 1;
+    final tcsApplicable = (row['tcsApplicable'] as int? ?? 0) == 1;
+    final tdsAmount =
+        double.tryParse((row['tdsAmount'] ?? '0').toString()) ?? 0;
+    final tcsAmount =
+        double.tryParse((row['tcsAmount'] ?? '0').toString()) ?? 0;
+    final totals = _taxTotalsFromRow(row, items);
+    final doc = await PdfKit.document();
+    for (final copyLabel in [
+      SalesTaxInvoicePdf.copyOriginalForRecipient,
+      SalesTaxInvoicePdf.copyDuplicateForTransporter,
+    ]) {
+      doc.addPage(
+        isSalesBill
+            ? SalesTaxInvoicePdf.buildPage(
+                buyer: PartyBillingProfile.fromTransactionRow(row),
+                row: row,
+                items: items,
+                totals: totals,
+                tdsApplicable: tdsApplicable,
+                tcsApplicable: tcsApplicable,
+                tdsAmount: tdsAmount,
+                tcsAmount: tcsAmount,
+                copyLabel: copyLabel,
+              )
+            : PurchaseTaxInvoicePdf.buildPage(
+                row: row,
+                items: items,
+                totals: totals,
+                tdsApplicable: tdsApplicable,
+                tcsApplicable: tcsApplicable,
+                tdsAmount: tdsAmount,
+                tcsAmount: tcsAmount,
+                copyLabel: copyLabel,
+              ),
       );
-      final doc = await PdfKit.document();
-      for (final copyLabel in [
-        SalesTaxInvoicePdf.copyOriginalForRecipient,
-        SalesTaxInvoicePdf.copyDuplicateForTransporter,
-      ]) {
-        doc.addPage(
-          SalesTaxInvoicePdf.buildPage(
-            buyer: buyer,
-            row: row,
-            items: items,
-            totals: totals,
-            tdsApplicable: tdsApplicable,
-            tcsApplicable: tcsApplicable,
-            tdsAmount: tdsAmount,
-            tcsAmount: tcsAmount,
-            copyLabel: copyLabel,
-          ),
-        );
-      }
-      return doc.save();
     }
+    return doc.save();
+  }
 
+  Future<Uint8List> _buildAccountsSlipPdf(Map<String, dynamic> row) async {
+    final items = _itemsFromRow(row);
     final phone = await DatabaseHelper.instance.getPartyPhone(
       (row['partyName'] ?? '').toString(),
       isCustomer: _isCustomerParty,
@@ -1547,21 +1748,54 @@ class _TransactionScreenState extends State<TransactionScreen>
     );
   }
 
-  Future<void> _sharePdf(
+  String _billPdfFileName(
     Map<String, dynamic> row, {
+    required bool gstInvoice,
+  }) {
+    final isSales = row['transactionType'] == 'SALES';
+    final kind = isSales ? 'sales' : 'purchase';
+    final type = gstInvoice ? 'gst_invoice' : 'accounts_slip';
+    return '${kind}_${type}_${row['billNo']}.pdf';
+  }
+
+  Future<void> _saveAndPrintBillPdf(
+    Map<String, dynamic> row, {
+    required bool gstInvoice,
+  }) async {
+    if (_sharingPdf) return;
+    _sharingPdf = true;
+    try {
+      final bytes = gstInvoice
+          ? await _buildGstInvoicePdf(row)
+          : await _buildAccountsSlipPdf(row);
+      final fileName = _billPdfFileName(row, gstInvoice: gstInvoice);
+      final file = await PdfKit.savePdf(bytes: bytes, fileName: fileName);
+      if (!mounted) return;
+      _showMessage('PDF saved: ${file.path}');
+      await PdfPrint.showDialog(
+        bytes: bytes,
+        documentName: fileName,
+      );
+    } finally {
+      _sharingPdf = false;
+    }
+  }
+
+  Future<void> _shareBillPdf(
+    Map<String, dynamic> row, {
+    required bool gstInvoice,
     bool openAfterSave = true,
   }) async {
     if (_sharingPdf) return;
     _sharingPdf = true;
     try {
-      final bytes = await _buildBillPdf(row);
-      final isSales = row['transactionType'] == 'SALES';
-      final kind = isSales ? 'sales' : 'purchase';
-      final type = isSales ? 'gst_invoice' : 'accounts';
-      final label = isSales ? 'GST invoice' : 'Accounts bill';
+      final bytes = gstInvoice
+          ? await _buildGstInvoicePdf(row)
+          : await _buildAccountsSlipPdf(row);
+      final label = gstInvoice ? 'GST invoice' : 'Accounts slip';
       final file = await PdfKit.sharePdf(
         bytes: bytes,
-        fileName: '${kind}_${type}_${row['billNo']}.pdf',
+        fileName: _billPdfFileName(row, gstInvoice: gstInvoice),
         subject: '$label #${row['billNo']} - ${row['partyName'] ?? ''}',
         text:
             '$label (bill #${row['billNo']}). '
@@ -2427,10 +2661,13 @@ class _TransactionScreenState extends State<TransactionScreen>
       totalLabel: '$title total pure wt',
       totalPure: _billTotalPure,
       rows: [
+        _billEntryRateChip(),
         _metalEntryRow(
           prefix: prefix,
           selectedType: _billEntryType,
-          onTypeChanged: (v) => setState(() => _billEntryType = v),
+          onTypeChanged: (v) => setState(() {
+            _billEntryType = v;
+          }),
           weight: _billEntryWeight,
           touch: _billEntryTouch,
           weightFocus: _billEntryWeightFocus,
