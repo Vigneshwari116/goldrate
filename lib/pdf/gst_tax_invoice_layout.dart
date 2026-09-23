@@ -96,10 +96,8 @@ class GstTaxInvoiceLayout {
     58,
   ];
 
-  static const double _taxRateShare = 36 / 88;
-
-  static double _taxRatePartW(double groupWidth) =>
-      groupWidth * _taxRateShare;
+  static const double _taxRatePartW = 36;
+  static const double _taxAmountPartW = 52;
 
   static pw.Widget _cell(
     String text, {
@@ -572,66 +570,30 @@ class GstTaxInvoiceLayout {
     String label, {
     double height = 30,
     pw.TextAlign align = pw.TextAlign.center,
-    bool splitLikeTaxGroup = false,
   }) {
-    if (!splitLikeTaxGroup) {
-      return pw.Container(
-        width: width,
-        height: height,
-        color: PdfColors.grey300,
-        alignment: align == pw.TextAlign.right
-            ? pw.Alignment.centerRight
-            : pw.Alignment.center,
-        padding: const pw.EdgeInsets.symmetric(horizontal: 2),
-        child: _text(
-          label,
-          size: 7,
-          weight: pw.FontWeight.bold,
-          align: align,
-        ),
-      );
-    }
     return pw.Container(
       width: width,
       height: height,
       color: PdfColors.grey300,
-      child: pw.Column(
-        children: [
-          pw.Container(
-            height: 15,
-            width: width,
-            decoration: pw.BoxDecoration(
-              border: pw.Border(bottom: _borderSide),
-            ),
-          ),
-          pw.Expanded(
-            child: pw.Align(
-              alignment: align == pw.TextAlign.right
-                  ? pw.Alignment.centerRight
-                  : pw.Alignment.center,
-              child: pw.Padding(
-                padding: const pw.EdgeInsets.symmetric(horizontal: 2),
-                child: _text(
-                  label,
-                  size: 7,
-                  weight: pw.FontWeight.bold,
-                  align: align,
-                ),
-              ),
-            ),
-          ),
-        ],
+      alignment: align == pw.TextAlign.right
+          ? pw.Alignment.centerRight
+          : pw.Alignment.center,
+      padding: const pw.EdgeInsets.symmetric(horizontal: 2),
+      child: _text(
+        label,
+        size: 7,
+        weight: pw.FontWeight.bold,
+        align: align,
       ),
     );
   }
 
   static pw.Widget _taxGroupHeaderCell(double groupWidth, String title) {
-    final rateW = _taxRatePartW(groupWidth);
+    final rateW = groupWidth * (_taxRatePartW / ( _taxRatePartW + _taxAmountPartW));
     final amountW = groupWidth - rateW;
-    return pw.Container(
+    return pw.SizedBox(
       width: groupWidth,
       height: 30,
-      color: PdfColors.grey300,
       child: pw.Column(
         children: [
           pw.Container(
@@ -639,13 +601,14 @@ class GstTaxInvoiceLayout {
             height: 15,
             alignment: pw.Alignment.center,
             decoration: pw.BoxDecoration(
-              border: pw.Border(bottom: _borderSide),
               color: PdfColors.grey300,
+              border: pw.Border(bottom: _borderSide),
             ),
             child: _text(title, size: 7, weight: pw.FontWeight.bold),
           ),
           pw.SizedBox(
             height: 15,
+            width: groupWidth,
             child: pw.Row(
               children: [
                 pw.Container(
@@ -676,7 +639,7 @@ class GstTaxInvoiceLayout {
     String rate,
     String amount,
   ) {
-    final rateW = _taxRatePartW(groupWidth);
+    final rateW = groupWidth * (_taxRatePartW / (_taxRatePartW + _taxAmountPartW));
     final amountW = groupWidth - rateW;
     return pw.SizedBox(
       width: groupWidth,
@@ -751,8 +714,8 @@ class GstTaxInvoiceLayout {
         children: [
           _taxDataCell(0, 'Total', weight: pw.FontWeight.bold),
           _taxDataCell(1, _inr.format(totalTaxable), weight: pw.FontWeight.bold, align: pw.TextAlign.right),
-          _taxRateAmountCell(w[2], '', _inr.format(totalCgst),),
-          _taxRateAmountCell(w[3], '', _inr.format(totalSgst),),
+          _taxRateAmountCell(w[2], '', _inr.format(totalCgst)),
+          _taxRateAmountCell(w[3], '', _inr.format(totalSgst)),
           _taxDataCell(4, _inr.format(totalTax), weight: pw.FontWeight.bold, align: pw.TextAlign.right),
         ],
       ),

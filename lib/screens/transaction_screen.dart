@@ -1483,9 +1483,23 @@ class _TransactionScreenState extends State<TransactionScreen>
   }
 
   void _showBillDetails(Map<String, dynamic> row) {
+    // Post-save print can leave _sharingPdf true; bill actions must stay tappable.
+    _sharingPdf = false;
+
     final items = (jsonDecode(row['items'] as String) as List)
         .map((e) => BillLineItem.fromJson(e as Map<String, dynamic>))
         .toList();
+
+    Future<void> openInvoice(
+      SalesInvoiceFormat format,
+    ) async {
+      await _shareBillPdf(
+        row,
+        gstInvoice: true,
+        salesInvoiceFormat: format,
+        openAfterSave: true,
+      );
+    }
 
     showDialog(
       context: context,
@@ -1560,60 +1574,42 @@ class _TransactionScreenState extends State<TransactionScreen>
             ),
           if (row['fromLedger'] != true) ...[
             if ((row['transactionType'] ?? '').toString() == 'PURCHASE')
-              TextButton(
-                onPressed: _sharingPdf
-                    ? null
-                    : () async {
-                        Navigator.pop(dialogContext);
-                        await _shareBillPdf(
-                          row,
-                          gstInvoice: false,
-                          openAfterSave: false,
-                        );
-                      },
+              FilledButton.tonal(
+                onPressed: () async {
+                  Navigator.pop(dialogContext);
+                  await _shareBillPdf(
+                    row,
+                    gstInvoice: false,
+                    openAfterSave: true,
+                  );
+                },
                 child: const Text('ACCOUNTS SLIP'),
               ),
             if ((row['transactionType'] ?? '').toString() == 'SALES') ...[
-              TextButton(
-                onPressed: _sharingPdf
-                    ? null
-                    : () async {
-                        Navigator.pop(dialogContext);
-                        await _shareBillPdf(
-                          row,
-                          gstInvoice: true,
-                          salesInvoiceFormat: SalesInvoiceFormat.detailed,
-                          openAfterSave: false,
-                        );
-                      },
+              FilledButton.tonal(
+                onPressed: () async {
+                  Navigator.pop(dialogContext);
+                  await openInvoice(SalesInvoiceFormat.detailed);
+                },
                 child: const Text('GST INVOICE'),
               ),
-              TextButton(
-                onPressed: _sharingPdf
-                    ? null
-                    : () async {
-                        Navigator.pop(dialogContext);
-                        await _shareBillPdf(
-                          row,
-                          gstInvoice: true,
-                          salesInvoiceFormat: SalesInvoiceFormat.simple,
-                          openAfterSave: false,
-                        );
-                      },
+              FilledButton.tonal(
+                onPressed: () async {
+                  Navigator.pop(dialogContext);
+                  await openInvoice(SalesInvoiceFormat.simple);
+                },
                 child: const Text('SIMPLE INVOICE'),
               ),
             ] else
-              TextButton(
-                onPressed: _sharingPdf
-                    ? null
-                    : () async {
-                        Navigator.pop(dialogContext);
-                        await _shareBillPdf(
-                          row,
-                          gstInvoice: true,
-                          openAfterSave: false,
-                        );
-                      },
+              FilledButton.tonal(
+                onPressed: () async {
+                  Navigator.pop(dialogContext);
+                  await _shareBillPdf(
+                    row,
+                    gstInvoice: true,
+                    openAfterSave: true,
+                  );
+                },
                 child: const Text('GST INVOICE'),
               ),
           ],
