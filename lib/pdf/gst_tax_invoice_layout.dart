@@ -21,7 +21,7 @@ class GstTaxInvoiceLayout {
   static final _rateFmt = NumberFormat('#,##0.00', 'en_IN');
 
   static pw.TextStyle _style({
-    double size = 8,
+    double size = 8.5,
     pw.FontWeight weight = pw.FontWeight.normal,
     pw.FontStyle fontStyle = pw.FontStyle.normal,
   }) =>
@@ -52,7 +52,7 @@ class GstTaxInvoiceLayout {
   static pw.BorderSide get _borderSide =>
       pw.BorderSide(color: _line, width: _border);
 
-  static const List<double> _itemColW = [24, 128, 44, 50, 48, 22, 58];
+  static const List<double> _itemColW = [26, 132, 46, 52, 50, 24, 60];
 
   static Map<int, pw.TableColumnWidth> get _itemColumnWidths => {
         for (var i = 0; i < _itemColW.length; i++)
@@ -62,7 +62,7 @@ class GstTaxInvoiceLayout {
   static pw.Widget _itemCell(
     int column,
     String text, {
-    double fontSize = 7.5,
+    double fontSize = 8,
     pw.FontWeight weight = pw.FontWeight.normal,
     pw.TextAlign align = pw.TextAlign.left,
   }) {
@@ -83,25 +83,24 @@ class GstTaxInvoiceLayout {
   }
 
   static Map<int, pw.TableColumnWidth> get _metaColumnWidths => {
-        0: const pw.FixedColumnWidth(72),
-        1: const pw.FixedColumnWidth(52),
-        2: const pw.FixedColumnWidth(72),
-        3: const pw.FixedColumnWidth(52),
+        0: const pw.FlexColumnWidth(1),
+        1: const pw.FlexColumnWidth(1),
       };
 
+  /// Tax summary: HSN, taxable, CGST group, SGST group, total tax.
   static const List<double> _taxColumnWidths = [
-    40,
-    56,
-    32,
-    48,
-    32,
-    48,
-    52,
+    44,
+    62,
+    88,
+    88,
+    58,
   ];
+
+  static const double _taxCgstRateW = 36;
 
   static pw.Widget _cell(
     String text, {
-    double fontSize = 7.5,
+    double fontSize = 8,
     pw.FontWeight weight = pw.FontWeight.normal,
     pw.TextAlign align = pw.TextAlign.left,
     pw.EdgeInsets padding = const pw.EdgeInsets.symmetric(horizontal: 3, vertical: 1),
@@ -272,7 +271,28 @@ class GstTaxInvoiceLayout {
     );
   }
 
-  /// Right-side metadata grid (reference invoice).
+  static pw.Widget _metaField(String label, String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return _cell(label, fontSize: 7.5);
+    }
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(horizontal: 3, vertical: 1.5),
+      child: pw.RichText(
+        text: pw.TextSpan(
+          children: [
+            pw.TextSpan(text: '$label ', style: _style(size: 7.5)),
+            pw.TextSpan(
+              text: trimmed,
+              style: _style(size: 7.5, weight: pw.FontWeight.bold),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Right-side metadata grid (reference invoice order, two columns).
   static pw.Widget _metadataGrid({
     required String billNo,
     required String date,
@@ -280,13 +300,11 @@ class GstTaxInvoiceLayout {
     String buyersOrderNo = '',
     bool outerBorder = true,
   }) {
-    pw.TableRow row(String l1, String v1, String l2, String v2) {
+    pw.TableRow pair(String l1, String v1, String l2, String v2) {
       return pw.TableRow(
         children: [
-          _cell(l1, fontSize: 7),
-          _cell(v1, fontSize: 7, weight: pw.FontWeight.bold),
-          _cell(l2, fontSize: 7),
-          _cell(v2, fontSize: 7),
+          _metaField(l1, v1),
+          _metaField(l2, v2),
         ],
       );
     }
@@ -294,21 +312,20 @@ class GstTaxInvoiceLayout {
     return pw.Table(
       border: outerBorder ? _tableBorder : null,
       columnWidths: _metaColumnWidths,
+      defaultVerticalAlignment: pw.TableCellVerticalAlignment.top,
       children: [
-        row('Invoice No.', billNo, 'Delivery Note', ''),
-        row('Reference No. & Date.', referenceNo, "Buyer's Order No.", buyersOrderNo),
-        row('Dispatch Doc No.', '', 'Dispatched through', ''),
-        row('Vessel/Flight No.', '', 'City/Port of Loading', ''),
-        row('Dated', date, 'Mode/Terms of Payment', ''),
-        row('Other References', '', 'Dated', ''),
-        row('Delivery Note Date', '', 'Destination', ''),
-        row('Place of receipt by shipper:', '', 'City/Port of Discharge', ''),
+        pair('Invoice No.', billNo, 'Dated', date),
+        pair('Delivery Note', '', 'Mode/Terms of Payment', ''),
+        pair('Reference No. & Date.', referenceNo, 'Other References', ''),
+        pair("Buyer's Order No.", buyersOrderNo, 'Dated', ''),
+        pair('Dispatch Doc No.', '', 'Delivery Note Date', ''),
+        pair('Dispatched through', '', 'Destination', ''),
+        pair('Vessel/Flight No.', '', 'Place of receipt by shipper:', ''),
+        pair('City/Port of Loading', '', 'City/Port of Discharge', ''),
         pw.TableRow(
           children: [
-            _cell('Terms of Delivery', fontSize: 7),
-            _cell('', fontSize: 7),
-            _cell('', fontSize: 7),
-            _cell('', fontSize: 7),
+            _cell('Terms of Delivery', fontSize: 7.5),
+            _cell('', fontSize: 7.5),
           ],
         ),
       ],
@@ -340,7 +357,7 @@ class GstTaxInvoiceLayout {
         return _itemCell(
           i,
           cells[i],
-          fontSize: 7,
+          fontSize: 7.5,
           weight: weight,
           align: align?[i] ?? _itemDefaultAlign(i),
         );
@@ -544,14 +561,14 @@ class GstTaxInvoiceLayout {
     }
   }
 
-  static pw.Widget _taxHeaderLabelCell(
-    int column,
+  static pw.Widget _taxHeaderPlainCell(
+    double width,
     String label, {
-    double height = 28,
+    double height = 30,
     pw.TextAlign align = pw.TextAlign.center,
   }) {
     return pw.Container(
-      width: _taxColumnWidths[column],
+      width: width,
       height: height,
       color: PdfColors.grey300,
       alignment: align == pw.TextAlign.right
@@ -560,50 +577,76 @@ class GstTaxInvoiceLayout {
       padding: const pw.EdgeInsets.symmetric(horizontal: 2),
       child: _text(
         label,
-        size: 6.5,
+        size: 7,
         weight: pw.FontWeight.bold,
         align: align,
       ),
     );
   }
 
-  /// Top row of CGST / SGST group — title centered across Rate + Amount.
-  static pw.Widget _taxGroupTitleCell(
-    double rateWidth,
-    double amountWidth,
-    String title,
-  ) {
+  static pw.Widget _taxGroupHeaderCell(double groupWidth, String title) {
     return pw.Container(
-      height: 14,
-      width: rateWidth,
+      width: groupWidth,
+      height: 30,
       color: PdfColors.grey300,
-      child: pw.Transform.translate(
-        offset: PdfPoint(0, 0),
-        child: pw.Container(
-          width: rateWidth + amountWidth,
-          height: 14,
-          alignment: pw.Alignment.center,
-          child: _text(title, size: 6.5, weight: pw.FontWeight.bold),
-        ),
+      child: pw.Column(
+        children: [
+          pw.Container(
+            height: 15,
+            width: groupWidth,
+            alignment: pw.Alignment.center,
+            decoration: pw.BoxDecoration(
+              border: pw.Border(
+                bottom: pw.BorderSide(color: _line, width: _border),
+              ),
+            ),
+            child: _text(title, size: 7, weight: pw.FontWeight.bold),
+          ),
+          pw.Row(
+            children: [
+              pw.Container(
+                width: _taxCgstRateW,
+                height: 15,
+                alignment: pw.Alignment.center,
+                decoration: pw.BoxDecoration(
+                  border: pw.Border(
+                    right: pw.BorderSide(color: _line, width: _border),
+                  ),
+                ),
+                child: _text('Rate', size: 6.5, weight: pw.FontWeight.bold),
+              ),
+              pw.Container(
+                width: groupWidth - _taxCgstRateW,
+                height: 15,
+                alignment: pw.Alignment.center,
+                child: _text('Amount', size: 6.5, weight: pw.FontWeight.bold),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
-  static pw.Widget _taxSubHeaderCell(double width, String label) {
-    return pw.Container(
-      width: width,
-      height: 14,
-      color: PdfColors.grey300,
-      alignment: pw.Alignment.center,
-      child: _text(label, size: 6, weight: pw.FontWeight.bold),
-    );
-  }
-
-  static pw.Widget _taxHeaderSpacer(double width) {
-    return pw.Container(
-      width: width,
-      height: 14,
-      color: PdfColors.grey300,
+  static pw.Widget _taxRateAmountCell(
+    double groupWidth,
+    String rate,
+    String amount,
+  ) {
+    return pw.SizedBox(
+      width: groupWidth,
+      child: pw.Row(
+        children: [
+          pw.SizedBox(
+            width: _taxCgstRateW,
+            child: _cell(rate, fontSize: 7.5, align: pw.TextAlign.right),
+          ),
+          pw.SizedBox(
+            width: groupWidth - _taxCgstRateW,
+            child: _cell(amount, fontSize: 7.5, align: pw.TextAlign.right),
+          ),
+        ],
+      ),
     );
   }
 
@@ -616,7 +659,7 @@ class GstTaxInvoiceLayout {
     final width = _taxColumnWidths[column];
     return pw.SizedBox(
       width: width,
-      child: _cell(text, fontSize: 7, weight: weight, align: align),
+      child: _cell(text, fontSize: 7.5, weight: weight, align: align),
     );
   }
 
@@ -641,11 +684,17 @@ class GstTaxInvoiceLayout {
           children: [
             _taxDataCell(0, h.hsn),
             _taxDataCell(1, _inr.format(h.taxable), align: pw.TextAlign.right),
-            _taxDataCell(2, '${h.cgstPercent.toStringAsFixed(2)}%', align: pw.TextAlign.right),
-            _taxDataCell(3, _inr.format(h.cgstAmount), align: pw.TextAlign.right),
-            _taxDataCell(4, '${h.sgstPercent.toStringAsFixed(2)}%', align: pw.TextAlign.right),
-            _taxDataCell(5, _inr.format(h.sgstAmount), align: pw.TextAlign.right),
-            _taxDataCell(6, _inr.format(h.totalTax), align: pw.TextAlign.right),
+            _taxRateAmountCell(
+              w[2],
+              '${h.cgstPercent.toStringAsFixed(2)}%',
+              _inr.format(h.cgstAmount),
+            ),
+            _taxRateAmountCell(
+              w[3],
+              '${h.sgstPercent.toStringAsFixed(2)}%',
+              _inr.format(h.sgstAmount),
+            ),
+            _taxDataCell(4, _inr.format(h.totalTax), align: pw.TextAlign.right),
           ],
         ),
       );
@@ -656,11 +705,9 @@ class GstTaxInvoiceLayout {
         children: [
           _taxDataCell(0, 'Total', weight: pw.FontWeight.bold),
           _taxDataCell(1, _inr.format(totalTaxable), weight: pw.FontWeight.bold, align: pw.TextAlign.right),
-          _taxDataCell(2, ''),
-          _taxDataCell(3, _inr.format(totalCgst), weight: pw.FontWeight.bold, align: pw.TextAlign.right),
-          _taxDataCell(4, ''),
-          _taxDataCell(5, _inr.format(totalSgst), weight: pw.FontWeight.bold, align: pw.TextAlign.right),
-          _taxDataCell(6, _inr.format(totalTax), weight: pw.FontWeight.bold, align: pw.TextAlign.right),
+          _taxRateAmountCell(w[2], '', _inr.format(totalCgst),),
+          _taxRateAmountCell(w[3], '', _inr.format(totalSgst),),
+          _taxDataCell(4, _inr.format(totalTax), weight: pw.FontWeight.bold, align: pw.TextAlign.right),
         ],
       ),
     );
@@ -669,31 +716,14 @@ class GstTaxInvoiceLayout {
       for (var i = 0; i < w.length; i++) i: pw.FixedColumnWidth(w[i]),
     };
 
-    const headerGrey = pw.BoxDecoration(color: PdfColors.grey300);
-
-    final headerRowTop = pw.TableRow(
-      decoration: headerGrey,
+    final headerRow = pw.TableRow(
+      decoration: const pw.BoxDecoration(color: PdfColors.grey300),
       children: [
-        _taxHeaderSpacer(w[0]),
-        _taxHeaderSpacer(w[1]),
-        _taxGroupTitleCell(w[2], w[3], 'CGST'),
-        _taxHeaderSpacer(w[3]),
-        _taxGroupTitleCell(w[4], w[5], 'SGST/UTGST'),
-        _taxHeaderSpacer(w[5]),
-        _taxHeaderSpacer(w[6]),
-      ],
-    );
-
-    final headerRowBottom = pw.TableRow(
-      decoration: headerGrey,
-      children: [
-        _taxHeaderLabelCell(0, 'HSN/SAC', height: 14),
-        _taxHeaderLabelCell(1, 'Taxable\nValue', height: 14, align: pw.TextAlign.right),
-        _taxSubHeaderCell(w[2], 'Rate'),
-        _taxSubHeaderCell(w[3], 'Amount'),
-        _taxSubHeaderCell(w[4], 'Rate'),
-        _taxSubHeaderCell(w[5], 'Amount'),
-        _taxHeaderLabelCell(6, 'Total Tax\nAmount', height: 14, align: pw.TextAlign.right),
+        _taxHeaderPlainCell(w[0], 'HSN/SAC'),
+        _taxHeaderPlainCell(w[1], 'Taxable\nValue', align: pw.TextAlign.right),
+        _taxGroupHeaderCell(w[2], 'CGST'),
+        _taxGroupHeaderCell(w[3], 'SGST/UTGST'),
+        _taxHeaderPlainCell(w[4], 'Total Tax\nAmount', align: pw.TextAlign.right),
       ],
     );
 
@@ -702,7 +732,7 @@ class GstTaxInvoiceLayout {
       child: pw.Table(
         border: _tableBorder,
         columnWidths: taxColWidths,
-        children: [headerRowTop, headerRowBottom, ...dataRows],
+        children: [headerRow, ...dataRows],
       ),
     );
   }
@@ -718,11 +748,11 @@ class GstTaxInvoiceLayout {
           _text(
             'Amount Chargeable (in words) E. & O.E',
             weight: pw.FontWeight.bold,
-            size: 7.5,
+            size: 8,
           ),
           _text(
             amountInWordsIndian(grand),
-            size: 8.5,
+            size: 9,
             weight: pw.FontWeight.bold,
           ),
         ],
@@ -737,10 +767,10 @@ class GstTaxInvoiceLayout {
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.stretch,
         children: [
-          _text('Declaration', weight: pw.FontWeight.bold, size: 8),
+          _text('Declaration', weight: pw.FontWeight.bold, size: 8.5),
           _text(
             'Certified that the above particulars are true and correct',
-            size: 7.5,
+            size: 8,
           ),
           pw.Container(
             margin: const pw.EdgeInsets.only(top: 4),
@@ -749,26 +779,33 @@ class GstTaxInvoiceLayout {
             ),
             padding: const pw.EdgeInsets.only(top: 4),
             child: pw.Row(
-              crossAxisAlignment: pw.CrossAxisAlignment.end,
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
                 pw.Expanded(
-                  child: _text("Customer's Seal and Signature", size: 7.5),
+                  flex: 2,
+                  child: _text("Customer's Seal and Signature", size: 8),
                 ),
                 pw.Expanded(
-                  child: _text(
-                    'for $signatureName',
-                    size: 8,
-                    weight: pw.FontWeight.bold,
-                    align: pw.TextAlign.right,
+                  flex: 3,
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.end,
+                    children: [
+                      _text(
+                        'for $signatureName',
+                        size: 8.5,
+                        weight: pw.FontWeight.bold,
+                        align: pw.TextAlign.right,
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
-          pw.SizedBox(height: 28),
+          pw.SizedBox(height: 32),
           pw.Align(
             alignment: pw.Alignment.centerRight,
-            child: _text('Authorised Signatory', size: 7.5, align: pw.TextAlign.right),
+            child: _text('Authorised Signatory', size: 8, align: pw.TextAlign.right),
           ),
         ],
       ),
@@ -849,7 +886,7 @@ class GstTaxInvoiceLayout {
             padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 2),
             child: _text(
               'Tax Amount (in words) : ${amountInWordsIndianWithPaise(totalTax)}',
-              size: 8,
+              size: 8.5,
             ),
           ),
           _declarationBlock(signatureName),
