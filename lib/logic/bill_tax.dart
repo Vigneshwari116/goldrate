@@ -104,6 +104,42 @@ String amountInWordsIndian(double amount) {
   return '$prefix$words Only';
 }
 
+/// Rupees + paise for tax summary footers (e.g. "... Twenty Two paise Only").
+String amountInWordsIndianWithPaise(double amount) {
+  final negative = amount < 0;
+  final abs = negative ? -amount : amount;
+  final rupees = abs.floor();
+  final paise = ((abs - rupees) * 100).round().clamp(0, 99);
+  final rupeeWords =
+      rupees == 0 ? 'Zero' : _wordsUnderCrore(rupees);
+  final prefix = negative ? 'INR Minus ' : 'INR ';
+  if (paise == 0) {
+    return '$prefix$rupeeWords Only';
+  }
+  final paiseWords = _twoDigitWords(paise);
+  return '$prefix$rupeeWords and $paiseWords ${_paiseLabel(paise)} Only';
+}
+
+String _paiseLabel(int paise) {
+  return paise == 1 ? 'paisa' : 'paise';
+}
+
+/// Description line on the reference tax invoice PDF.
+String invoicePdfLineDescription(String type) {
+  switch (type) {
+    case 'GWT':
+      return 'Gold Bullion_999';
+    case 'FWT':
+      return 'Fine Gold';
+    case 'KWT':
+      return 'Kacha Gold';
+    case 'SWT':
+      return 'Silver Bullion';
+    default:
+      return type;
+  }
+}
+
 String _wordsUnderCrore(int n) {
   if (n >= 10000000) {
     final crores = n ~/ 10000000;

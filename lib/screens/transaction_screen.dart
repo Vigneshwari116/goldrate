@@ -1377,15 +1377,7 @@ class _TransactionScreenState extends State<TransactionScreen>
 
     if (isSalesBill) {
       final shop = await DatabaseHelper.instance.getShopSettings();
-      final buyer = PartyBillingProfile(
-        name: (row['partyName'] ?? '').toString(),
-        isCustomer: true,
-        address: (row['partyAddress'] ?? '').toString(),
-        city: (row['partyCity'] ?? '').toString(),
-        pincode: (row['partyPincode'] ?? '').toString(),
-        gstin: (row['partyGstin'] ?? '').toString(),
-        state: (row['partyState'] ?? '').toString(),
-      );
+      final buyer = PartyBillingProfile.fromTransactionRow(row);
       final tdsApplicable = (row['tdsApplicable'] as int? ?? 0) == 1;
       final tcsApplicable = (row['tcsApplicable'] as int? ?? 0) == 1;
       final tdsAmount =
@@ -1407,8 +1399,8 @@ class _TransactionScreenState extends State<TransactionScreen>
       doc.addPage(
         SalesTaxInvoicePdf.buildPage(
           shop: shop,
-          row: row,
           buyer: buyer,
+          row: row,
           items: items,
           totals: totals,
           tdsApplicable: tdsApplicable,
