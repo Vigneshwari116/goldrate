@@ -10,6 +10,9 @@ import '../models/party_billing_profile.dart';
 class SalesTaxInvoicePdf {
   SalesTaxInvoicePdf._();
 
+  static const String copyOriginalForRecipient = '(ORIGINAL FOR RECIPIENT)';
+  static const String copyDuplicateForTransporter = '(DUPLICATE FOR TRANSPORTER)';
+
   static const double _border = 0.5;
   static const PdfColor _line = PdfColors.black;
   static const String _placeholder = '—';
@@ -454,6 +457,7 @@ class SalesTaxInvoicePdf {
     required double tcsAmount,
     required bool tdsApplicable,
     required bool tcsApplicable,
+    String copyLabel = copyOriginalForRecipient,
   }) {
     final billNo = row['billNo']?.toString() ?? '';
     final date = (row['date'] ?? '').toString();
@@ -490,7 +494,7 @@ class SalesTaxInvoicePdf {
                     style: _style(size: 11, weight: pw.FontWeight.bold),
                   ),
                   pw.TextSpan(
-                    text: '(ORIGINAL FOR RECIPIENT)',
+                    text: copyLabel,
                     style: _style(size: 9, fontStyle: pw.FontStyle.italic),
                   ),
                 ],

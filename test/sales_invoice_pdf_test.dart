@@ -124,4 +124,41 @@ void main() {
     await File('${dir.path}/invoice_buyer_a.pdf').writeAsBytes(pdfA);
     await File('${dir.path}/invoice_buyer_b.pdf').writeAsBytes(pdfB);
   });
+
+  test('sales GST document has original and transporter copy pages', () async {
+    final items = [
+      BillLineItem(
+        type: 'GWT',
+        weight: 1,
+        touch: 100,
+        rate: 1000,
+        hsn: '7113',
+      ),
+    ];
+    final totals = BillTaxTotals.compute(lines: items.map((i) => i.tax).toList());
+    final doc = await PdfKit.document();
+    for (final copyLabel in [
+      SalesTaxInvoicePdf.copyOriginalForRecipient,
+      SalesTaxInvoicePdf.copyDuplicateForTransporter,
+    ]) {
+      doc.addPage(
+        SalesTaxInvoicePdf.buildPage(
+          shop: const ShopSettings(shopName: 'Shop'),
+          buyer: const PartyBillingProfile(name: 'Buyer', isCustomer: true),
+          row: {'billNo': 99, 'date': '01-01-2026'},
+          items: items,
+          totals: totals,
+          tdsApplicable: false,
+          tcsApplicable: false,
+          tdsAmount: 0,
+          tcsAmount: 0,
+          copyLabel: copyLabel,
+        ),
+      );
+    }
+    final bytes = await doc.save();
+    expect(bytes.length, greaterThan(2000));
+    expect(SalesTaxInvoicePdf.copyOriginalForRecipient, contains('RECIPIENT'));
+    expect(SalesTaxInvoicePdf.copyDuplicateForTransporter, contains('TRANSPORTER'));
+  });
 }

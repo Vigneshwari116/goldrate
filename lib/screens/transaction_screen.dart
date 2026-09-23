@@ -15,7 +15,6 @@ import '../logic/bill_tax.dart';
 import '../logic/gold_ledger.dart';
 import '../models/bill_line_item.dart';
 import '../models/party_billing_profile.dart';
-import '../pdf/estimate_receipt_pdf.dart';
 import '../pdf/sales_tax_invoice_pdf.dart';
 import '../widgets/party_billing_fields.dart';
 import '../pdf/pdf_kit.dart';
@@ -1050,7 +1049,7 @@ class _TransactionScreenState extends State<TransactionScreen>
 
     await _load();
     if (!mounted) return;
-    await _shareEstimate(savedRow);
+    await _sharePdf(savedRow, openAfterSave: false);
   }
 
   Future<void> _saveVoucher() async {
@@ -1287,27 +1286,16 @@ class _TransactionScreenState extends State<TransactionScreen>
                 style: TextStyle(color: Colors.red),
               ),
             ),
-          if (row['fromLedger'] != true) ...[
+          if (row['fromLedger'] != true)
             TextButton(
               onPressed: _sharingPdf
                   ? null
                   : () async {
                       Navigator.pop(dialogContext);
-                      await _sharePdf(row, estimate: true, openAfterSave: false);
+                      await _sharePdf(row, openAfterSave: false);
                     },
-              child: const Text("ESTIMATE"),
+              child: const Text('PDF'),
             ),
-            TextButton(
-              onPressed: _sharingPdf
-                  ? null
-                  : () async {
-                      Navigator.pop(dialogContext);
-                      await _sharePdf(
-                          row, estimate: false, openAfterSave: false);
-                    },
-              child: const Text("ACCOUNTS BILL"),
-            ),
-          ],
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
             child: const Text("CLOSE"),
@@ -1322,64 +1310,7 @@ class _TransactionScreenState extends State<TransactionScreen>
         .toList();
   }
 
-  Future<Uint8List> _buildEstimatePdf(Map<String, dynamic> row) async {
-    final items = _itemsFromRow(row);
-    final phone = await DatabaseHelper.instance.getPartyPhone(
-      (row['partyName'] ?? '').toString(),
-      isCustomer: _isCustomerParty,
-    );
-    final totalWt =
-        items.fold<double>(0, (sum, item) => sum + item.weight);
-    final totalPure =
-        items.fold<double>(0, (sum, item) => sum + item.pureWt);
-    final avgTouch = totalWt > 0
-        ? items.fold<double>(0, (s, i) => s + i.weight * i.touch) / totalWt
-        : 0.0;
-    final ratePerGram = (totalPure > 0
-            ? items.fold<double>(0, (s, i) => s + i.value) / totalPure
-            : GoldLedger.goldRate(_rates))
-        .toDouble();
-    final closing = double.tryParse(
-            (row['newGrams'] ?? row['balance'] ?? '0').toString()) ??
-        0;
-    final closingLabel =
-        closing.abs() < 0.0005 ? 'NIL' : '${closing.toStringAsFixed(3)} g';
-    final kind = row['transactionType'] == 'PURCHASE' ? 'PUR' : 'SAL';
-    final paymentMode = (row['paymentMode'] ?? '').toString();
-    final cashReceived = paymentMode == 'CASH'
-        ? (double.tryParse((row['paymentAmount'] ?? '0').toString()) ?? 0.0)
-        : 0.0;
-
-    final doc = await PdfKit.document();
-    doc.addPage(
-      EstimateReceiptPdf.buildPage(
-        transactionLabel:
-            row['transactionType'] == 'PURCHASE' ? 'PURCHASE' : 'SALES',
-        billKind: kind,
-        row: row,
-        phone: phone,
-        items: [
-          for (final item in items)
-            ReceiptLineItem(
-              token: item.type,
-              weight: item.weight,
-              touch: item.touch,
-              pureWt: item.pureWt,
-            ),
-        ],
-        totalWt: totalWt,
-        totalPure: totalPure,
-        avgTouch: avgTouch,
-        ratePerGram: ratePerGram,
-        closingLabel: closingLabel,
-        cashReceived: cashReceived,
-        paymentMode: paymentMode,
-      ),
-    );
-    return doc.save();
-  }
-
-  Future<Uint8List> _buildAccountsPdf(Map<String, dynamic> row) async {
+  Future<Uint8List> _buildBillPdf(Map<String, dynamic> row) async {
     final items = _itemsFromRow(row);
     final isSalesBill = row['transactionType'] == 'SALES';
 
@@ -1404,19 +1335,25 @@ class _TransactionScreenState extends State<TransactionScreen>
             items.fold(0, (s, i) => s + i.tax.inclusiveAmount),
       );
       final doc = await PdfKit.document();
-      doc.addPage(
-        SalesTaxInvoicePdf.buildPage(
-          shop: shop,
-          buyer: buyer,
-          row: row,
-          items: items,
-          totals: totals,
-          tdsApplicable: tdsApplicable,
-          tcsApplicable: tcsApplicable,
-          tdsAmount: tdsAmount,
-          tcsAmount: tcsAmount,
-        ),
-      );
+      for (final copyLabel in [
+        SalesTaxInvoicePdf.copyOriginalForRecipient,
+        SalesTaxInvoicePdf.copyDuplicateForTransporter,
+      ]) {
+        doc.addPage(
+          SalesTaxInvoicePdf.buildPage(
+            shop: shop,
+            buyer: buyer,
+            row: row,
+            items: items,
+            totals: totals,
+            tdsApplicable: tdsApplicable,
+            tcsApplicable: tcsApplicable,
+            tdsAmount: tdsAmount,
+            tcsAmount: tcsAmount,
+            copyLabel: copyLabel,
+          ),
+        );
+      }
       return doc.save();
     }
 
@@ -1524,23 +1461,22 @@ class _TransactionScreenState extends State<TransactionScreen>
 
   Future<void> _sharePdf(
     Map<String, dynamic> row, {
-    required bool estimate,
     bool openAfterSave = true,
   }) async {
     if (_sharingPdf) return;
     _sharingPdf = true;
     try {
-      final bytes =
-          estimate ? await _buildEstimatePdf(row) : await _buildAccountsPdf(row);
-      final kind = _isPurchase ? 'purchase' : 'sales';
-      final type = estimate ? 'estimate' : 'accounts';
+      final bytes = await _buildBillPdf(row);
+      final isSales = row['transactionType'] == 'SALES';
+      final kind = isSales ? 'sales' : 'purchase';
+      final type = isSales ? 'gst_invoice' : 'accounts';
+      final label = isSales ? 'GST invoice' : 'Accounts bill';
       final file = await PdfKit.sharePdf(
         bytes: bytes,
         fileName: '${kind}_${type}_${row['billNo']}.pdf',
-        subject:
-            '${estimate ? 'Estimate' : 'Accounts bill'} #${row['billNo']} - ${row['partyName'] ?? ''}',
+        subject: '$label #${row['billNo']} - ${row['partyName'] ?? ''}',
         text:
-            '${_isPurchase ? 'Purchase' : 'Sales'} ${estimate ? 'estimate' : 'accounts bill'}. '
+            '$label (bill #${row['billNo']}). '
             'Share this PDF, then print from the share app or the opened PDF window.',
         openAfterSave: openAfterSave,
       );
@@ -1552,9 +1488,6 @@ class _TransactionScreenState extends State<TransactionScreen>
       _sharingPdf = false;
     }
   }
-
-  Future<void> _shareEstimate(Map<String, dynamic> row) =>
-      _sharePdf(row, estimate: true, openAfterSave: false);
 
   String _historyCsvEscape(String value) {
     if (value.contains(',') || value.contains('"') || value.contains('\n')) {
