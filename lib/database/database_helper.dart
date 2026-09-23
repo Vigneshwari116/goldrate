@@ -34,7 +34,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 16,
+      version: 17,
       onCreate: _createDatabase,
       onUpgrade: _upgradeDatabase,
     );
@@ -167,7 +167,9 @@ class DatabaseHelper {
         totalTaxable TEXT,
         totalInclusive TEXT,
         roundOff TEXT,
-        grandTotal TEXT
+        grandTotal TEXT,
+        poNo TEXT,
+        poDate TEXT
       )
     ''');
 
@@ -528,6 +530,10 @@ class DatabaseHelper {
         {'id': 1, 'lastDate': '', 'lastTime': ''},
         conflictAlgorithm: ConflictAlgorithm.ignore,
       );
+    }
+    if (oldVersion < 17) {
+      await db.execute('ALTER TABLE transactions ADD COLUMN poNo TEXT');
+      await db.execute('ALTER TABLE transactions ADD COLUMN poDate TEXT');
     }
   }
 

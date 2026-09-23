@@ -113,6 +113,8 @@ class _TransactionScreenState extends State<TransactionScreen>
   final _partyGstinController = TextEditingController();
   final _partyStateController = TextEditingController();
   final _ewayBillController = TextEditingController();
+  final _poNoController = TextEditingController();
+  final _poDateController = TextEditingController();
   bool _tdsApplicable = false;
   final _tdsAmountController = TextEditingController();
   bool _tcsApplicable = false;
@@ -529,6 +531,8 @@ class _TransactionScreenState extends State<TransactionScreen>
     _partyGstinController.dispose();
     _partyStateController.dispose();
     _ewayBillController.dispose();
+    _poNoController.dispose();
+    _poDateController.dispose();
     _tdsAmountController.dispose();
     _tcsAmountController.dispose();
     _billEntryWeight.dispose();
@@ -723,9 +727,85 @@ class _TransactionScreenState extends State<TransactionScreen>
     _resetPaymentEntry();
   }
 
+  void _clearPurchasePoFields() {
+    _poNoController.clear();
+    _poDateController.clear();
+  }
+
+  Future<void> _pickPoDate() async {
+    DateTime initial = DateTime.now();
+    final existing = _poDateController.text.trim();
+    if (existing.isNotEmpty) {
+      try {
+        initial = DateFormat('dd-MM-yyyy').parse(existing);
+      } catch (_) {}
+    }
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      helpText: 'PO Date',
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _poDateController.text = DateFormat('dd-MM-yyyy').format(picked);
+    });
+  }
+
+  Widget _purchasePoFields() {
+    const labelStyle = TextStyle(
+      fontSize: 11,
+      fontWeight: FontWeight.w600,
+      color: AppColors.mutedBlue,
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text('PURCHASE ORDER (optional)', style: labelStyle),
+        const SizedBox(height: 4),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: TextFormField(
+                controller: _poNoController,
+                style: const TextStyle(fontSize: 13),
+                decoration: const InputDecoration(
+                  labelText: 'PO No',
+                  isDense: true,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextFormField(
+                controller: _poDateController,
+                readOnly: true,
+                style: const TextStyle(fontSize: 13),
+                decoration: InputDecoration(
+                  labelText: 'PO Date',
+                  isDense: true,
+                  suffixIcon: _poDateController.text.trim().isEmpty
+                      ? const Icon(Icons.calendar_today, size: 18)
+                      : IconButton(
+                          icon: const Icon(Icons.clear, size: 18),
+                          onPressed: () => setState(_poDateController.clear),
+                        ),
+                ),
+                onTap: _pickPoDate,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
   void _clearForm() {
     _partyController.clear();
     _clearPartyBillingFields();
+    _clearPurchasePoFields();
     _clearPanels();
     setState(() {
       _partyOutstanding = null;
@@ -872,6 +952,8 @@ class _TransactionScreenState extends State<TransactionScreen>
       _partyGstinController.text = (row['partyGstin'] ?? '').toString();
       _partyStateController.text = (row['partyState'] ?? '').toString();
       _ewayBillController.text = (row['ewayBill'] ?? '').toString();
+      _poNoController.text = (row['poNo'] ?? '').toString();
+      _poDateController.text = (row['poDate'] ?? '').toString();
       _tdsApplicable = (row['tdsApplicable'] as int? ?? 0) == 1;
       _tdsAmountController.text = (row['tdsAmount'] ?? '').toString();
       _tcsApplicable = (row['tcsApplicable'] as int? ?? 0) == 1;
@@ -984,6 +1066,8 @@ class _TransactionScreenState extends State<TransactionScreen>
       'partyGstin': _partyGstinController.text.trim(),
       'partyState': _partyStateController.text.trim(),
       if (_isSales) 'ewayBill': _ewayBillController.text.trim(),
+      if (_isPurchase) 'poNo': _poNoController.text.trim(),
+      if (_isPurchase) 'poDate': _poDateController.text.trim(),
       'tdsApplicable': _tdsApplicable ? 1 : 0,
       'tdsAmount': tdsAmt.toStringAsFixed(2),
       'tcsApplicable': _tcsApplicable ? 1 : 0,
@@ -1262,6 +1346,12 @@ class _TransactionScreenState extends State<TransactionScreen>
                 "Balance",
                 "${row['balance'] ?? '-'} ${row['balanceUnit'] ?? ''}",
               ),
+              if ((row['transactionType'] ?? '').toString() == 'PURCHASE') ...[
+                if ((row['poNo'] ?? '').toString().trim().isNotEmpty)
+                  _detailRow('PO No', row['poNo']),
+                if ((row['poDate'] ?? '').toString().trim().isNotEmpty)
+                  _detailRow('PO Date', row['poDate']),
+              ],
               _detailRow("Date", "${row['date'] ?? ''} ${row['time'] ?? ''}"),
             ],
           ),
@@ -1588,6 +1678,13 @@ class _TransactionScreenState extends State<TransactionScreen>
             ],
           ),
           const SizedBox(height: 12),
+          if (_isPurchase) ...[
+            SizedBox(
+              width: FieldSizes.name,
+              child: _purchasePoFields(),
+            ),
+            const SizedBox(height: 10),
+          ],
           SizedBox(
             width: FieldSizes.name,
             child: PartySearchField(
