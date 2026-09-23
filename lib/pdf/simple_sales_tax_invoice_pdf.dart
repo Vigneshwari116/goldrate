@@ -39,6 +39,9 @@ class SimpleSalesTaxInvoicePdf {
         width: _border,
       );
 
+  static pw.BorderSide get _borderSide =>
+      pw.BorderSide(color: _line, width: _border);
+
   static pw.TextStyle _style({
     double size = 8,
     pw.FontWeight weight = pw.FontWeight.normal,
@@ -69,10 +72,15 @@ class SimpleSalesTaxInvoicePdf {
       child: pw.Column(
         mainAxisAlignment: pw.MainAxisAlignment.center,
         children: [
-          pw.Text(
-            '◆',
-            style: pw.TextStyle(fontSize: 9, color: _logoGold),
+          pw.Container(
+            width: 8,
+            height: 8,
+            decoration: pw.BoxDecoration(
+              color: _logoGold,
+              border: pw.Border.all(color: _logoGold, width: 0.5),
+            ),
           ),
+          pw.SizedBox(height: 2),
           pw.Text(
             'SM',
             style: pw.TextStyle(
@@ -256,6 +264,16 @@ class SimpleSalesTaxInvoicePdf {
 
   static const _itemColW = [24.0, 38.0, 40.0, 44.0, 54.0]; // sl, hsn, qty, price, amount — desc flex
   static final _rateFmt = NumberFormat('#,##0.00', 'en_IN');
+  static const _taxLineHeight = 13.0;
+  static const _minEmptyBodyHeight = 88.0;
+
+  static pw.Widget _blankBodyCell(double height) {
+    return pw.Container(
+      height: height,
+      alignment: pw.Alignment.topLeft,
+      child: pw.SizedBox(),
+    );
+  }
 
   static pw.Widget _mainItemsAndTaxTable({
     required List<BillLineItem> items,
@@ -302,23 +320,25 @@ class SimpleSalesTaxInvoicePdf {
       );
     }
 
-    const minItemRows = 4;
-    for (var i = items.length; i < minItemRows; i++) {
-      rows.add(
-        pw.TableRow(
-          children: [
-            _cell(''),
-            _cell(''),
-            _cell(''),
-            _cell(''),
-            _cell(''),
-            _cell(''),
-          ],
-        ),
-      );
-    }
+    rows.add(
+      pw.TableRow(
+        verticalAlignment: pw.TableCellVerticalAlignment.top,
+        children: [
+          _blankBodyCell(_minEmptyBodyHeight),
+          _blankBodyCell(_minEmptyBodyHeight),
+          _blankBodyCell(_minEmptyBodyHeight),
+          _blankBodyCell(_minEmptyBodyHeight),
+          _blankBodyCell(_minEmptyBodyHeight),
+          _blankBodyCell(_minEmptyBodyHeight),
+        ],
+      ),
+    );
 
-    void taxRow(
+    final taxLabels = <String>[];
+    final taxAmounts = <String>[];
+    final taxWeights = <pw.FontWeight>[];
+
+    void addTaxLine(
       String label,
       String pct,
       String amount, {
@@ -326,31 +346,81 @@ class SimpleSalesTaxInvoicePdf {
     }) {
       final w = bold ? pw.FontWeight.bold : pw.FontWeight.normal;
       final mid = pct.isEmpty ? '$label :' : '$label : $pct';
-      rows.add(
-        pw.TableRow(
-          children: [
-            _cell(''),
-            _cell(''),
-            _cell(''),
-            _cell(''),
-            _cell(mid, fontSize: 7, weight: w, align: pw.TextAlign.right),
-            _cell(amount, fontSize: 7, weight: w, align: pw.TextAlign.right),
-          ],
-        ),
-      );
+      taxLabels.add(mid);
+      taxAmounts.add(amount);
+      taxWeights.add(w);
     }
 
-    taxRow('Total', '', _inr.format(taxable));
+    addTaxLine('Total', '', _inr.format(taxable));
     if (cgstSum > 0 || sgstSum > 0) {
-      taxRow('SGST', '${sgstPct.toStringAsFixed(2)} %', _inr.format(sgstSum));
-      taxRow('CGST', '${cgstPct.toStringAsFixed(2)} %', _inr.format(cgstSum));
+      addTaxLine('SGST', '${sgstPct.toStringAsFixed(2)} %', _inr.format(sgstSum));
+      addTaxLine('CGST', '${cgstPct.toStringAsFixed(2)} %', _inr.format(cgstSum));
     }
-    taxRow('IGST', '${igst.toStringAsFixed(2)} %', _inr.format(igst));
+    addTaxLine('IGST', '${igst.toStringAsFixed(2)} %', _inr.format(igst));
     if (roundOff.abs() > 0.0001) {
       final sign = roundOff < 0 ? '(-)' : '(+)';
-      taxRow('Round Off', sign, _inr.format(roundOff.abs()));
+      addTaxLine('Round Off', sign, _inr.format(roundOff.abs()));
     }
-    taxRow('G.Total', '', _inr.format(grand), bold: true);
+    addTaxLine('G.Total', '', _inr.format(grand), bold: true);
+
+    final taxBlockHeight = taxLabels.length * _taxLineHeight;
+    rows.add(
+      pw.TableRow(
+        verticalAlignment: pw.TableCellVerticalAlignment.top,
+        children: [
+          _blankBodyCell(taxBlockHeight),
+          _blankBodyCell(taxBlockHeight),
+          _blankBodyCell(taxBlockHeight),
+          _blankBodyCell(taxBlockHeight),
+          pw.Column(
+            children: [
+              for (var i = 0; i < taxLabels.length; i++)
+                pw.Container(
+                  height: _taxLineHeight,
+                  alignment: pw.Alignment.centerRight,
+                  padding: const pw.EdgeInsets.symmetric(horizontal: 3),
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border(
+                      top: i == 0
+                          ? const pw.BorderSide(color: PdfColors.white, width: 0)
+                          : _borderSide,
+                    ),
+                  ),
+                  child: _text(
+                    taxLabels[i],
+                    size: 7,
+                    weight: taxWeights[i],
+                    align: pw.TextAlign.right,
+                  ),
+                ),
+            ],
+          ),
+          pw.Column(
+            children: [
+              for (var i = 0; i < taxAmounts.length; i++)
+                pw.Container(
+                  height: _taxLineHeight,
+                  alignment: pw.Alignment.centerRight,
+                  padding: const pw.EdgeInsets.symmetric(horizontal: 3),
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border(
+                      top: i == 0
+                          ? const pw.BorderSide(color: PdfColors.white, width: 0)
+                          : _borderSide,
+                    ),
+                  ),
+                  child: _text(
+                    taxAmounts[i],
+                    size: 7,
+                    weight: taxWeights[i],
+                    align: pw.TextAlign.right,
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
 
     return pw.Table(
       border: _tableBorder,
