@@ -219,11 +219,9 @@ class SimpleSalesTaxInvoicePdf {
     );
   }
 
-  static pw.Widget _addressBox(List<String> lines) {
-    return pw.Container(
-      width: double.infinity,
-      decoration: pw.BoxDecoration(border: pw.Border.all(color: _line, width: _border)),
-      padding: const pw.EdgeInsets.all(5),
+  static pw.Widget _addressCell(List<String> lines) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.all(4),
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
@@ -242,10 +240,30 @@ class SimpleSalesTaxInvoicePdf {
     );
   }
 
-  static const _itemColW = [26.0, 0.0, 40.0, 46.0, 54.0]; // flex for desc
-  static const _taxLabelW = 44.0;
-  static const _taxPctW = 30.0;
-  static const _taxValW = 52.0;
+  /// Consignee | shipping — side by side like reference invoice.
+  static pw.Widget _consigneeShippingRow(
+    List<String> consignee,
+    List<String> shipping,
+  ) {
+    return pw.Table(
+      border: _tableBorder,
+      columnWidths: const {
+        0: pw.FlexColumnWidth(1),
+        1: pw.FlexColumnWidth(1),
+      },
+      defaultVerticalAlignment: pw.TableCellVerticalAlignment.top,
+      children: [
+        pw.TableRow(
+          children: [
+            _addressCell(consignee),
+            _addressCell(shipping),
+          ],
+        ),
+      ],
+    );
+  }
+
+  static const _itemColW = [24.0, 40.0, 42.0, 48.0, 62.0]; // sl, hsn, qty, amount — desc flex
 
   static pw.Widget _mainItemsAndTaxTable({
     required List<BillLineItem> items,
@@ -271,9 +289,6 @@ class SimpleSalesTaxInvoicePdf {
           _cell('HSN/SAC', fontSize: 7, weight: pw.FontWeight.bold, align: pw.TextAlign.center),
           _cell('QTY', fontSize: 7, weight: pw.FontWeight.bold, align: pw.TextAlign.right),
           _cell('AMOUNT', fontSize: 7, weight: pw.FontWeight.bold, align: pw.TextAlign.right),
-          _cell('', fontSize: 7),
-          _cell('', fontSize: 7),
-          _cell('', fontSize: 7),
         ],
       ),
     );
@@ -288,22 +303,16 @@ class SimpleSalesTaxInvoicePdf {
             _cell(item.hsn, align: pw.TextAlign.center),
             _cell('${_wt.format(item.weight)} GM', align: pw.TextAlign.right),
             _cell(_inr.format(item.tax.taxableValue), align: pw.TextAlign.right),
-            _cell(''),
-            _cell(''),
-            _cell(''),
           ],
         ),
       );
     }
 
-    const minItemRows = 5;
+    const minItemRows = 8;
     for (var i = items.length; i < minItemRows; i++) {
       rows.add(
         pw.TableRow(
           children: [
-            _cell(''),
-            _cell(''),
-            _cell(''),
             _cell(''),
             _cell(''),
             _cell(''),
@@ -321,16 +330,14 @@ class SimpleSalesTaxInvoicePdf {
       bool bold = false,
     }) {
       final w = bold ? pw.FontWeight.bold : pw.FontWeight.normal;
+      final mid = pct.isEmpty ? '$label :' : '$label : $pct';
       rows.add(
         pw.TableRow(
           children: [
             _cell(''),
             _cell(''),
             _cell(''),
-            _cell(''),
-            _cell(''),
-            _cell('$label :', fontSize: 7, weight: w),
-            _cell(pct, fontSize: 7, weight: w, align: pw.TextAlign.center),
+            _cell(mid, fontSize: 7, weight: w, align: pw.TextAlign.right),
             _cell(amount, fontSize: 7, weight: w, align: pw.TextAlign.right),
           ],
         ),
@@ -354,19 +361,16 @@ class SimpleSalesTaxInvoicePdf {
       columnWidths: {
         0: pw.FixedColumnWidth(_itemColW[0]),
         1: const pw.FlexColumnWidth(1),
-        2: pw.FixedColumnWidth(_itemColW[2]),
-        3: pw.FixedColumnWidth(_itemColW[3]),
-        4: pw.FixedColumnWidth(_itemColW[4]),
-        5: pw.FixedColumnWidth(_taxLabelW),
-        6: pw.FixedColumnWidth(_taxPctW),
-        7: pw.FixedColumnWidth(_taxValW),
+        2: pw.FixedColumnWidth(_itemColW[1]),
+        3: pw.FixedColumnWidth(_itemColW[2]),
+        4: pw.FixedColumnWidth(_itemColW[3]),
       },
       defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
       children: rows,
     );
   }
 
-  static pw.Widget _footerBlock() {
+  static pw.Widget _footerBlock({required double grandTotal}) {
     const terms = [
       '1.Good once sold will not be taken back or exchange',
       '2.Interest @24% will be charged if not paid with inthe due period.',
@@ -383,8 +387,8 @@ class SimpleSalesTaxInvoicePdf {
         pw.Table(
           border: _tableBorder,
           columnWidths: const {
-            0: pw.FlexColumnWidth(2),
-            1: pw.FlexColumnWidth(1),
+            0: pw.FlexColumnWidth(3),
+            1: pw.FlexColumnWidth(2),
           },
           defaultVerticalAlignment: pw.TableCellVerticalAlignment.top,
           children: [
@@ -398,37 +402,17 @@ class SimpleSalesTaxInvoicePdf {
                       if (gstin.isNotEmpty)
                         _text('GSTIN:$gstin', size: 7, weight: pw.FontWeight.bold),
                       pw.SizedBox(height: 4),
+                      _text('RUPEES IN WORDS:', size: 7, weight: pw.FontWeight.bold),
+                      _text(
+                        amountInWordsIndian(grandTotal).toUpperCase(),
+                        size: 7.5,
+                        weight: pw.FontWeight.bold,
+                      ),
+                      pw.SizedBox(height: 6),
                       _text('BANK NAME :', size: 7),
                       _text('ACCOUNT NO', size: 7),
                       _text('IFS CODE :', size: 7),
                       _text('BRANCH :', size: 7),
-                    ],
-                  ),
-                ),
-                pw.SizedBox(),
-              ],
-            ),
-          ],
-        ),
-        pw.Table(
-          border: _tableBorder,
-          columnWidths: const {
-            0: pw.FlexColumnWidth(2),
-            1: pw.FlexColumnWidth(1),
-          },
-          defaultVerticalAlignment: pw.TableCellVerticalAlignment.top,
-          children: [
-            pw.TableRow(
-              children: [
-                pw.Padding(
-                  padding: const pw.EdgeInsets.all(5),
-                  child: pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      _text('TERMS & CONDITIONS:', weight: pw.FontWeight.bold, size: 7),
-                      for (final t in terms) _text(t, size: 6.5),
-                      pw.SizedBox(height: 6),
-                      _text('Receiver signature & Seal', size: 7),
                     ],
                   ),
                 ),
@@ -443,7 +427,7 @@ class SimpleSalesTaxInvoicePdf {
                         weight: pw.FontWeight.bold,
                         align: pw.TextAlign.right,
                       ),
-                      pw.SizedBox(height: 28),
+                      pw.SizedBox(height: 36),
                       _text('Authorised Signatory', size: 7, align: pw.TextAlign.right),
                     ],
                   ),
@@ -451,6 +435,20 @@ class SimpleSalesTaxInvoicePdf {
               ],
             ),
           ],
+        ),
+        pw.Container(
+          width: double.infinity,
+          decoration: pw.BoxDecoration(border: pw.Border.all(color: _line, width: _border)),
+          padding: const pw.EdgeInsets.all(5),
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              _text('TERMS & CONDITIONS:', weight: pw.FontWeight.bold, size: 7),
+              for (final t in terms) _text(t, size: 6.5),
+              pw.SizedBox(height: 4),
+              _text('Receiver signature & Seal', size: 7),
+            ],
+          ),
         ),
       ],
     );
@@ -497,8 +495,7 @@ class SimpleSalesTaxInvoicePdf {
           ),
           pw.SizedBox(height: 3),
           _sellerAndMeta(billNo: billNo, billDate: billDate, ewayBill: eway),
-          _addressBox(consignee),
-          _addressBox(shipping),
+          _consigneeShippingRow(consignee, shipping),
           _mainItemsAndTaxTable(
             items: items,
             totals: totals,
@@ -507,23 +504,7 @@ class SimpleSalesTaxInvoicePdf {
             cgstPct: cgstPct,
             sgstPct: sgstPct,
           ),
-          pw.Container(
-            width: double.infinity,
-            decoration: pw.BoxDecoration(border: pw.Border.all(color: _line, width: _border)),
-            padding: const pw.EdgeInsets.all(4),
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                _text('RUPEES IN WORDS:', size: 7, weight: pw.FontWeight.bold),
-                _text(
-                  amountInWordsIndian(grand).toUpperCase(),
-                  size: 8,
-                  weight: pw.FontWeight.bold,
-                ),
-              ],
-            ),
-          ),
-          _footerBlock(),
+          _footerBlock(grandTotal: grand),
         ],
       ),
     );
