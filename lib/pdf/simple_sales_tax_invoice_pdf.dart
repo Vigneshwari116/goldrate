@@ -7,7 +7,7 @@ import '../models/bill_line_item.dart';
 import '../models/party_billing_profile.dart';
 import 'invoice_party_lines.dart';
 
-/// Compact sales tax invoice (Ultra Engineering Works–style layout).
+/// Compact sales tax invoice (reference: single grid + right tax rail).
 class SimpleSalesTaxInvoicePdf {
   SimpleSalesTaxInvoicePdf._();
 
@@ -34,7 +34,10 @@ class SimpleSalesTaxInvoicePdf {
   static final _inr = NumberFormat('#,##0.00', 'en_IN');
   static final _wt = NumberFormat('#,##0.000', 'en_IN');
 
-  static pw.BorderSide get _side => pw.BorderSide(color: _line, width: _border);
+  static pw.TableBorder get _tableBorder => pw.TableBorder.all(
+        color: _line,
+        width: _border,
+      );
 
   static pw.TextStyle _style({
     double size = 8,
@@ -52,8 +55,8 @@ class SimpleSalesTaxInvoicePdf {
 
   static pw.Widget _logoPlaceholder() {
     return pw.Container(
-      width: 52,
-      height: 52,
+      width: 48,
+      height: 48,
       decoration: pw.BoxDecoration(
         border: pw.Border.all(color: PdfColors.grey700, width: 0.8),
         color: PdfColors.grey200,
@@ -68,6 +71,20 @@ class SimpleSalesTaxInvoicePdf {
     return ['NAME & ADDRESS OF CONSIGNEE', ...party.skip(1)];
   }
 
+  static List<String> _shippingLines(PartyBillingProfile buyer) {
+    final party = InvoicePartyLines.partyAsBuyerLines(buyer);
+    return ['SHIPPING NAME & ADDRESS OF CONSIGNEE', ...party.skip(1)];
+  }
+
+  static String _shopGstin() {
+    for (final line in _sellerLines) {
+      if (line.contains('GSTIN')) {
+        return line.replaceFirst('GSTIN/UIN:', '').trim();
+      }
+    }
+    return '';
+  }
+
   static pw.Widget _cell(
     String text, {
     double fontSize = 7.5,
@@ -75,8 +92,79 @@ class SimpleSalesTaxInvoicePdf {
     pw.TextAlign align = pw.TextAlign.left,
   }) {
     return pw.Padding(
-      padding: const pw.EdgeInsets.symmetric(horizontal: 3, vertical: 2),
+      padding: const pw.EdgeInsets.symmetric(horizontal: 3, vertical: 2.5),
       child: _text(text, size: fontSize, weight: weight, align: align),
+    );
+  }
+
+  static pw.Widget _metaField(String label, String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return _cell(label, fontSize: 7);
+    }
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(horizontal: 3, vertical: 1.5),
+      child: pw.RichText(
+        text: pw.TextSpan(
+          children: [
+            pw.TextSpan(text: '$label ', style: _style(size: 7)),
+            pw.TextSpan(
+              text: trimmed,
+              style: _style(size: 7, weight: pw.FontWeight.bold),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static pw.Widget _metadataGrid({
+    required String billNo,
+    required String date,
+    String ewayBill = '',
+  }) {
+    pw.TableRow pair(String l1, String v1, String l2, String v2) {
+      return pw.TableRow(
+        children: [
+          _metaField(l1, v1),
+          _metaField(l2, v2),
+        ],
+      );
+    }
+
+    final eway = ewayBill.trim();
+    return pw.Table(
+      columnWidths: const {
+        0: pw.FlexColumnWidth(1),
+        1: pw.FlexColumnWidth(1),
+      },
+      defaultVerticalAlignment: pw.TableCellVerticalAlignment.top,
+      children: [
+        pair('Invoice No.', billNo, 'Dated', date),
+        pair('Delivery Note', '', 'Mode/Terms of Payment', ''),
+        pair('Reference No. & Date.', '', 'Other References', ''),
+        pair("Buyer's Order No.", '', 'Dated', ''),
+        pair('Dispatch Doc No.', '', 'Delivery Note Date', ''),
+        pair('Dispatched through', '', 'Destination', ''),
+        pair('Vessel/Flight No.', '', 'Place of receipt by shipper:', ''),
+        pair('City/Port of Loading', '', 'City/Port of Discharge', ''),
+        if (eway.isNotEmpty)
+          pair('EWB NO:', eway, '', '')
+        else
+          pw.TableRow(
+            children: [
+              _cell('Terms of Delivery', fontSize: 7),
+              _cell('', fontSize: 7),
+            ],
+          ),
+        if (eway.isNotEmpty)
+          pw.TableRow(
+            children: [
+              _cell('Terms of Delivery', fontSize: 7),
+              _cell('', fontSize: 7),
+            ],
+          ),
+      ],
     );
   }
 
@@ -86,10 +174,10 @@ class SimpleSalesTaxInvoicePdf {
     String? ewayBill,
   }) {
     return pw.Table(
-      border: pw.TableBorder.all(color: _line, width: _border),
-      columnWidths: {
-        0: const pw.FlexColumnWidth(3),
-        1: const pw.FlexColumnWidth(2),
+      border: _tableBorder,
+      columnWidths: const {
+        0: pw.FlexColumnWidth(11),
+        1: pw.FlexColumnWidth(10),
       },
       defaultVerticalAlignment: pw.TableCellVerticalAlignment.top,
       children: [
@@ -109,7 +197,7 @@ class SimpleSalesTaxInvoicePdf {
                         for (var i = 0; i < _sellerLines.length; i++)
                           _text(
                             _sellerLines[i],
-                            size: i == 0 ? 10 : 7.5,
+                            size: i == 0 ? 9.5 : 7,
                             weight: i == 0
                                 ? pw.FontWeight.bold
                                 : pw.FontWeight.normal,
@@ -120,23 +208,10 @@ class SimpleSalesTaxInvoicePdf {
                 ],
               ),
             ),
-            pw.Padding(
-              padding: const pw.EdgeInsets.all(5),
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  _text('Invoice No.', size: 7, weight: pw.FontWeight.bold),
-                  _text(billNo, size: 8, weight: pw.FontWeight.bold),
-                  pw.SizedBox(height: 4),
-                  _text('Dated', size: 7, weight: pw.FontWeight.bold),
-                  _text(billDate, size: 8),
-                  if ((ewayBill ?? '').trim().isNotEmpty) ...[
-                    pw.SizedBox(height: 4),
-                    _text('EWB NO:', size: 7, weight: pw.FontWeight.bold),
-                    _text(ewayBill!.trim(), size: 8),
-                  ],
-                ],
-              ),
+            _metadataGrid(
+              billNo: billNo,
+              date: billDate,
+              ewayBill: ewayBill ?? '',
             ),
           ],
         ),
@@ -144,7 +219,7 @@ class SimpleSalesTaxInvoicePdf {
     );
   }
 
-  static pw.Widget _consigneeBox(List<String> lines) {
+  static pw.Widget _addressBox(List<String> lines) {
     return pw.Container(
       width: double.infinity,
       decoration: pw.BoxDecoration(border: pw.Border.all(color: _line, width: _border)),
@@ -155,15 +230,24 @@ class SimpleSalesTaxInvoicePdf {
           for (final line in lines)
             _text(
               line,
-              size: line.startsWith('NAME &') ? 7.5 : 8,
-              weight: line.startsWith('NAME &') ? pw.FontWeight.bold : pw.FontWeight.normal,
+              size: line.startsWith('NAME &') || line.startsWith('SHIPPING')
+                  ? 7
+                  : 7.5,
+              weight: line.startsWith('NAME &') || line.startsWith('SHIPPING')
+                  ? pw.FontWeight.bold
+                  : pw.FontWeight.normal,
             ),
         ],
       ),
     );
   }
 
-  static pw.Widget _itemsTable({
+  static const _itemColW = [26.0, 0.0, 40.0, 46.0, 54.0]; // flex for desc
+  static const _taxLabelW = 44.0;
+  static const _taxPctW = 30.0;
+  static const _taxValW = 52.0;
+
+  static pw.Widget _mainItemsAndTaxTable({
     required List<BillLineItem> items,
     required BillTaxTotals totals,
     required double cgstSum,
@@ -171,7 +255,14 @@ class SimpleSalesTaxInvoicePdf {
     required double cgstPct,
     required double sgstPct,
   }) {
-    final rows = <pw.TableRow>[
+    final taxable = totals.totalTaxable;
+    final grand = totals.grandTotal;
+    final igst = 0.0;
+    final roundOff = totals.roundOff;
+
+    final rows = <pw.TableRow>[];
+
+    rows.add(
       pw.TableRow(
         decoration: const pw.BoxDecoration(color: PdfColors.grey300),
         children: [
@@ -179,11 +270,13 @@ class SimpleSalesTaxInvoicePdf {
           _cell('DESCRIPTION', fontSize: 7, weight: pw.FontWeight.bold),
           _cell('HSN/SAC', fontSize: 7, weight: pw.FontWeight.bold, align: pw.TextAlign.center),
           _cell('QTY', fontSize: 7, weight: pw.FontWeight.bold, align: pw.TextAlign.right),
-          _cell('PRICE/UNIT', fontSize: 7, weight: pw.FontWeight.bold, align: pw.TextAlign.right),
           _cell('AMOUNT', fontSize: 7, weight: pw.FontWeight.bold, align: pw.TextAlign.right),
+          _cell('', fontSize: 7),
+          _cell('', fontSize: 7),
+          _cell('', fontSize: 7),
         ],
       ),
-    ];
+    );
 
     for (var i = 0; i < items.length; i++) {
       final item = items[i];
@@ -194,121 +287,82 @@ class SimpleSalesTaxInvoicePdf {
             _cell(item.description),
             _cell(item.hsn, align: pw.TextAlign.center),
             _cell('${_wt.format(item.weight)} GM', align: pw.TextAlign.right),
-            _cell(_inr.format(item.rate), align: pw.TextAlign.right),
             _cell(_inr.format(item.tax.taxableValue), align: pw.TextAlign.right),
+            _cell(''),
+            _cell(''),
+            _cell(''),
           ],
         ),
       );
     }
 
-    if (cgstSum > 0) {
+    const minItemRows = 5;
+    for (var i = items.length; i < minItemRows; i++) {
       rows.add(
         pw.TableRow(
           children: [
             _cell(''),
-            _cell('CGST ${cgstPct.toStringAsFixed(2)}%'),
             _cell(''),
             _cell(''),
             _cell(''),
-            _cell(_inr.format(cgstSum), align: pw.TextAlign.right),
-          ],
-        ),
-      );
-      rows.add(
-        pw.TableRow(
-          children: [
-            _cell(''),
-            _cell('SGST ${sgstPct.toStringAsFixed(2)}%'),
             _cell(''),
             _cell(''),
             _cell(''),
-            _cell(_inr.format(sgstSum), align: pw.TextAlign.right),
+            _cell(''),
           ],
         ),
       );
     }
 
-    if (totals.roundOff.abs() > 0.0001) {
-      final sign = totals.roundOff < 0 ? '(-)' : '(+)';
+    void taxRow(
+      String label,
+      String pct,
+      String amount, {
+      bool bold = false,
+    }) {
+      final w = bold ? pw.FontWeight.bold : pw.FontWeight.normal;
       rows.add(
         pw.TableRow(
           children: [
             _cell(''),
-            _cell('Less : Round Off $sign'),
             _cell(''),
             _cell(''),
             _cell(''),
-            _cell(_inr.format(totals.roundOff.abs()), align: pw.TextAlign.right),
+            _cell(''),
+            _cell('$label :', fontSize: 7, weight: w),
+            _cell(pct, fontSize: 7, weight: w, align: pw.TextAlign.center),
+            _cell(amount, fontSize: 7, weight: w, align: pw.TextAlign.right),
           ],
         ),
       );
     }
 
-    rows.add(
-      pw.TableRow(
-        children: [
-          _cell(''),
-          _cell('Total', weight: pw.FontWeight.bold),
-          _cell(''),
-          _cell(''),
-          _cell(''),
-          _cell('₹${_inr.format(totals.grandTotal)}', weight: pw.FontWeight.bold, align: pw.TextAlign.right),
-        ],
-      ),
-    );
+    taxRow('Total', '', _inr.format(taxable));
+    if (cgstSum > 0 || sgstSum > 0) {
+      taxRow('SGST', '${sgstPct.toStringAsFixed(2)} %', _inr.format(sgstSum));
+      taxRow('CGST', '${cgstPct.toStringAsFixed(2)} %', _inr.format(cgstSum));
+    }
+    taxRow('IGST', '${igst.toStringAsFixed(2)} %', _inr.format(igst));
+    if (roundOff.abs() > 0.0001) {
+      final sign = roundOff < 0 ? '(-)' : '(+)';
+      taxRow('Round Off', sign, _inr.format(roundOff.abs()));
+    }
+    taxRow('G.Total', '', _inr.format(grand), bold: true);
 
     return pw.Table(
-      border: pw.TableBorder.all(color: _line, width: _border),
+      border: _tableBorder,
       columnWidths: {
-        0: const pw.FixedColumnWidth(28),
-        1: const pw.FlexColumnWidth(3),
-        2: const pw.FixedColumnWidth(44),
-        3: const pw.FixedColumnWidth(48),
-        4: const pw.FixedColumnWidth(52),
-        5: const pw.FixedColumnWidth(58),
+        0: pw.FixedColumnWidth(_itemColW[0]),
+        1: const pw.FlexColumnWidth(1),
+        2: pw.FixedColumnWidth(_itemColW[2]),
+        3: pw.FixedColumnWidth(_itemColW[3]),
+        4: pw.FixedColumnWidth(_itemColW[4]),
+        5: pw.FixedColumnWidth(_taxLabelW),
+        6: pw.FixedColumnWidth(_taxPctW),
+        7: pw.FixedColumnWidth(_taxValW),
       },
+      defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
       children: rows,
-    );
-  }
-
-  static pw.Widget _taxTotalsColumn({
-    required double taxable,
-    required double cgst,
-    required double sgst,
-    required double igst,
-    required double roundOff,
-    required double grandTotal,
-  }) {
-    pw.Widget row(String label, String value) {
-      return pw.Padding(
-        padding: const pw.EdgeInsets.symmetric(vertical: 1),
-        child: pw.Row(
-          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-          children: [
-            _text(label, size: 7.5, weight: pw.FontWeight.bold),
-            _text(value, size: 7.5, align: pw.TextAlign.right),
-          ],
-        ),
-      );
-    }
-
-    return pw.Container(
-      width: 160,
-      padding: const pw.EdgeInsets.all(4),
-      decoration: pw.BoxDecoration(border: pw.Border.all(color: _line, width: _border)),
-      child: pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-        children: [
-          row('SGST', _inr.format(sgst)),
-          row('CGST', _inr.format(cgst)),
-          row('IGST', _inr.format(igst)),
-          row('P & F', '0.00'),
-          row('Round Off', _inr.format(roundOff)),
-          row('G.Total', _inr.format(taxable + cgst + sgst + igst)),
-          pw.Divider(color: _line, height: 0.5),
-          row('Total', '₹${_inr.format(grandTotal)}'),
-        ],
-      ),
     );
   }
 
@@ -321,56 +375,80 @@ class SimpleSalesTaxInvoicePdf {
       '5.Our Risk/Reponsebility Ceases Once Goods Leave Our Premises',
     ];
 
-    return pw.Table(
-      border: pw.TableBorder.all(color: _line, width: _border),
-      columnWidths: {
-        0: const pw.FlexColumnWidth(2),
-        1: const pw.FlexColumnWidth(1),
-      },
-      defaultVerticalAlignment: pw.TableCellVerticalAlignment.top,
+    final gstin = _shopGstin();
+
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.stretch,
       children: [
-        pw.TableRow(
+        pw.Table(
+          border: _tableBorder,
+          columnWidths: const {
+            0: pw.FlexColumnWidth(2),
+            1: pw.FlexColumnWidth(1),
+          },
+          defaultVerticalAlignment: pw.TableCellVerticalAlignment.top,
           children: [
-            pw.Padding(
-              padding: const pw.EdgeInsets.all(5),
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  _text('TERMS & CONDITIONS:', weight: pw.FontWeight.bold, size: 7.5),
-                  for (final t in terms) _text(t, size: 6.5),
-                  pw.SizedBox(height: 8),
-                  _text("Receiver signature & Seal", size: 7.5),
-                ],
-              ),
-            ),
-            pw.Padding(
-              padding: const pw.EdgeInsets.all(5),
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  _text('BANK NAME :', size: 7),
-                  _text('ACCOUNT NO', size: 7),
-                  _text('IFS CODE :', size: 7),
-                  _text('BRANCH :', size: 7),
-                  pw.SizedBox(height: 24),
-                  pw.Align(
-                    alignment: pw.Alignment.centerRight,
-                    child: pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.end,
-                      children: [
-                        _text(
-                          'for $_signatureName',
-                          size: 8,
-                          weight: pw.FontWeight.bold,
-                          align: pw.TextAlign.right,
-                        ),
-                        pw.SizedBox(height: 20),
-                        _text('Authorised Signatory', size: 7.5, align: pw.TextAlign.right),
-                      ],
-                    ),
+            pw.TableRow(
+              children: [
+                pw.Padding(
+                  padding: const pw.EdgeInsets.all(5),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      if (gstin.isNotEmpty)
+                        _text('GSTIN:$gstin', size: 7, weight: pw.FontWeight.bold),
+                      pw.SizedBox(height: 4),
+                      _text('BANK NAME :', size: 7),
+                      _text('ACCOUNT NO', size: 7),
+                      _text('IFS CODE :', size: 7),
+                      _text('BRANCH :', size: 7),
+                    ],
                   ),
-                ],
-              ),
+                ),
+                pw.SizedBox(),
+              ],
+            ),
+          ],
+        ),
+        pw.Table(
+          border: _tableBorder,
+          columnWidths: const {
+            0: pw.FlexColumnWidth(2),
+            1: pw.FlexColumnWidth(1),
+          },
+          defaultVerticalAlignment: pw.TableCellVerticalAlignment.top,
+          children: [
+            pw.TableRow(
+              children: [
+                pw.Padding(
+                  padding: const pw.EdgeInsets.all(5),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      _text('TERMS & CONDITIONS:', weight: pw.FontWeight.bold, size: 7),
+                      for (final t in terms) _text(t, size: 6.5),
+                      pw.SizedBox(height: 6),
+                      _text('Receiver signature & Seal', size: 7),
+                    ],
+                  ),
+                ),
+                pw.Padding(
+                  padding: const pw.EdgeInsets.all(5),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.end,
+                    children: [
+                      _text(
+                        'for $_signatureName',
+                        size: 8,
+                        weight: pw.FontWeight.bold,
+                        align: pw.TextAlign.right,
+                      ),
+                      pw.SizedBox(height: 28),
+                      _text('Authorised Signatory', size: 7, align: pw.TextAlign.right),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -401,50 +479,34 @@ class SimpleSalesTaxInvoicePdf {
     }
 
     final consignee = _consigneeLines(buyer);
+    final shipping = _shippingLines(buyer);
     final grand = totals.grandTotal;
 
     return pw.Page(
       pageFormat: PdfPageFormat.a4,
-      margin: const pw.EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      margin: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       build: (context) => pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.stretch,
         children: [
           pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
-              _text('TAX INVOICE', size: 12, weight: pw.FontWeight.bold),
+              _text('TAX INVOICE', size: 11, weight: pw.FontWeight.bold),
               _text(copyLabel, size: 9, weight: pw.FontWeight.bold),
             ],
           ),
-          pw.SizedBox(height: 4),
+          pw.SizedBox(height: 3),
           _sellerAndMeta(billNo: billNo, billDate: billDate, ewayBill: eway),
-          _consigneeBox(consignee),
-          pw.SizedBox(height: 4),
-          pw.Row(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Expanded(
-                child: _itemsTable(
-                  items: items,
-                  totals: totals,
-                  cgstSum: cgstSum,
-                  sgstSum: sgstSum,
-                  cgstPct: cgstPct,
-                  sgstPct: sgstPct,
-                ),
-              ),
-              pw.SizedBox(width: 6),
-              _taxTotalsColumn(
-                taxable: totals.totalTaxable,
-                cgst: cgstSum,
-                sgst: sgstSum,
-                igst: 0,
-                roundOff: totals.roundOff,
-                grandTotal: grand,
-              ),
-            ],
+          _addressBox(consignee),
+          _addressBox(shipping),
+          _mainItemsAndTaxTable(
+            items: items,
+            totals: totals,
+            cgstSum: cgstSum,
+            sgstSum: sgstSum,
+            cgstPct: cgstPct,
+            sgstPct: sgstPct,
           ),
-          pw.SizedBox(height: 4),
           pw.Container(
             width: double.infinity,
             decoration: pw.BoxDecoration(border: pw.Border.all(color: _line, width: _border)),
@@ -452,12 +514,15 @@ class SimpleSalesTaxInvoicePdf {
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
-                _text('RUPEES IN WORDS:', size: 7.5, weight: pw.FontWeight.bold),
-                _text(amountInWordsIndian(grand).toUpperCase(), size: 8, weight: pw.FontWeight.bold),
+                _text('RUPEES IN WORDS:', size: 7, weight: pw.FontWeight.bold),
+                _text(
+                  amountInWordsIndian(grand).toUpperCase(),
+                  size: 8,
+                  weight: pw.FontWeight.bold,
+                ),
               ],
             ),
           ),
-          pw.SizedBox(height: 4),
           _footerBlock(),
         ],
       ),
