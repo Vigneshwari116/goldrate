@@ -53,16 +53,40 @@ class SimpleSalesTaxInvoicePdf {
   }) =>
       pw.Text(value, style: _style(size: size, weight: weight), textAlign: align);
 
-  static pw.Widget _logoPlaceholder() {
+  static final PdfColor _logoGold = PdfColor.fromInt(0xFFB8860B);
+  static final PdfColor _logoCream = PdfColor.fromInt(0xFFFFF8E1);
+
+  /// Decorative sample mark (not a real business logo file).
+  static pw.Widget _sampleLogo() {
     return pw.Container(
-      width: 48,
-      height: 48,
+      width: 52,
+      height: 52,
       decoration: pw.BoxDecoration(
-        border: pw.Border.all(color: PdfColors.grey700, width: 0.8),
-        color: PdfColors.grey200,
+        color: _logoCream,
+        border: pw.Border.all(color: _logoGold, width: 1.2),
       ),
       alignment: pw.Alignment.center,
-      child: _text('LOGO', size: 7, weight: pw.FontWeight.bold),
+      child: pw.Column(
+        mainAxisAlignment: pw.MainAxisAlignment.center,
+        children: [
+          pw.Text(
+            '◆',
+            style: pw.TextStyle(fontSize: 9, color: _logoGold),
+          ),
+          pw.Text(
+            'SM',
+            style: pw.TextStyle(
+              fontSize: 12,
+              fontWeight: pw.FontWeight.bold,
+              color: _logoGold,
+            ),
+          ),
+          pw.Text(
+            'JEWELS',
+            style: pw.TextStyle(fontSize: 5, color: _logoGold),
+          ),
+        ],
+      ),
     );
   }
 
@@ -72,8 +96,11 @@ class SimpleSalesTaxInvoicePdf {
   }
 
   static List<String> _shippingLines(PartyBillingProfile buyer) {
-    final party = InvoicePartyLines.partyAsBuyerLines(buyer);
-    return ['SHIPPING NAME & ADDRESS OF CONSIGNEE', ...party.skip(1)];
+    final name = buyer.name.trim();
+    return [
+      'SHIPPING NAME',
+      name.isEmpty ? '—' : name,
+    ];
   }
 
   static String _shopGstin() {
@@ -118,60 +145,26 @@ class SimpleSalesTaxInvoicePdf {
     );
   }
 
-  static pw.Widget _metadataGrid({
+  static pw.Widget _metadataSimple({
     required String billNo,
     required String date,
-    String ewayBill = '',
   }) {
-    pw.TableRow pair(String l1, String v1, String l2, String v2) {
-      return pw.TableRow(
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          _metaField(l1, v1),
-          _metaField(l2, v2),
+          _metaField('Invoice No.', billNo),
+          pw.SizedBox(height: 6),
+          _metaField('Dated', date),
         ],
-      );
-    }
-
-    final eway = ewayBill.trim();
-    return pw.Table(
-      columnWidths: const {
-        0: pw.FlexColumnWidth(1),
-        1: pw.FlexColumnWidth(1),
-      },
-      defaultVerticalAlignment: pw.TableCellVerticalAlignment.top,
-      children: [
-        pair('Invoice No.', billNo, 'Dated', date),
-        pair('Delivery Note', '', 'Mode/Terms of Payment', ''),
-        pair('Reference No. & Date.', '', 'Other References', ''),
-        pair("Buyer's Order No.", '', 'Dated', ''),
-        pair('Dispatch Doc No.', '', 'Delivery Note Date', ''),
-        pair('Dispatched through', '', 'Destination', ''),
-        pair('Vessel/Flight No.', '', 'Place of receipt by shipper:', ''),
-        pair('City/Port of Loading', '', 'City/Port of Discharge', ''),
-        if (eway.isNotEmpty)
-          pair('EWB NO:', eway, '', '')
-        else
-          pw.TableRow(
-            children: [
-              _cell('Terms of Delivery', fontSize: 7),
-              _cell('', fontSize: 7),
-            ],
-          ),
-        if (eway.isNotEmpty)
-          pw.TableRow(
-            children: [
-              _cell('Terms of Delivery', fontSize: 7),
-              _cell('', fontSize: 7),
-            ],
-          ),
-      ],
+      ),
     );
   }
 
   static pw.Widget _sellerAndMeta({
     required String billNo,
     required String billDate,
-    String? ewayBill,
   }) {
     return pw.Table(
       border: _tableBorder,
@@ -188,7 +181,7 @@ class SimpleSalesTaxInvoicePdf {
               child: pw.Row(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  _logoPlaceholder(),
+                  _sampleLogo(),
                   pw.SizedBox(width: 6),
                   pw.Expanded(
                     child: pw.Column(
@@ -208,11 +201,7 @@ class SimpleSalesTaxInvoicePdf {
                 ],
               ),
             ),
-            _metadataGrid(
-              billNo: billNo,
-              date: billDate,
-              ewayBill: ewayBill ?? '',
-            ),
+            _metadataSimple(billNo: billNo, date: billDate),
           ],
         ),
       ],
@@ -228,10 +217,12 @@ class SimpleSalesTaxInvoicePdf {
           for (final line in lines)
             _text(
               line,
-              size: line.startsWith('NAME &') || line.startsWith('SHIPPING')
+              size: line.startsWith('NAME &') ||
+                      line.startsWith('SHIPPING')
                   ? 7
                   : 7.5,
-              weight: line.startsWith('NAME &') || line.startsWith('SHIPPING')
+              weight: line.startsWith('NAME &') ||
+                      line.startsWith('SHIPPING')
                   ? pw.FontWeight.bold
                   : pw.FontWeight.normal,
             ),
@@ -263,7 +254,8 @@ class SimpleSalesTaxInvoicePdf {
     );
   }
 
-  static const _itemColW = [24.0, 40.0, 42.0, 48.0, 62.0]; // sl, hsn, qty, amount — desc flex
+  static const _itemColW = [24.0, 38.0, 40.0, 44.0, 54.0]; // sl, hsn, qty, price, amount — desc flex
+  static final _rateFmt = NumberFormat('#,##0.00', 'en_IN');
 
   static pw.Widget _mainItemsAndTaxTable({
     required List<BillLineItem> items,
@@ -288,6 +280,7 @@ class SimpleSalesTaxInvoicePdf {
           _cell('DESCRIPTION', fontSize: 7, weight: pw.FontWeight.bold),
           _cell('HSN/SAC', fontSize: 7, weight: pw.FontWeight.bold, align: pw.TextAlign.center),
           _cell('QTY', fontSize: 7, weight: pw.FontWeight.bold, align: pw.TextAlign.right),
+          _cell('PRICE', fontSize: 7, weight: pw.FontWeight.bold, align: pw.TextAlign.right),
           _cell('AMOUNT', fontSize: 7, weight: pw.FontWeight.bold, align: pw.TextAlign.right),
         ],
       ),
@@ -302,17 +295,19 @@ class SimpleSalesTaxInvoicePdf {
             _cell(item.description),
             _cell(item.hsn, align: pw.TextAlign.center),
             _cell('${_wt.format(item.weight)} GM', align: pw.TextAlign.right),
+            _cell(_rateFmt.format(item.rate), align: pw.TextAlign.right),
             _cell(_inr.format(item.tax.taxableValue), align: pw.TextAlign.right),
           ],
         ),
       );
     }
 
-    const minItemRows = 8;
+    const minItemRows = 4;
     for (var i = items.length; i < minItemRows; i++) {
       rows.add(
         pw.TableRow(
           children: [
+            _cell(''),
             _cell(''),
             _cell(''),
             _cell(''),
@@ -334,6 +329,7 @@ class SimpleSalesTaxInvoicePdf {
       rows.add(
         pw.TableRow(
           children: [
+            _cell(''),
             _cell(''),
             _cell(''),
             _cell(''),
@@ -364,6 +360,7 @@ class SimpleSalesTaxInvoicePdf {
         2: pw.FixedColumnWidth(_itemColW[1]),
         3: pw.FixedColumnWidth(_itemColW[2]),
         4: pw.FixedColumnWidth(_itemColW[3]),
+        5: pw.FixedColumnWidth(_itemColW[4]),
       },
       defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
       children: rows,
@@ -463,7 +460,6 @@ class SimpleSalesTaxInvoicePdf {
   }) {
     final billNo = row['billNo']?.toString() ?? '';
     final billDate = (row['date'] ?? '').toString();
-    final eway = (row['ewayBill'] ?? '').toString();
 
     double cgstPct = 0;
     double sgstPct = 0;
@@ -494,7 +490,7 @@ class SimpleSalesTaxInvoicePdf {
             ],
           ),
           pw.SizedBox(height: 3),
-          _sellerAndMeta(billNo: billNo, billDate: billDate, ewayBill: eway),
+          _sellerAndMeta(billNo: billNo, billDate: billDate),
           _consigneeShippingRow(consignee, shipping),
           _mainItemsAndTaxTable(
             items: items,

@@ -37,7 +37,7 @@ void main() {
     expect(lines, contains('TEST CONSIGNEE PVT LTD'));
   });
 
-  test('generates simple sales PDF with two copy pages', () async {
+  test('generates simple sales PDF with original copy only', () async {
     final items = [
       BillLineItem(
         type: 'GWT',
@@ -58,20 +58,15 @@ void main() {
     );
 
     final doc = await PdfKit.document();
-    for (final copyLabel in [
-      SimpleSalesTaxInvoicePdf.copyOriginalForBuyer,
-      SimpleSalesTaxInvoicePdf.copyDuplicateForTransporter,
-    ]) {
-      doc.addPage(
-        SimpleSalesTaxInvoicePdf.buildPage(
-          buyer: buyer,
-          row: {'billNo': 101, 'date': '23-09-2026', 'transactionType': 'SALES'},
-          items: items,
-          totals: totals,
-          copyLabel: copyLabel,
-        ),
-      );
-    }
+    doc.addPage(
+      SimpleSalesTaxInvoicePdf.buildPage(
+        buyer: buyer,
+        row: {'billNo': 101, 'date': '23-09-2026', 'transactionType': 'SALES'},
+        items: items,
+        totals: totals,
+        copyLabel: SimpleSalesTaxInvoicePdf.copyOriginalForBuyer,
+      ),
+    );
     final bytes = await doc.save();
     expect(bytes.length, greaterThan(2000));
 

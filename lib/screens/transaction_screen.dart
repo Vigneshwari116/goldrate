@@ -1673,10 +1673,7 @@ class _TransactionScreenState extends State<TransactionScreen>
         : null;
     final doc = await PdfKit.document();
     final salesCopyLabels = salesFormat == SalesInvoiceFormat.simple
-        ? [
-            SimpleSalesTaxInvoicePdf.copyOriginalForBuyer,
-            SimpleSalesTaxInvoicePdf.copyDuplicateForTransporter,
-          ]
+        ? [SimpleSalesTaxInvoicePdf.copyOriginalForBuyer]
         : [
             SalesTaxInvoicePdf.copyOriginalForRecipient,
             SalesTaxInvoicePdf.copyDuplicateForTransporter,

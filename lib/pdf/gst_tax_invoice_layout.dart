@@ -589,7 +589,7 @@ class GstTaxInvoiceLayout {
   }
 
   static pw.Widget _taxGroupHeaderCell(double groupWidth, String title) {
-    final rateW = groupWidth * (_taxRatePartW / ( _taxRatePartW + _taxAmountPartW));
+    final rateW = groupWidth * (_taxRatePartW / (_taxRatePartW + _taxAmountPartW));
     final amountW = groupWidth - rateW;
     return pw.SizedBox(
       width: groupWidth,
@@ -637,8 +637,9 @@ class GstTaxInvoiceLayout {
   static pw.Widget _taxRateAmountCell(
     double groupWidth,
     String rate,
-    String amount,
-  ) {
+    String amount, {
+    pw.FontWeight weight = pw.FontWeight.normal,
+  }) {
     final rateW = groupWidth * (_taxRatePartW / (_taxRatePartW + _taxAmountPartW));
     final amountW = groupWidth - rateW;
     return pw.SizedBox(
@@ -648,15 +649,30 @@ class GstTaxInvoiceLayout {
           pw.Container(
             width: rateW,
             decoration: pw.BoxDecoration(border: pw.Border(right: _borderSide)),
-            child: _cell(rate, fontSize: 7.5, align: pw.TextAlign.right),
+            child: _cell(
+              rate,
+              fontSize: 7.5,
+              weight: weight,
+              align: pw.TextAlign.center,
+            ),
           ),
           pw.SizedBox(
             width: amountW,
-            child: _cell(amount, fontSize: 7.5, align: pw.TextAlign.right),
+            child: _cell(
+              amount,
+              fontSize: 7.5,
+              weight: weight,
+              align: pw.TextAlign.right,
+            ),
           ),
         ],
       ),
     );
+  }
+
+  static String _effectiveTaxRatePercent(double taxAmount, double taxable) {
+    if (taxable <= 0 || taxAmount <= 0) return '';
+    return '${((taxAmount / taxable) * 100).toStringAsFixed(2)}%';
   }
 
   static pw.Widget _taxDataCell(
@@ -714,8 +730,18 @@ class GstTaxInvoiceLayout {
         children: [
           _taxDataCell(0, 'Total', weight: pw.FontWeight.bold),
           _taxDataCell(1, _inr.format(totalTaxable), weight: pw.FontWeight.bold, align: pw.TextAlign.right),
-          _taxRateAmountCell(w[2], '', _inr.format(totalCgst)),
-          _taxRateAmountCell(w[3], '', _inr.format(totalSgst)),
+          _taxRateAmountCell(
+            w[2],
+            _effectiveTaxRatePercent(totalCgst, totalTaxable),
+            _inr.format(totalCgst),
+            weight: pw.FontWeight.bold,
+          ),
+          _taxRateAmountCell(
+            w[3],
+            _effectiveTaxRatePercent(totalSgst, totalTaxable),
+            _inr.format(totalSgst),
+            weight: pw.FontWeight.bold,
+          ),
           _taxDataCell(4, _inr.format(totalTax), weight: pw.FontWeight.bold, align: pw.TextAlign.right),
         ],
       ),
