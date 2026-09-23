@@ -144,6 +144,7 @@ class _TransactionScreenState extends State<TransactionScreen>
   bool _sharingPdf = false;
   List<Map<String, dynamic>> _history = [];
   Map<String, double> _rates = {};
+  final Map<String, double> _billRateOverrideByType = {};
   List<PartySuggestion> _partySuggestions = [];
   Map<String, double>? _partyOutstanding;
   Timer? _partyRefreshTimer;
@@ -275,6 +276,16 @@ class _TransactionScreenState extends State<TransactionScreen>
 
   double get _goldRate => GoldLedger.goldRate(_rates);
 
+  double _masterRateForType(String type) {
+    final rateName = kItemTypeToRateName[type];
+    if (rateName == null) return 0;
+    return _rates[rateName] ?? 0;
+  }
+
+  double _effectiveRateForType(String type) {
+    return _billRateOverrideByType[type] ?? _masterRateForType(type);
+  }
+
   double get _balancePure => _billTotalPure - _paymentTotalPure;
 
   bool get _paymentIsCashOnly =>
@@ -405,8 +416,7 @@ class _TransactionScreenState extends State<TransactionScreen>
       return null;
     }
     final touch = double.parse(_billEntryTouch.text.trim());
-    final rateName = kItemTypeToRateName[_billEntryType];
-    final rate = _rates[rateName] ?? 0;
+    final rate = _effectiveRateForType(_billEntryType);
     final hsn = _hsnByType[_billEntryType] ?? kDefaultHsnByItemType[_billEntryType] ?? '';
     final desc = _billEntryDescription.text.trim();
     return BillLineItem(
@@ -457,8 +467,8 @@ class _TransactionScreenState extends State<TransactionScreen>
       _showMessage('Enter weight and touch before continuing');
       return;
     }
-    final rateName = kItemTypeToRateName[item.type];
-    if ((_rates[rateName] ?? 0) <= 0) {
+    final rateName = kItemTypeToRateName[item.type] ?? item.type;
+    if (_effectiveRateForType(item.type) <= 0) {
       _showMessage(
           "$rateName isn't set yet — update it on the Master screen first");
       return;
@@ -995,14 +1005,132 @@ class _TransactionScreenState extends State<TransactionScreen>
 
   bool _validateBillRates() {
     for (final item in _billItems) {
-      final rateName = kItemTypeToRateName[item.type];
-      if ((_rates[rateName] ?? 0) <= 0) {
+      final rateName = kItemTypeToRateName[item.type] ?? item.type;
+      if (item.rate <= 0) {
         _showMessage(
             "$rateName isn't set yet — update it on the Master screen first");
         return false;
       }
     }
     return true;
+  }
+
+  Future<void> _editBillEntryRate() async {
+    final type = _billEntryType;
+    final rateName = kItemTypeToRateName[type] ?? type;
+    final master = _masterRateForType(type);
+    final current = _effectiveRateForType(type);
+    final ctrl = TextEditingController(
+      text: current > 0 ? current.toStringAsFixed(2) : '',
+    );
+    final updated = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Rate — $type ($rateName)'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (master > 0)
+              Text(
+                'Daily Rate: ${master.toStringAsFixed(2)}',
+                style: const TextStyle(fontSize: 12, color: Colors.black54),
+              ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: ctrl,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Rate for this bill line',
+                isDense: true,
+              ),
+              autofocus: true,
+            ),
+          ],
+        ),
+        actions: [
+          if (_billRateOverrideByType.containsKey(type))
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx, true);
+                setState(() => _billRateOverrideByType.remove(type));
+              },
+              child: const Text('USE DAILY RATE'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('CANCEL'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('SAVE'),
+          ),
+        ],
+      ),
+    );
+    if (updated == true && mounted) {
+      final parsed = double.tryParse(ctrl.text.trim());
+      if (parsed != null && parsed > 0) {
+        setState(() => _billRateOverrideByType[type] = parsed);
+      }
+    }
+    ctrl.dispose();
+  }
+
+  /// Compact Daily Rate chip above metal entry (ISSUE on Sales, RECEIPT on Purchase).
+  Widget _billEntryRateChip() {
+    final type = _billEntryType;
+    final rateName = kItemTypeToRateName[type] ?? type;
+    final rate = _effectiveRateForType(type);
+    final overridden = _billRateOverrideByType.containsKey(type);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: _editBillEntryRate,
+            borderRadius: BorderRadius.circular(6),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.cardWhite,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: overridden ? AppColors.mutedBlue : AppColors.border,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    rateName,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.mutedBlue,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    rate > 0 ? rate.toStringAsFixed(2) : '—',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.navy,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.edit_outlined, size: 14, color: Colors.black45),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Map<String, dynamic> _paymentLineToJson(_PanelLine line) {
@@ -2495,10 +2623,13 @@ class _TransactionScreenState extends State<TransactionScreen>
       totalLabel: '$title total pure wt',
       totalPure: _billTotalPure,
       rows: [
+        _billEntryRateChip(),
         _metalEntryRow(
           prefix: prefix,
           selectedType: _billEntryType,
-          onTypeChanged: (v) => setState(() => _billEntryType = v),
+          onTypeChanged: (v) => setState(() {
+            _billEntryType = v;
+          }),
           weight: _billEntryWeight,
           touch: _billEntryTouch,
           weightFocus: _billEntryWeightFocus,
