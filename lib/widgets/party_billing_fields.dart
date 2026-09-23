@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/app_theme.dart';
+import '../theme/field_sizes.dart';
+import '../theme/responsive.dart';
 
 /// Address / GST fields for party master and purchase/sales bills.
 class PartyBillingFields extends StatelessWidget {
@@ -40,45 +42,51 @@ class PartyBillingFields extends StatelessWidget {
       fontWeight: FontWeight.w600,
       color: AppColors.mutedBlue,
     );
+    final narrow = !Responsive.isWide(context);
 
-    Widget field(String label, TextEditingController c,
-        {int maxLines = 1,
-        TextInputType? keyboard,
-        List<TextInputFormatter>? formatters,
-        String? Function(String?)? validator,
-        int? maxLength}) {
+    Widget field(
+      String label,
+      TextEditingController c, {
+      int maxLines = 1,
+      TextInputType? keyboard,
+      List<TextInputFormatter>? formatters,
+      String? Function(String?)? validator,
+      int? maxLength,
+      double? width,
+    }) {
+      final input = TextFormField(
+        controller: c,
+        maxLines: maxLines,
+        keyboardType: keyboard,
+        inputFormatters: formatters,
+        validator: validator,
+        maxLength: maxLength,
+        style: TextStyle(fontSize: compact ? 13 : 14),
+        decoration: InputDecoration(
+          labelText: label,
+          isDense: compact,
+        ),
+      );
       return Padding(
         padding: EdgeInsets.only(bottom: compact ? 6 : 8),
-        child: TextFormField(
-          controller: c,
-          maxLines: maxLines,
-          keyboardType: keyboard,
-          inputFormatters: formatters,
-          validator: validator,
-          maxLength: maxLength,
-          style: TextStyle(fontSize: compact ? 13 : 14),
-          decoration: InputDecoration(
-            labelText: label,
-            isDense: compact,
-          ),
-        ),
+        child: width != null && !narrow
+            ? SizedBox(width: width, child: input)
+            : input,
       );
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text('BILLING DETAILS', style: labelStyle),
-        const SizedBox(height: 4),
-        field('Address', addressController, maxLines: 2),
-        Row(
-          children: [
-            Expanded(
-              child: field('City', cityController),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: field(
+    final addressField = field(
+      'Address',
+      addressController,
+      maxLines: 2,
+      width: FieldSizes.billingAddress,
+    );
+
+    final cityPinRow = narrow
+        ? Column(
+            children: [
+              field('City', cityController),
+              field(
                 'Pincode',
                 pincodeController,
                 keyboard: TextInputType.number,
@@ -87,18 +95,70 @@ class PartyBillingFields extends StatelessWidget {
                   LengthLimitingTextInputFormatter(6),
                 ],
               ),
-            ),
-          ],
-        ),
-        field(
-          'GSTIN (optional)',
-          gstinController,
-          maxLength: 15,
-          validator: _gstinValidator,
-        ),
-        field('State', stateController),
-        if (showEwayBill && ewayBillController != null)
-          field('E-Way Bill No (optional)', ewayBillController!),
+            ],
+          )
+        : Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              field('City', cityController, width: FieldSizes.billingCity),
+              const SizedBox(width: 8),
+              field(
+                'Pincode',
+                pincodeController,
+                keyboard: TextInputType.number,
+                formatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(6),
+                ],
+                width: FieldSizes.billingPincode,
+              ),
+            ],
+          );
+
+    final gstStateRow = narrow
+        ? Column(
+            children: [
+              field(
+                'GSTIN (optional)',
+                gstinController,
+                maxLength: 15,
+                validator: _gstinValidator,
+              ),
+              field('State', stateController),
+            ],
+          )
+        : Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              field(
+                'GSTIN (optional)',
+                gstinController,
+                maxLength: 15,
+                validator: _gstinValidator,
+                width: FieldSizes.billingGstin,
+              ),
+              const SizedBox(width: 8),
+              field('State', stateController, width: FieldSizes.billingState),
+            ],
+          );
+
+    final ewayField = showEwayBill && ewayBillController != null
+        ? field(
+            'E-Way Bill No (optional)',
+            ewayBillController!,
+            width: FieldSizes.billingEway,
+          )
+        : null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('BILLING DETAILS', style: labelStyle),
+        const SizedBox(height: 4),
+        addressField,
+        cityPinRow,
+        gstStateRow,
+        if (ewayField != null) ewayField,
       ],
     );
   }

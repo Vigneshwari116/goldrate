@@ -780,45 +780,49 @@ class _TransactionScreenState extends State<TransactionScreen>
       fontWeight: FontWeight.w600,
       color: AppColors.mutedBlue,
     );
+    final narrow = !Responsive.isWide(context);
+    Widget poNo = TextFormField(
+      controller: _poNoController,
+      style: const TextStyle(fontSize: 13),
+      decoration: const InputDecoration(
+        labelText: 'PO No',
+        isDense: true,
+      ),
+    );
+    Widget poDate = TextFormField(
+      controller: _poDateController,
+      readOnly: true,
+      style: const TextStyle(fontSize: 13),
+      decoration: InputDecoration(
+        labelText: 'PO Date',
+        isDense: true,
+        suffixIcon: _poDateController.text.trim().isEmpty
+            ? const Icon(Icons.calendar_today, size: 18)
+            : IconButton(
+                icon: const Icon(Icons.clear, size: 18),
+                onPressed: () => setState(_poDateController.clear),
+              ),
+      ),
+      onTap: _pickPoDate,
+    );
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text('PURCHASE ORDER (optional)', style: labelStyle),
         const SizedBox(height: 4),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: TextFormField(
-                controller: _poNoController,
-                style: const TextStyle(fontSize: 13),
-                decoration: const InputDecoration(
-                  labelText: 'PO No',
-                  isDense: true,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: TextFormField(
-                controller: _poDateController,
-                readOnly: true,
-                style: const TextStyle(fontSize: 13),
-                decoration: InputDecoration(
-                  labelText: 'PO Date',
-                  isDense: true,
-                  suffixIcon: _poDateController.text.trim().isEmpty
-                      ? const Icon(Icons.calendar_today, size: 18)
-                      : IconButton(
-                          icon: const Icon(Icons.clear, size: 18),
-                          onPressed: () => setState(_poDateController.clear),
-                        ),
-                ),
-                onTap: _pickPoDate,
-              ),
-            ),
-          ],
-        ),
+        if (narrow)
+          Column(
+            children: [poNo, const SizedBox(height: 6), poDate],
+          )
+        else
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(width: FieldSizes.billingPoNo, child: poNo),
+              const SizedBox(width: 8),
+              SizedBox(width: FieldSizes.billingPoDate, child: poDate),
+            ],
+          ),
       ],
     );
   }
@@ -1913,10 +1917,7 @@ class _TransactionScreenState extends State<TransactionScreen>
           ),
           const SizedBox(height: 12),
           if (_isPurchase) ...[
-            SizedBox(
-              width: FieldSizes.name,
-              child: _purchasePoFields(),
-            ),
+            _purchasePoFields(),
             const SizedBox(height: 10),
           ],
           SizedBox(

@@ -16,6 +16,7 @@ import '../util/focus_chain.dart';
 import '../util/party_name_key.dart';
 import '../util/screen_activation.dart';
 import '../theme/app_theme.dart';
+import '../theme/field_sizes.dart';
 import '../theme/responsive.dart';
 import '../widgets/material_tile_card.dart';
 import '../widgets/party_autocomplete_field.dart';
@@ -1244,54 +1245,64 @@ class _SupplierMasterScreenState extends State<SupplierMasterScreen>
         key: _formKey,
         child: Column(
           children: [
-            Row(
-              crossAxisAlignment:
-              CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: PartyAutocompleteField(
-                    label: 'Supplier Name',
-                    controller: _nameController,
-                    options: _nameOptions,
-                    validator: _validateName,
-                    readOnly: _nameLocked,
-                    onFocusNodeReady: _bindNameFocus,
-                    onSelected: _prefillFromExistingName,
-                    onChanged: (value) {
-                      if (_editingExistingParty) return;
-                      final exists =
-                          _summaries.any((s) => s.name == value.trim());
-                      if (exists != _nameLocked) {
-                        setState(() => _nameLocked = exists);
-                      }
-                    },
-                    onFieldSubmitted: () => _focusNext(_mobileFocus),
-                    onFocus: loadSuppliers,
-                  ),
-                ),
-                const SizedBox(
-                  width: 10,
-                ),
-                Expanded(
-                  child: _field(
-                    'Mobile',
-                    _mobileController,
-                    focusNode: _mobileFocus,
-                    keyboardType:
-                    TextInputType.phone,
-                    inputFormatters: [
-                      FilteringTextInputFormatter
-                          .digitsOnly,
-                      LengthLimitingTextInputFormatter(
-                        10,
-                      ),
+            Builder(
+              builder: (context) {
+                final narrow = !Responsive.isWide(context);
+                final nameField = PartyAutocompleteField(
+                  label: 'Supplier Name',
+                  controller: _nameController,
+                  options: _nameOptions,
+                  validator: _validateName,
+                  readOnly: _nameLocked,
+                  onFocusNodeReady: _bindNameFocus,
+                  onSelected: _prefillFromExistingName,
+                  onChanged: (value) {
+                    if (_editingExistingParty) return;
+                    final exists =
+                        _summaries.any((s) => s.name == value.trim());
+                    if (exists != _nameLocked) {
+                      setState(() => _nameLocked = exists);
+                    }
+                  },
+                  onFieldSubmitted: () => _focusNext(_mobileFocus),
+                  onFocus: loadSuppliers,
+                );
+                final mobileField = _field(
+                  'Mobile',
+                  _mobileController,
+                  focusNode: _mobileFocus,
+                  keyboardType: TextInputType.phone,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(10),
+                  ],
+                  validator: _validateMobile,
+                  onFieldSubmitted: () => _focusNext(_cityFocus),
+                );
+                if (narrow) {
+                  return Column(
+                    children: [
+                      nameField,
+                      const SizedBox(height: 8),
+                      mobileField,
                     ],
-                    validator:
-                    _validateMobile,
-                    onFieldSubmitted: () => _focusNext(_cityFocus),
-                  ),
-                ),
-              ],
+                  );
+                }
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: FieldSizes.billingName,
+                      child: nameField,
+                    ),
+                    const SizedBox(width: 10),
+                    SizedBox(
+                      width: FieldSizes.mobile,
+                      child: mobileField,
+                    ),
+                  ],
+                );
+              },
             ),
 
             PartyBillingFields(
