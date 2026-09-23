@@ -121,6 +121,36 @@ class SalesTaxInvoicePdf {
         width: _border,
       );
 
+  static pw.BorderSide get _borderSide =>
+      pw.BorderSide(color: _line, width: _border);
+
+  static Map<int, pw.TableColumnWidth> get _itemColumnWidths => {
+        0: const pw.FixedColumnWidth(24),
+        1: const pw.FixedColumnWidth(128),
+        2: const pw.FixedColumnWidth(44),
+        3: const pw.FixedColumnWidth(50),
+        4: const pw.FixedColumnWidth(48),
+        5: const pw.FixedColumnWidth(22),
+        6: const pw.FixedColumnWidth(58),
+      };
+
+  static Map<int, pw.TableColumnWidth> get _metaColumnWidths => {
+        0: const pw.FixedColumnWidth(72),
+        1: const pw.FixedColumnWidth(52),
+        2: const pw.FixedColumnWidth(72),
+        3: const pw.FixedColumnWidth(52),
+      };
+
+  static const List<double> _taxColumnWidths = [
+    40,
+    56,
+    32,
+    48,
+    32,
+    48,
+    52,
+  ];
+
   static pw.Widget _cell(
     String text, {
     double fontSize = 7.5,
@@ -140,16 +170,62 @@ class SalesTaxInvoicePdf {
 
   static pw.Widget _sellerBlock(ShopSettings shop) {
     final lines = sellerDisplayLines(shop);
-    return pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
+    return pw.Table(
+      border: _tableBorder,
+      columnWidths: {0: const pw.FlexColumnWidth(1)},
       children: [
-        for (var i = 0; i < lines.length; i++)
-          _text(
-            lines[i],
-            size: i == 0 ? 10 : 8,
-            weight: i == 0 ? pw.FontWeight.bold : pw.FontWeight.normal,
-          ),
+        pw.TableRow(
+          children: [
+            pw.Padding(
+              padding: const pw.EdgeInsets.all(5),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  for (var i = 0; i < lines.length; i++)
+                    _text(
+                      lines[i],
+                      size: i == 0 ? 10 : 7.5,
+                      weight:
+                          i == 0 ? pw.FontWeight.bold : pw.FontWeight.normal,
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ],
+    );
+  }
+
+  /// Placeholder e-invoice block (no live IRN/QR integration).
+  static pw.Widget _eInvoicePlaceholder() {
+    return pw.Container(
+      decoration: pw.BoxDecoration(border: pw.Border.all(color: _line, width: _border)),
+      padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Expanded(
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                _text('e-Invoice', size: 8, weight: pw.FontWeight.bold),
+                _text('IRN : Not yet integrated', size: 7),
+                _text('Ack No. : $_placeholder', size: 7),
+                _text('Ack Date. : $_placeholder', size: 7),
+              ],
+            ),
+          ),
+          pw.Container(
+            width: 54,
+            height: 54,
+            decoration: pw.BoxDecoration(
+              color: PdfColors.grey300,
+              border: pw.Border.all(color: _line, width: _border),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -195,12 +271,7 @@ class SalesTaxInvoicePdf {
 
     return pw.Table(
       border: _tableBorder,
-      columnWidths: {
-        0: const pw.FlexColumnWidth(2.2),
-        1: const pw.FlexColumnWidth(1.3),
-        2: const pw.FlexColumnWidth(2.2),
-        3: const pw.FlexColumnWidth(1.3),
-      },
+      columnWidths: _metaColumnWidths,
       children: [
         row('Invoice No.', billNo, 'Delivery Note', ''),
         row('Reference No. & Date.', '', "Buyer's Order No.", ''),
@@ -244,11 +315,11 @@ class SalesTaxInvoicePdf {
         children: [
           _cell('Sl\nNo.', fontSize: 7, weight: pw.FontWeight.bold, align: pw.TextAlign.center),
           _cell('Description of Goods', fontSize: 7, weight: pw.FontWeight.bold),
-          _cell('Amount', fontSize: 7, weight: pw.FontWeight.bold, align: pw.TextAlign.right),
-          _cell('per', fontSize: 7, weight: pw.FontWeight.bold, align: pw.TextAlign.center),
-          _cell('Rate', fontSize: 7, weight: pw.FontWeight.bold, align: pw.TextAlign.right),
-          _cell('Quantity', fontSize: 7, weight: pw.FontWeight.bold, align: pw.TextAlign.right),
           _cell('HSN/SAC', fontSize: 7, weight: pw.FontWeight.bold, align: pw.TextAlign.center),
+          _cell('Quantity', fontSize: 7, weight: pw.FontWeight.bold, align: pw.TextAlign.right),
+          _cell('Rate', fontSize: 7, weight: pw.FontWeight.bold, align: pw.TextAlign.right),
+          _cell('per', fontSize: 7, weight: pw.FontWeight.bold, align: pw.TextAlign.center),
+          _cell('Amount', fontSize: 7, weight: pw.FontWeight.bold, align: pw.TextAlign.right),
         ],
       ),
     );
@@ -260,11 +331,11 @@ class SalesTaxInvoicePdf {
           children: [
             _cell('${i + 1}', align: pw.TextAlign.center),
             _cell(item.description),
-            _cell(_inr.format(item.tax.taxableValue), align: pw.TextAlign.right),
-            _cell('GM', align: pw.TextAlign.center),
-            _cell(_rateFmt.format(item.rate), align: pw.TextAlign.right),
-            _cell('${_wt.format(item.weight)} GM', align: pw.TextAlign.right),
             _cell(item.hsn, align: pw.TextAlign.center),
+            _cell('${_wt.format(item.weight)} GM', align: pw.TextAlign.right),
+            _cell(_rateFmt.format(item.rate), align: pw.TextAlign.right),
+            _cell('GM', align: pw.TextAlign.center),
+            _cell(_inr.format(item.tax.taxableValue), align: pw.TextAlign.right),
           ],
         ),
       );
@@ -276,11 +347,11 @@ class SalesTaxInvoicePdf {
           children: [
             _cell(''),
             _cell('CGST ${cgstPct.toStringAsFixed(1)}%'),
-            _cell(_inr.format(cgstSum), align: pw.TextAlign.right),
-            _cell('%', align: pw.TextAlign.center),
+            _cell(''),
+            _cell(''),
             _cell(cgstPct.toStringAsFixed(2), align: pw.TextAlign.right),
-            _cell(''),
-            _cell(''),
+            _cell('%', align: pw.TextAlign.center),
+            _cell(_inr.format(cgstSum), align: pw.TextAlign.right),
           ],
         ),
       );
@@ -289,11 +360,11 @@ class SalesTaxInvoicePdf {
           children: [
             _cell(''),
             _cell('SGST ${sgstPct.toStringAsFixed(1)}%'),
-            _cell(_inr.format(sgstSum), align: pw.TextAlign.right),
-            _cell('%', align: pw.TextAlign.center),
+            _cell(''),
+            _cell(''),
             _cell(sgstPct.toStringAsFixed(2), align: pw.TextAlign.right),
-            _cell(''),
-            _cell(''),
+            _cell('%', align: pw.TextAlign.center),
+            _cell(_inr.format(sgstSum), align: pw.TextAlign.right),
           ],
         ),
       );
@@ -353,27 +424,104 @@ class SalesTaxInvoicePdf {
         children: [
           _cell(''),
           _cell('Total', weight: pw.FontWeight.bold),
-          _cell('₹${_inr.format(grand)}', weight: pw.FontWeight.bold, align: pw.TextAlign.right),
-          _cell(''),
           _cell(''),
           _cell('${_wt.format(totalWt)} GM', weight: pw.FontWeight.bold, align: pw.TextAlign.right),
           _cell(''),
+          _cell(''),
+          _cell('₹${_inr.format(grand)}', weight: pw.FontWeight.bold, align: pw.TextAlign.right),
         ],
       ),
     );
 
-    return pw.Table(
-      border: _tableBorder,
-      columnWidths: {
-        0: const pw.FlexColumnWidth(0.5),
-        1: const pw.FlexColumnWidth(2.8),
-        2: const pw.FlexColumnWidth(1.2),
-        3: const pw.FlexColumnWidth(0.4),
-        4: const pw.FlexColumnWidth(1.0),
-        5: const pw.FlexColumnWidth(1.0),
-        6: const pw.FlexColumnWidth(0.9),
-      },
-      children: rows,
+    return pw.Align(
+      alignment: pw.Alignment.centerLeft,
+      child: pw.Table(
+        border: _tableBorder,
+        columnWidths: _itemColumnWidths,
+        children: rows,
+      ),
+    );
+  }
+
+  static pw.Widget _taxHeaderTallCell(double width, String label) {
+    const headerHeight = 28.0;
+    return pw.Container(
+      width: width,
+      height: headerHeight,
+      decoration: pw.BoxDecoration(
+        color: PdfColors.grey300,
+        border: pw.Border(
+          top: _borderSide,
+          left: _borderSide,
+          right: _borderSide,
+          bottom: _borderSide,
+        ),
+      ),
+      alignment: pw.Alignment.center,
+      padding: const pw.EdgeInsets.symmetric(horizontal: 2),
+      child: _text(
+        label,
+        size: 6.5,
+        weight: pw.FontWeight.bold,
+        align: pw.TextAlign.center,
+      ),
+    );
+  }
+
+  static pw.Widget _taxGroupHeader(double rateWidth, double amountWidth, String title) {
+    const topHeight = 14.0;
+    const subHeight = 14.0;
+    return pw.SizedBox(
+      width: rateWidth + amountWidth,
+      child: pw.Column(
+        children: [
+          pw.Container(
+            height: topHeight,
+            alignment: pw.Alignment.center,
+            decoration: pw.BoxDecoration(
+              color: PdfColors.grey300,
+              border: pw.Border(
+                top: _borderSide,
+                left: _borderSide,
+                right: _borderSide,
+                bottom: _borderSide,
+              ),
+            ),
+            child: _text(title, size: 6.5, weight: pw.FontWeight.bold),
+          ),
+          pw.Row(
+            children: [
+              pw.Container(
+                width: rateWidth,
+                height: subHeight,
+                alignment: pw.Alignment.center,
+                decoration: pw.BoxDecoration(
+                  color: PdfColors.grey300,
+                  border: pw.Border(
+                    left: _borderSide,
+                    right: _borderSide,
+                    bottom: _borderSide,
+                  ),
+                ),
+                child: _text('Rate', size: 6, weight: pw.FontWeight.bold),
+              ),
+              pw.Container(
+                width: amountWidth,
+                height: subHeight,
+                alignment: pw.Alignment.center,
+                decoration: pw.BoxDecoration(
+                  color: PdfColors.grey300,
+                  border: pw.Border(
+                    right: _borderSide,
+                    bottom: _borderSide,
+                  ),
+                ),
+                child: _text('Amount', size: 6, weight: pw.FontWeight.bold),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -389,36 +537,20 @@ class SalesTaxInvoicePdf {
       totalTax += h.totalTax;
     }
 
-    pw.TableRow hdr(String a, String b, String c, String d, String e, String f, String g) {
-      return pw.TableRow(
-        decoration: const pw.BoxDecoration(color: PdfColors.grey300),
-        children: [
-          _cell(a, weight: pw.FontWeight.bold, fontSize: 6.5),
-          _cell(b, weight: pw.FontWeight.bold, fontSize: 6.5, align: pw.TextAlign.right),
-          _cell(c, weight: pw.FontWeight.bold, fontSize: 6.5, align: pw.TextAlign.center),
-          _cell(d, weight: pw.FontWeight.bold, fontSize: 6.5, align: pw.TextAlign.right),
-          _cell(e, weight: pw.FontWeight.bold, fontSize: 6.5, align: pw.TextAlign.center),
-          _cell(f, weight: pw.FontWeight.bold, fontSize: 6.5, align: pw.TextAlign.right),
-          _cell(g, weight: pw.FontWeight.bold, fontSize: 6.5, align: pw.TextAlign.right),
-        ],
-      );
-    }
-
-    final dataRows = <pw.TableRow>[
-      hdr('HSN/SAC', 'Taxable\nValue', 'CGST\nRate', 'CGST\nAmount', 'SGST/UTGST\nRate', 'SGST/UTGST\nAmount', 'Total Tax\nAmount'),
-    ];
+    final w = _taxColumnWidths;
+    final dataRows = <pw.TableRow>[];
 
     for (final h in hsnRows) {
       dataRows.add(
         pw.TableRow(
           children: [
-            _cell(h.hsn),
-            _cell(_inr.format(h.taxable), align: pw.TextAlign.right),
-            _cell('${h.cgstPercent.toStringAsFixed(2)}%', align: pw.TextAlign.center),
-            _cell(_inr.format(h.cgstAmount), align: pw.TextAlign.right),
-            _cell('${h.sgstPercent.toStringAsFixed(2)}%', align: pw.TextAlign.center),
-            _cell(_inr.format(h.sgstAmount), align: pw.TextAlign.right),
-            _cell(_inr.format(h.totalTax), align: pw.TextAlign.right),
+            _cell(h.hsn, fontSize: 7),
+            _cell(_inr.format(h.taxable), fontSize: 7, align: pw.TextAlign.right),
+            _cell('${h.cgstPercent.toStringAsFixed(2)}%', fontSize: 7, align: pw.TextAlign.center),
+            _cell(_inr.format(h.cgstAmount), fontSize: 7, align: pw.TextAlign.right),
+            _cell('${h.sgstPercent.toStringAsFixed(2)}%', fontSize: 7, align: pw.TextAlign.center),
+            _cell(_inr.format(h.sgstAmount), fontSize: 7, align: pw.TextAlign.right),
+            _cell(_inr.format(h.totalTax), fontSize: 7, align: pw.TextAlign.right),
           ],
         ),
       );
@@ -427,23 +559,118 @@ class SalesTaxInvoicePdf {
     dataRows.add(
       pw.TableRow(
         children: [
-          _cell('Total', weight: pw.FontWeight.bold),
-          _cell(_inr.format(totalTaxable), weight: pw.FontWeight.bold, align: pw.TextAlign.right),
+          _cell('Total', fontSize: 7, weight: pw.FontWeight.bold),
+          _cell(_inr.format(totalTaxable), fontSize: 7, weight: pw.FontWeight.bold, align: pw.TextAlign.right),
           _cell(''),
-          _cell(_inr.format(totalCgst), weight: pw.FontWeight.bold, align: pw.TextAlign.right),
+          _cell(_inr.format(totalCgst), fontSize: 7, weight: pw.FontWeight.bold, align: pw.TextAlign.right),
           _cell(''),
-          _cell(_inr.format(totalSgst), weight: pw.FontWeight.bold, align: pw.TextAlign.right),
-          _cell(_inr.format(totalTax), weight: pw.FontWeight.bold, align: pw.TextAlign.right),
+          _cell(_inr.format(totalSgst), fontSize: 7, weight: pw.FontWeight.bold, align: pw.TextAlign.right),
+          _cell(_inr.format(totalTax), fontSize: 7, weight: pw.FontWeight.bold, align: pw.TextAlign.right),
         ],
       ),
     );
 
+    final taxColWidths = <int, pw.TableColumnWidth>{
+      for (var i = 0; i < w.length; i++) i: pw.FixedColumnWidth(w[i]),
+    };
+
+    return pw.Align(
+      alignment: pw.Alignment.centerLeft,
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Row(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              _taxHeaderTallCell(w[0], 'HSN/SAC'),
+              _taxHeaderTallCell(w[1], 'Taxable\nValue'),
+              _taxGroupHeader(w[2], w[3], 'CGST'),
+              _taxGroupHeader(w[4], w[5], 'SGST/UTGST'),
+              _taxHeaderTallCell(w[6], 'Total Tax\nAmount'),
+            ],
+          ),
+          pw.Table(
+            border: _tableBorder,
+            columnWidths: taxColWidths,
+            children: dataRows,
+          ),
+        ],
+      ),
+    );
+  }
+
+  static pw.Widget _amountInWordsBlock(double grand) {
+    return pw.Container(
+      width: double.infinity,
+      decoration: pw.BoxDecoration(border: pw.Border.all(color: _line, width: _border)),
+      padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          _text(
+            'Amount Chargeable (in words) E. & O.E',
+            weight: pw.FontWeight.bold,
+            size: 7.5,
+          ),
+          _text(
+            amountInWordsIndian(grand),
+            size: 8.5,
+            weight: pw.FontWeight.bold,
+          ),
+        ],
+      ),
+    );
+  }
+
+  static pw.Widget _declarationBlock(ShopSettings shop) {
     return pw.Table(
       border: _tableBorder,
       columnWidths: {
-        for (var i = 0; i < 7; i++) i: const pw.FlexColumnWidth(1),
+        0: const pw.FlexColumnWidth(1),
+        1: const pw.FlexColumnWidth(1),
       },
-      children: dataRows,
+      children: [
+        pw.TableRow(
+          children: [
+            pw.Padding(
+              padding: const pw.EdgeInsets.all(6),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  _text('Declaration', weight: pw.FontWeight.bold, size: 8),
+                  _text(
+                    'Certified that the above particulars are true and correct',
+                    size: 7.5,
+                  ),
+                  pw.SizedBox(height: 20),
+                  _text("Customer's Seal and Signature", size: 7.5),
+                ],
+              ),
+            ),
+            pw.Padding(
+              padding: const pw.EdgeInsets.all(6),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.end,
+                children: [
+                  pw.SizedBox(height: 28),
+                  _text(
+                    'for ${_signatureShopName(shop)}',
+                    size: 8,
+                    weight: pw.FontWeight.bold,
+                    align: pw.TextAlign.right,
+                  ),
+                  pw.SizedBox(height: 24),
+                  _text(
+                    'Authorised Signatory',
+                    size: 7.5,
+                    align: pw.TextAlign.right,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -505,14 +732,26 @@ class SalesTaxInvoicePdf {
           pw.Row(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              pw.Expanded(flex: 5, child: _sellerBlock(shop)),
-              pw.SizedBox(width: 6),
-              pw.Expanded(flex: 5, child: _metadataGrid(billNo, date)),
+              pw.Expanded(
+                flex: 11,
+                child: _sellerBlock(shop),
+              ),
+              pw.SizedBox(width: 4),
+              pw.Expanded(
+                flex: 10,
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                  children: [
+                    _eInvoicePlaceholder(),
+                    _metadataGrid(billNo, date),
+                  ],
+                ),
+              ),
             ],
           ),
-          pw.SizedBox(height: 6),
+          pw.SizedBox(height: 4),
           _buyerBlock(buyer),
-          pw.SizedBox(height: 6),
+          pw.SizedBox(height: 4),
           _itemsTable(
             items: items,
             cgstPct: cgstPct,
@@ -527,70 +766,23 @@ class SalesTaxInvoicePdf {
             totalWt: totalWt,
           ),
           pw.SizedBox(height: 4),
-          pw.Row(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Expanded(
-                child: _text(
-                  'Amount Chargeable (in words) E. & O.E',
-                  weight: pw.FontWeight.bold,
-                  size: 7.5,
-                ),
-              ),
-            ],
-          ),
-          _text(
-            amountInWordsIndian(grand),
-            size: 8.5,
-            weight: pw.FontWeight.bold,
-          ),
-          pw.SizedBox(height: 6),
+          _amountInWordsBlock(grand),
+          pw.SizedBox(height: 4),
           _taxSummaryTable(hsnRows),
           pw.SizedBox(height: 4),
-          _text(
-            'Tax Amount (in words) : ${amountInWordsIndianWithPaise(totalTax)}',
-            size: 8,
+          pw.Container(
+            width: double.infinity,
+            decoration: pw.BoxDecoration(
+              border: pw.Border.all(color: _line, width: _border),
+            ),
+            padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+            child: _text(
+              'Tax Amount (in words) : ${amountInWordsIndianWithPaise(totalTax)}',
+              size: 8,
+            ),
           ),
-          pw.SizedBox(height: 8),
-          pw.Row(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Expanded(
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    _text('Declaration', weight: pw.FontWeight.bold, size: 8),
-                    _text(
-                      'Certified that the above particulars are true and correct',
-                      size: 7.5,
-                    ),
-                    pw.SizedBox(height: 20),
-                    _text("Customer's Seal and Signature", size: 7.5),
-                  ],
-                ),
-              ),
-              pw.Expanded(
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.end,
-                  children: [
-                    pw.SizedBox(height: 28),
-                    _text(
-                      'for ${_signatureShopName(shop)}',
-                      size: 8,
-                      weight: pw.FontWeight.bold,
-                      align: pw.TextAlign.right,
-                    ),
-                    pw.SizedBox(height: 24),
-                    _text(
-                      'Authorised Signatory',
-                      size: 7.5,
-                      align: pw.TextAlign.right,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+          pw.SizedBox(height: 4),
+          _declarationBlock(shop),
           pw.SizedBox(height: 10),
           pw.Center(
             child: _text(

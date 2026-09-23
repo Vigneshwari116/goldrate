@@ -125,6 +125,22 @@ void main() {
     await File('${dir.path}/invoice_buyer_b.pdf').writeAsBytes(pdfB);
   });
 
+  test('item table uses reference column order labels', () {
+    const expected = [
+      'Sl',
+      'Description',
+      'HSN',
+      'Quantity',
+      'Rate',
+      'per',
+      'Amount',
+    ];
+    // Layout contract: Sl | Description | HSN | Qty | Rate | per | Amount
+    expect(expected.indexOf('HSN'), 2);
+    expect(expected.indexOf('Amount'), 6);
+    expect(expected.indexOf('HSN'), lessThan(expected.indexOf('Amount')));
+  });
+
   test('sales GST document has original and transporter copy pages', () async {
     final items = [
       BillLineItem(

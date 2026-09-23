@@ -371,7 +371,7 @@ class _MasterScreenState extends State<MasterScreen>
                         ),
                       const SizedBox(height: 16),
                       const Text(
-                        'SHOP SETTINGS (invoice header)',
+                        'SHOP SETTINGS',
                         style: TextStyle(
                           fontWeight: FontWeight.w600,
                           fontSize: AppTextSizes.sectionHeader,
