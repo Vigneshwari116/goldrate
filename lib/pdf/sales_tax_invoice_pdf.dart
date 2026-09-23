@@ -21,37 +21,22 @@ class SalesTaxInvoicePdf {
   static final _wt = NumberFormat('#,##0.000', 'en_IN');
   static final _rateFmt = NumberFormat('#,##0.00', 'en_IN');
 
+  /// Fixed seller block (reference invoice layout — not editable in app settings).
+  static const List<String> invoiceSellerLines = [
+    'Shree Mahalasa Jewellery Works',
+    'No.180, 1st Cross, 9th Main Road,',
+    'Srinivasanagar, BSK 1st Stage,',
+    'Bangalore',
+    'Phone - 9448008065',
+    'GSTIN/UIN: 29ABDPV0313K1ZK',
+    'State Name : Karnataka, Code : 29',
+  ];
+
+  static const String invoiceSellerSignatureName = 'Shree Mahalasa Jewellery Works';
+
   /// Seller lines for PDF (also used in tests).
-  static List<String> sellerDisplayLines(ShopSettings shop) {
-    final name =
-        shop.shopName.trim().isEmpty ? _placeholder : shop.shopName.trim();
-    final lines = <String>[name];
-    final address = shop.address.trim();
-    if (address.isEmpty) {
-      lines.add(_placeholder);
-    } else {
-      for (final part in address.split('\n')) {
-        final t = part.trim();
-        if (t.isNotEmpty) lines.add(t);
-      }
-    }
-    final phone = shop.phone.trim();
-    lines.add(phone.isEmpty ? 'Phone - $_placeholder' : 'Phone - $phone');
-    final gstin = shop.gstin.trim();
-    lines.add(
-      gstin.isEmpty ? 'GSTIN/UIN: $_placeholder' : 'GSTIN/UIN: $gstin',
-    );
-    final state = shop.state.trim();
-    final code = shop.stateCode.trim();
-    if (state.isEmpty && code.isEmpty) {
-      lines.add('State Name : $_placeholder');
-    } else if (code.isEmpty) {
-      lines.add('State Name : $state');
-    } else {
-      lines.add('State Name : $state, Code : $code');
-    }
-    return lines;
-  }
+  static List<String> sellerDisplayLines() =>
+      List<String>.unmodifiable(invoiceSellerLines);
 
   /// Buyer lines for PDF (bill snapshot / party profile).
   static List<String> buyerDisplayLines(PartyBillingProfile buyer) {
@@ -168,8 +153,8 @@ class SalesTaxInvoicePdf {
     );
   }
 
-  static pw.Widget _sellerBlock(ShopSettings shop) {
-    final lines = sellerDisplayLines(shop);
+  static pw.Widget _sellerBlock() {
+    final lines = sellerDisplayLines();
     return pw.Table(
       border: _tableBorder,
       columnWidths: {0: const pw.FlexColumnWidth(1)},
@@ -251,10 +236,7 @@ class SalesTaxInvoicePdf {
     );
   }
 
-  static String _signatureShopName(ShopSettings shop) {
-    final name = shop.shopName.trim();
-    return name.isEmpty ? _placeholder : name;
-  }
+  static String _signatureShopName() => invoiceSellerSignatureName;
 
   /// Right-side metadata grid (reference invoice); only invoice no + date filled.
   static pw.Widget _metadataGrid(String billNo, String date) {
@@ -622,7 +604,7 @@ class SalesTaxInvoicePdf {
     );
   }
 
-  static pw.Widget _declarationBlock(ShopSettings shop) {
+  static pw.Widget _declarationBlock() {
     return pw.Table(
       border: _tableBorder,
       columnWidths: {
@@ -654,7 +636,7 @@ class SalesTaxInvoicePdf {
                 children: [
                   pw.SizedBox(height: 28),
                   _text(
-                    'for ${_signatureShopName(shop)}',
+                    'for ${_signatureShopName()}',
                     size: 8,
                     weight: pw.FontWeight.bold,
                     align: pw.TextAlign.right,
@@ -675,7 +657,6 @@ class SalesTaxInvoicePdf {
   }
 
   static pw.Page buildPage({
-    required ShopSettings shop,
     required PartyBillingProfile buyer,
     required Map<String, dynamic> row,
     required List<BillLineItem> items,
@@ -734,7 +715,7 @@ class SalesTaxInvoicePdf {
             children: [
               pw.Expanded(
                 flex: 11,
-                child: _sellerBlock(shop),
+                child: _sellerBlock(),
               ),
               pw.SizedBox(width: 4),
               pw.Expanded(
@@ -782,7 +763,7 @@ class SalesTaxInvoicePdf {
             ),
           ),
           pw.SizedBox(height: 4),
-          _declarationBlock(shop),
+          _declarationBlock(),
           pw.SizedBox(height: 10),
           pw.Center(
             child: _text(

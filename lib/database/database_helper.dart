@@ -1357,25 +1357,6 @@ class DatabaseHelper {
     return PartyBillingProfile.fromDbRow(rows.first);
   }
 
-  Future<ShopSettings> getShopSettings() async {
-    if (ApiConfig.useRemoteApi) return ApiClient.getShopSettings();
-    final db = await database;
-    final rows = await db.query('shop_settings', where: 'id = ?', whereArgs: [1]);
-    return ShopSettings.fromDbRow(rows.isEmpty ? null : rows.first);
-  }
-
-  Future<void> saveShopSettings(ShopSettings settings) async {
-    if (ApiConfig.useRemoteApi) {
-      return ApiClient.saveShopSettings(settings);
-    }
-    final db = await database;
-    await db.insert(
-      'shop_settings',
-      settings.toDbRow(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
-  }
-
   Future<Map<String, String>> getItemTypeHsnMap() async {
     if (ApiConfig.useRemoteApi) {
       return ApiClient.getItemTypeHsnMap();

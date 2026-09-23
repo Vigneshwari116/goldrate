@@ -4,7 +4,6 @@ import '../util/focus_chain.dart';
 import '../util/screen_activation.dart';
 import '../database/database_helper.dart';
 import '../logic/bill_tax.dart';
-import '../models/party_billing_profile.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
 
@@ -38,13 +37,6 @@ class _MasterScreenState extends State<MasterScreen>
   String _lastTime = '';
 
   final Map<String, TextEditingController> _hsnControllers = {};
-  final _shopNameController = TextEditingController();
-  final _shopAddressController = TextEditingController();
-  final _shopPhoneController = TextEditingController();
-  final _shopGstinController = TextEditingController();
-  final _shopStateController = TextEditingController();
-  final _shopStateCodeController = TextEditingController();
-
   @override
   void initState() {
     super.initState();
@@ -73,12 +65,6 @@ class _MasterScreenState extends State<MasterScreen>
     for (final c in _hsnControllers.values) {
       c.dispose();
     }
-    _shopNameController.dispose();
-    _shopAddressController.dispose();
-    _shopPhoneController.dispose();
-    _shopGstinController.dispose();
-    _shopStateController.dispose();
-    _shopStateCodeController.dispose();
     super.dispose();
   }
 
@@ -96,8 +82,6 @@ class _MasterScreenState extends State<MasterScreen>
       );
       final stats = await DatabaseHelper.instance.getUpdateStats();
       final hsnMap = await DatabaseHelper.instance.getItemTypeHsnMap();
-      final shop = await DatabaseHelper.instance.getShopSettings();
-
       for (final c in _hsnControllers.values) {
         c.dispose();
       }
@@ -106,13 +90,6 @@ class _MasterScreenState extends State<MasterScreen>
         _hsnControllers[type] =
             TextEditingController(text: hsnMap[type] ?? '');
       }
-      _shopNameController.text = shop.shopName;
-      _shopAddressController.text = shop.address;
-      _shopPhoneController.text = shop.phone;
-      _shopGstinController.text = shop.gstin;
-      _shopStateController.text = shop.state;
-      _shopStateCodeController.text = shop.stateCode;
-
       for (final c in _controllers.values) {
         c.dispose();
       }
@@ -197,17 +174,6 @@ class _MasterScreenState extends State<MasterScreen>
         }
       }
 
-      await DatabaseHelper.instance.saveShopSettings(
-        ShopSettings(
-          shopName: _shopNameController.text.trim(),
-          address: _shopAddressController.text.trim(),
-          phone: _shopPhoneController.text.trim(),
-          gstin: _shopGstinController.text.trim(),
-          state: _shopStateController.text.trim(),
-          stateCode: _shopStateCodeController.text.trim(),
-        ),
-      );
-      savedCount++;
     } finally {
       if (mounted) {
         setState(() => _saving = false);
@@ -369,65 +335,6 @@ class _MasterScreenState extends State<MasterScreen>
                             ],
                           ),
                         ),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'SHOP SETTINGS',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: AppTextSizes.sectionHeader,
-                          color: AppColors.mutedBlue,
-                        ),
-                      ),
-                      Container(
-                        margin: const EdgeInsets.only(top: 8),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: AppColors.cardWhite,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: AppColors.border),
-                        ),
-                        child: Column(
-                          children: [
-                            TextField(
-                              controller: _shopNameController,
-                              decoration: const InputDecoration(
-                                labelText: 'Shop name',
-                              ),
-                            ),
-                            TextField(
-                              controller: _shopAddressController,
-                              maxLines: 2,
-                              decoration: const InputDecoration(
-                                labelText: 'Address',
-                              ),
-                            ),
-                            TextField(
-                              controller: _shopPhoneController,
-                              decoration: const InputDecoration(
-                                labelText: 'Phone',
-                              ),
-                            ),
-                            TextField(
-                              controller: _shopGstinController,
-                              decoration: const InputDecoration(
-                                labelText: 'GSTIN',
-                              ),
-                            ),
-                            TextField(
-                              controller: _shopStateController,
-                              decoration: const InputDecoration(
-                                labelText: 'State',
-                              ),
-                            ),
-                            TextField(
-                              controller: _shopStateCodeController,
-                              decoration: const InputDecoration(
-                                labelText: 'State code',
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
                     ],
                   ),
                 ),

@@ -472,46 +472,6 @@ app.put('/api/party-profile', async (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/settings/shop', async (_req, res) => {
-  const result = await pool.query('SELECT * FROM shop_settings WHERE id = 1');
-  if (result.rows.length === 0) {
-    return res.json({
-      shopName: '',
-      address: '',
-      phone: '',
-      gstin: '',
-      state: '',
-      stateCode: '',
-    });
-  }
-  res.json(toCamel(result.rows[0]));
-});
-
-app.put('/api/settings/shop', async (req, res) => {
-  const s = req.body;
-  await pool.query(
-    `INSERT INTO shop_settings
-      (id, shop_name, address, phone, gstin, state, state_code)
-     VALUES (1,$1,$2,$3,$4,$5,$6)
-     ON CONFLICT (id) DO UPDATE SET
-      shop_name = EXCLUDED.shop_name,
-      address = EXCLUDED.address,
-      phone = EXCLUDED.phone,
-      gstin = EXCLUDED.gstin,
-      state = EXCLUDED.state,
-      state_code = EXCLUDED.state_code`,
-    [
-      s.shopName ?? '',
-      s.address ?? '',
-      s.phone ?? '',
-      (s.gstin ?? '').toString().toUpperCase(),
-      s.state ?? '',
-      s.stateCode ?? '',
-    ],
-  );
-  res.json({ ok: true });
-});
-
 app.get('/api/settings/hsn', async (_req, res) => {
   const result = await pool.query('SELECT item_type, hsn_code FROM item_type_hsn');
   const map = {

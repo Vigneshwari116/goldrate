@@ -504,20 +504,6 @@ class ApiClient {
     });
   }
 
-  static Future<ShopSettings> getShopSettings() async {
-    final res = await _get('/settings/shop');
-    final data = normalizeApiRow(await _decodeObject(res));
-    return ShopSettings.fromDbRow(data);
-  }
-
-  static Future<void> saveShopSettings(ShopSettings settings) async {
-    final res = await _put(
-      '/settings/shop',
-      body: jsonEncode(settings.toDbRow()..remove('id')),
-    );
-    await _decodeObject(res);
-  }
-
   static Future<Map<String, String>> getItemTypeHsnMap() async {
     final res = await _get('/settings/hsn');
     final data = await _decodeObject(res);

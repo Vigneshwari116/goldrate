@@ -1315,7 +1315,6 @@ class _TransactionScreenState extends State<TransactionScreen>
     final isSalesBill = row['transactionType'] == 'SALES';
 
     if (isSalesBill) {
-      final shop = await DatabaseHelper.instance.getShopSettings();
       final buyer = PartyBillingProfile.fromTransactionRow(row);
       final tdsApplicable = (row['tdsApplicable'] as int? ?? 0) == 1;
       final tcsApplicable = (row['tcsApplicable'] as int? ?? 0) == 1;
@@ -1341,7 +1340,6 @@ class _TransactionScreenState extends State<TransactionScreen>
       ]) {
         doc.addPage(
           SalesTaxInvoicePdf.buildPage(
-            shop: shop,
             buyer: buyer,
             row: row,
             items: items,
