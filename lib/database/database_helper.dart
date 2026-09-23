@@ -34,7 +34,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 15,
+      version: 16,
       onCreate: _createDatabase,
       onUpgrade: _upgradeDatabase,
     );
@@ -66,6 +66,15 @@ class DatabaseHelper {
         time TEXT NOT NULL
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE rate_meta(
+        id INTEGER PRIMARY KEY,
+        lastDate TEXT NOT NULL DEFAULT '',
+        lastTime TEXT NOT NULL DEFAULT ''
+      )
+    ''');
+    await db.insert('rate_meta', {'id': 1, 'lastDate': '', 'lastTime': ''});
 
     await db.execute('''
       CREATE TABLE customers(
@@ -506,6 +515,20 @@ class DatabaseHelper {
       await db.execute('ALTER TABLE transactions ADD COLUMN roundOff TEXT');
       await db.execute('ALTER TABLE transactions ADD COLUMN grandTotal TEXT');
     }
+    if (oldVersion < 16) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS rate_meta(
+          id INTEGER PRIMARY KEY,
+          lastDate TEXT NOT NULL DEFAULT '',
+          lastTime TEXT NOT NULL DEFAULT ''
+        )
+      ''');
+      await db.insert(
+        'rate_meta',
+        {'id': 1, 'lastDate': '', 'lastTime': ''},
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    }
   }
 
   Future<bool> checkLogin(String username, String password) async {
@@ -710,6 +733,18 @@ class DatabaseHelper {
     return rowsAffected;
   }
 
+  Future<void> setRatesLastSaved(String date, String time) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.setRatesLastSaved(date, time);
+    }
+    final db = await database;
+    await db.insert(
+      'rate_meta',
+      {'id': 1, 'lastDate': date, 'lastTime': time},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
   Future<Map<String, dynamic>> getUpdateStats() async {
     if (ApiConfig.useRemoteApi) return ApiClient.getUpdateStats();
     final db = await database;
@@ -718,16 +753,31 @@ class DatabaseHelper {
     await db.rawQuery('SELECT COUNT(*) as count FROM rate_history');
     final count = Sqflite.firstIntValue(countResult) ?? 0;
 
+    final meta = await db.query(
+      'rate_meta',
+      where: 'id = ?',
+      whereArgs: [1],
+      limit: 1,
+    );
+    final metaDate =
+        meta.isNotEmpty ? (meta.first['lastDate'] ?? '').toString() : '';
+    final metaTime =
+        meta.isNotEmpty ? (meta.first['lastTime'] ?? '').toString() : '';
+
     final latest = await db.query(
       'rate_history',
       orderBy: 'id DESC',
       limit: 1,
     );
+    final histDate =
+        latest.isNotEmpty ? (latest.first['date'] ?? '').toString() : '';
+    final histTime =
+        latest.isNotEmpty ? (latest.first['time'] ?? '').toString() : '';
 
     return {
       'count': count,
-      'lastDate': latest.isNotEmpty ? latest.first['date'] as String : '',
-      'lastTime': latest.isNotEmpty ? latest.first['time'] as String : '',
+      'lastDate': metaDate.isNotEmpty ? metaDate : histDate,
+      'lastTime': metaTime.isNotEmpty ? metaTime : histTime,
     };
   }
 
@@ -1355,25 +1405,6 @@ class DatabaseHelper {
       return PartyBillingProfile(name: name.trim(), isCustomer: isCustomer);
     }
     return PartyBillingProfile.fromDbRow(rows.first);
-  }
-
-  Future<ShopSettings> getShopSettings() async {
-    if (ApiConfig.useRemoteApi) return ApiClient.getShopSettings();
-    final db = await database;
-    final rows = await db.query('shop_settings', where: 'id = ?', whereArgs: [1]);
-    return ShopSettings.fromDbRow(rows.isEmpty ? null : rows.first);
-  }
-
-  Future<void> saveShopSettings(ShopSettings settings) async {
-    if (ApiConfig.useRemoteApi) {
-      return ApiClient.saveShopSettings(settings);
-    }
-    final db = await database;
-    await db.insert(
-      'shop_settings',
-      settings.toDbRow(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
   }
 
   Future<Map<String, String>> getItemTypeHsnMap() async {

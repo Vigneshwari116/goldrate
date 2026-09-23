@@ -24,6 +24,12 @@ async function ensureGstBillingSchema() {
   await pool.query(sql);
 }
 
+async function ensureRateMetaSchema() {
+  const migrationPath = path.join(__dirname, 'migrations', '016_rate_meta.sql');
+  const sql = fs.readFileSync(migrationPath, 'utf8');
+  await pool.query(sql);
+}
+
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled promise rejection:', reason);
 });
@@ -177,13 +183,34 @@ app.get('/api/rates/history', async (_req, res) => {
   res.json(toCamelList(result.rows));
 });
 
+app.post('/api/rates/last-saved', async (req, res) => {
+  const date = (req.body.date ?? '').toString();
+  const time = (req.body.time ?? '').toString();
+  await pool.query(
+    `INSERT INTO rate_meta (id, last_date, last_time)
+     VALUES (1, $1, $2)
+     ON CONFLICT (id) DO UPDATE SET
+       last_date = EXCLUDED.last_date,
+       last_time = EXCLUDED.last_time`,
+    [date, time],
+  );
+  res.json({ ok: true });
+});
+
 app.get('/api/rates/stats', async (_req, res) => {
   const countResult = await pool.query('SELECT COUNT(*)::int AS count FROM rate_history');
+  const meta = await pool.query(
+    'SELECT last_date, last_time FROM rate_meta WHERE id = 1',
+  );
   const latest = await pool.query('SELECT date, time FROM rate_history ORDER BY id DESC LIMIT 1');
+  const metaDate = meta.rows[0]?.last_date ?? '';
+  const metaTime = meta.rows[0]?.last_time ?? '';
+  const histDate = latest.rows[0]?.date ?? '';
+  const histTime = latest.rows[0]?.time ?? '';
   res.json({
     count: countResult.rows[0].count,
-    lastDate: latest.rows[0]?.date ?? '',
-    lastTime: latest.rows[0]?.time ?? '',
+    lastDate: metaDate !== '' ? metaDate : histDate,
+    lastTime: metaTime !== '' ? metaTime : histTime,
   });
 });
 
@@ -472,46 +499,6 @@ app.put('/api/party-profile', async (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/settings/shop', async (_req, res) => {
-  const result = await pool.query('SELECT * FROM shop_settings WHERE id = 1');
-  if (result.rows.length === 0) {
-    return res.json({
-      shopName: '',
-      address: '',
-      phone: '',
-      gstin: '',
-      state: '',
-      stateCode: '',
-    });
-  }
-  res.json(toCamel(result.rows[0]));
-});
-
-app.put('/api/settings/shop', async (req, res) => {
-  const s = req.body;
-  await pool.query(
-    `INSERT INTO shop_settings
-      (id, shop_name, address, phone, gstin, state, state_code)
-     VALUES (1,$1,$2,$3,$4,$5,$6)
-     ON CONFLICT (id) DO UPDATE SET
-      shop_name = EXCLUDED.shop_name,
-      address = EXCLUDED.address,
-      phone = EXCLUDED.phone,
-      gstin = EXCLUDED.gstin,
-      state = EXCLUDED.state,
-      state_code = EXCLUDED.state_code`,
-    [
-      s.shopName ?? '',
-      s.address ?? '',
-      s.phone ?? '',
-      (s.gstin ?? '').toString().toUpperCase(),
-      s.state ?? '',
-      s.stateCode ?? '',
-    ],
-  );
-  res.json({ ok: true });
-});
-
 app.get('/api/settings/hsn', async (_req, res) => {
   const result = await pool.query('SELECT item_type, hsn_code FROM item_type_hsn');
   const map = {
@@ -682,13 +669,13 @@ app.use('/api', (_req, res) => {
 
 const port = process.env.PORT || 3000;
 
-ensureGstBillingSchema()
+Promise.all([ensureGstBillingSchema(), ensureRateMetaSchema()])
   .then(() => {
     app.listen(port, '0.0.0.0', () => {
       console.log(`Jewellery API listening on port ${port}`);
     });
   })
   .catch((err) => {
-    console.error('GST billing schema migration failed:', err);
+    console.error('Database schema migration failed:', err);
     process.exit(1);
   });

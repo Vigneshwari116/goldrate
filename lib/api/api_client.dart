@@ -182,6 +182,14 @@ class ApiClient {
     return data['rowsAffected'] as int? ?? 0;
   }
 
+  static Future<void> setRatesLastSaved(String date, String time) async {
+    final res = await _post(
+      '/rates/last-saved',
+      body: jsonEncode({'date': date, 'time': time}),
+    );
+    await _decodeObject(res);
+  }
+
   static Future<Map<String, dynamic>> getUpdateStats() async {
     final res = await _get('/rates/stats');
     return _decodeObject(res);
@@ -502,20 +510,6 @@ class ApiClient {
       'displayName': data['displayName'] ?? name.trim(),
       'isCustomer': isCustomer ? 1 : 0,
     });
-  }
-
-  static Future<ShopSettings> getShopSettings() async {
-    final res = await _get('/settings/shop');
-    final data = normalizeApiRow(await _decodeObject(res));
-    return ShopSettings.fromDbRow(data);
-  }
-
-  static Future<void> saveShopSettings(ShopSettings settings) async {
-    final res = await _put(
-      '/settings/shop',
-      body: jsonEncode(settings.toDbRow()..remove('id')),
-    );
-    await _decodeObject(res);
   }
 
   static Future<Map<String, String>> getItemTypeHsnMap() async {

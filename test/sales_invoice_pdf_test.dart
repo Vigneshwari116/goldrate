@@ -11,20 +11,14 @@ import 'package:grate_app/pdf/sales_tax_invoice_pdf.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('seller and buyer display lines use live data', () {
-    final shop = const ShopSettings(
-      shopName: 'Alpha Jewellers',
-      address: 'Line 1\nLine 2',
-      phone: '9999999999',
-      gstin: '29AAAAA0000A1Z5',
-      state: 'Karnataka',
-      stateCode: '29',
-    );
-    final seller = SalesTaxInvoicePdf.sellerDisplayLines(shop);
-    expect(seller.first, 'Alpha Jewellers');
-    expect(seller, contains('Phone - 9999999999'));
-    expect(seller.last, contains('Karnataka'));
+  test('seller lines use fixed reference invoice address', () {
+    final seller = SalesTaxInvoicePdf.sellerDisplayLines();
+    expect(seller.first, 'Shree Mahalasa Jewellery Works');
+    expect(seller, contains('GSTIN/UIN: 29ABDPV0313K1ZK'));
+    expect(seller, contains('Phone - 9448008065'));
+  });
 
+  test('buyer display lines use live party data', () {
     final buyerA = const PartyBillingProfile(
       name: 'CUSTOMER ALPHA LTD',
       isCustomer: true,
@@ -55,13 +49,7 @@ void main() {
     );
   });
 
-  test('empty shop settings use placeholders without throwing', () {
-    final lines = SalesTaxInvoicePdf.sellerDisplayLines(const ShopSettings());
-    expect(lines.first, '—');
-    expect(lines, contains('GSTIN/UIN: —'));
-  });
-
-  test('generates PDF for two buyers and empty shop without error', () async {
+  test('generates PDF for two buyers without error', () async {
     final items = [
       BillLineItem(
         type: 'GWT',
@@ -73,17 +61,12 @@ void main() {
       ),
     ];
     expect(items.first.description, 'Gold Ring');
-    expect(items.first.description, isNot(contains('Bullion')));
     final totals = BillTaxTotals.compute(lines: items.map((i) => i.tax).toList());
 
-    Future<Uint8List> render({
-      required ShopSettings shop,
-      required PartyBillingProfile buyer,
-    }) async {
+    Future<Uint8List> render(PartyBillingProfile buyer) async {
       final doc = await PdfKit.document();
       doc.addPage(
         SalesTaxInvoicePdf.buildPage(
-          shop: shop,
           buyer: buyer,
           row: {'billNo': 1, 'date': '01-01-2026'},
           items: items,
@@ -98,15 +81,13 @@ void main() {
     }
 
     final pdfA = await render(
-      shop: const ShopSettings(shopName: 'Test Shop'),
-      buyer: const PartyBillingProfile(
+      const PartyBillingProfile(
         name: 'UNIQUE BUYER ONE',
         isCustomer: true,
       ),
     );
     final pdfB = await render(
-      shop: const ShopSettings(),
-      buyer: const PartyBillingProfile(
+      const PartyBillingProfile(
         name: 'UNIQUE BUYER TWO',
         isCustomer: true,
         gstin: '29AAAAA0000A1Z5',
@@ -123,5 +104,41 @@ void main() {
     }
     await File('${dir.path}/invoice_buyer_a.pdf').writeAsBytes(pdfA);
     await File('${dir.path}/invoice_buyer_b.pdf').writeAsBytes(pdfB);
+  });
+
+  test('sales GST document has original and transporter copy pages', () async {
+    final items = [
+      BillLineItem(
+        type: 'GWT',
+        weight: 1,
+        touch: 100,
+        rate: 1000,
+        hsn: '7113',
+      ),
+    ];
+    final totals = BillTaxTotals.compute(lines: items.map((i) => i.tax).toList());
+    final doc = await PdfKit.document();
+    for (final copyLabel in [
+      SalesTaxInvoicePdf.copyOriginalForRecipient,
+      SalesTaxInvoicePdf.copyDuplicateForTransporter,
+    ]) {
+      doc.addPage(
+        SalesTaxInvoicePdf.buildPage(
+          buyer: const PartyBillingProfile(name: 'Buyer', isCustomer: true),
+          row: {'billNo': 99, 'date': '01-01-2026'},
+          items: items,
+          totals: totals,
+          tdsApplicable: false,
+          tcsApplicable: false,
+          tdsAmount: 0,
+          tcsAmount: 0,
+          copyLabel: copyLabel,
+        ),
+      );
+    }
+    final bytes = await doc.save();
+    expect(bytes.length, greaterThan(2000));
+    expect(SalesTaxInvoicePdf.copyOriginalForRecipient, contains('RECIPIENT'));
+    expect(SalesTaxInvoicePdf.copyDuplicateForTransporter, contains('TRANSPORTER'));
   });
 }
