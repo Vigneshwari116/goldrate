@@ -545,11 +545,14 @@ class GstTaxInvoiceLayout {
   }
 
   static pw.Widget _taxHeaderLabelCell(
+    int column,
     String label, {
+    double height = 28,
     pw.TextAlign align = pw.TextAlign.center,
   }) {
     return pw.Container(
-      height: 28,
+      width: _taxColumnWidths[column],
+      height: height,
       color: PdfColors.grey300,
       alignment: align == pw.TextAlign.right
           ? pw.Alignment.centerRight
@@ -564,54 +567,43 @@ class GstTaxInvoiceLayout {
     );
   }
 
-  /// Left column of a Rate|Amount pair (title spans both columns visually).
-  static pw.Widget _taxGroupHeaderLead(
+  /// Top row of CGST / SGST group — title centered across Rate + Amount.
+  static pw.Widget _taxGroupTitleCell(
     double rateWidth,
     double amountWidth,
     String title,
   ) {
     return pw.Container(
-      height: 28,
+      height: 14,
+      width: rateWidth,
       color: PdfColors.grey300,
-      child: pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: [
-          pw.SizedBox(
-            width: rateWidth + amountWidth,
-            height: 14,
-            child: pw.Center(
-              child: _text(title, size: 6.5, weight: pw.FontWeight.bold),
-            ),
-          ),
-          pw.SizedBox(
-            width: rateWidth,
-            height: 14,
-            child: pw.Center(
-              child: _text('Rate', size: 6, weight: pw.FontWeight.bold),
-            ),
-          ),
-        ],
+      child: pw.Transform.translate(
+        offset: PdfPoint(0, 0),
+        child: pw.Container(
+          width: rateWidth + amountWidth,
+          height: 14,
+          alignment: pw.Alignment.center,
+          child: _text(title, size: 6.5, weight: pw.FontWeight.bold),
+        ),
       ),
     );
   }
 
-  /// Right column of a Rate|Amount pair (Amount sub-header only).
-  static pw.Widget _taxGroupHeaderTrail(double amountWidth) {
+  static pw.Widget _taxSubHeaderCell(double width, String label) {
     return pw.Container(
-      height: 28,
+      width: width,
+      height: 14,
       color: PdfColors.grey300,
-      child: pw.Column(
-        children: [
-          pw.SizedBox(height: 14),
-          pw.SizedBox(
-            width: amountWidth,
-            height: 14,
-            child: pw.Center(
-              child: _text('Amount', size: 6, weight: pw.FontWeight.bold),
-            ),
-          ),
-        ],
-      ),
+      alignment: pw.Alignment.center,
+      child: _text(label, size: 6, weight: pw.FontWeight.bold),
+    );
+  }
+
+  static pw.Widget _taxHeaderSpacer(double width) {
+    return pw.Container(
+      width: width,
+      height: 14,
+      color: PdfColors.grey300,
     );
   }
 
@@ -677,16 +669,31 @@ class GstTaxInvoiceLayout {
       for (var i = 0; i < w.length; i++) i: pw.FixedColumnWidth(w[i]),
     };
 
-    final headerRow = pw.TableRow(
-      decoration: const pw.BoxDecoration(color: PdfColors.grey300),
+    const headerGrey = pw.BoxDecoration(color: PdfColors.grey300);
+
+    final headerRowTop = pw.TableRow(
+      decoration: headerGrey,
       children: [
-        _taxHeaderLabelCell('HSN/SAC'),
-        _taxHeaderLabelCell('Taxable\nValue', align: pw.TextAlign.right),
-        _taxGroupHeaderLead(w[2], w[3], 'CGST'),
-        _taxGroupHeaderTrail(w[3]),
-        _taxGroupHeaderLead(w[4], w[5], 'SGST/UTGST'),
-        _taxGroupHeaderTrail(w[5]),
-        _taxHeaderLabelCell('Total Tax\nAmount', align: pw.TextAlign.right),
+        _taxHeaderSpacer(w[0]),
+        _taxHeaderSpacer(w[1]),
+        _taxGroupTitleCell(w[2], w[3], 'CGST'),
+        _taxHeaderSpacer(w[3]),
+        _taxGroupTitleCell(w[4], w[5], 'SGST/UTGST'),
+        _taxHeaderSpacer(w[5]),
+        _taxHeaderSpacer(w[6]),
+      ],
+    );
+
+    final headerRowBottom = pw.TableRow(
+      decoration: headerGrey,
+      children: [
+        _taxHeaderLabelCell(0, 'HSN/SAC', height: 14),
+        _taxHeaderLabelCell(1, 'Taxable\nValue', height: 14, align: pw.TextAlign.right),
+        _taxSubHeaderCell(w[2], 'Rate'),
+        _taxSubHeaderCell(w[3], 'Amount'),
+        _taxSubHeaderCell(w[4], 'Rate'),
+        _taxSubHeaderCell(w[5], 'Amount'),
+        _taxHeaderLabelCell(6, 'Total Tax\nAmount', height: 14, align: pw.TextAlign.right),
       ],
     );
 
@@ -695,7 +702,7 @@ class GstTaxInvoiceLayout {
       child: pw.Table(
         border: _tableBorder,
         columnWidths: taxColWidths,
-        children: [headerRow, ...dataRows],
+        children: [headerRowTop, headerRowBottom, ...dataRows],
       ),
     );
   }

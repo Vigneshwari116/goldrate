@@ -9,7 +9,8 @@ class FieldSizes {
   static const touch = 64.0;
   static const pure = 72.0;
   static const cash = 88.0;
-  static const name = 120.0;
+  /// Customer/supplier name on Sales/Purchase bill entry (medium, not full width).
+  static const name = 200.0;
   static const shortLabel = 64.0;
 
   /// Billing / party profile fields (compact on wide layouts).
