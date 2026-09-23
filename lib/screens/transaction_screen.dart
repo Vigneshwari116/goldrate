@@ -15,6 +15,7 @@ import '../logic/bill_tax.dart';
 import '../logic/gold_ledger.dart';
 import '../models/bill_line_item.dart';
 import '../models/party_billing_profile.dart';
+import '../pdf/purchase_tax_invoice_pdf.dart';
 import '../pdf/sales_tax_invoice_pdf.dart';
 import '../widgets/party_billing_fields.dart';
 import '../pdf/pdf_kit.dart';
@@ -150,6 +151,15 @@ class _TransactionScreenState extends State<TransactionScreen>
   String? _paymentTouchError;
   int? _editingTransactionId;
   int? _editingBillNo;
+  String? _editingPreserveDate;
+  String? _editingPreserveTime;
+
+  int? _transactionRowId(Map<String, dynamic> row) {
+    final id = row['id'];
+    if (id is int) return id;
+    if (id is num) return id.toInt();
+    return int.tryParse(id?.toString() ?? '');
+  }
 
   /// Purchase looks up Suppliers (stock coming in from them); Sales
   /// looks up Customers (stock going out to them).
@@ -811,6 +821,8 @@ class _TransactionScreenState extends State<TransactionScreen>
       _partyOutstanding = null;
       _editingTransactionId = null;
       _editingBillNo = null;
+      _editingPreserveDate = null;
+      _editingPreserveTime = null;
     });
   }
 
@@ -942,8 +954,10 @@ class _TransactionScreenState extends State<TransactionScreen>
 
     final billNo = row['billNo'] as int? ?? _nextBillNo;
     setState(() {
-      _editingTransactionId = row['id'] as int?;
+      _editingTransactionId = _transactionRowId(row);
       _editingBillNo = billNo;
+      _editingPreserveDate = (row['date'] ?? '').toString();
+      _editingPreserveTime = (row['time'] ?? '').toString();
       _nextBillNo = billNo;
       _partyController.text = (row['partyName'] ?? '').toString();
       _partyAddressController.text = (row['partyAddress'] ?? '').toString();
@@ -1042,8 +1056,16 @@ class _TransactionScreenState extends State<TransactionScreen>
 
     setState(() => _saving = true);
 
-    final date = DateFormat("dd-MM-yyyy").format(DateTime.now());
-    final time = DateFormat("hh:mm a").format(DateTime.now());
+    final date = (_editingTransactionId != null &&
+            _editingPreserveDate != null &&
+            _editingPreserveDate!.isNotEmpty)
+        ? _editingPreserveDate!
+        : DateFormat("dd-MM-yyyy").format(DateTime.now());
+    final time = (_editingTransactionId != null &&
+            _editingPreserveTime != null &&
+            _editingPreserveTime!.isNotEmpty)
+        ? _editingPreserveTime!
+        : DateFormat("hh:mm a").format(DateTime.now());
 
     final items = _billItems;
     final s = _settlement;
@@ -1133,7 +1155,13 @@ class _TransactionScreenState extends State<TransactionScreen>
 
     await _load();
     if (!mounted) return;
-    await _sharePdf(savedRow, openAfterSave: false);
+    if (!wasEdit) {
+      await _shareBillPdf(
+        savedRow,
+        gstInvoice: true,
+        openAfterSave: false,
+      );
+    }
   }
 
   Future<void> _saveVoucher() async {
@@ -1297,7 +1325,7 @@ class _TransactionScreenState extends State<TransactionScreen>
         ? storedRef
         : '${_isPurchase ? 'PUR' : 'SAL'}-$billNo';
 
-    final id = row['id'] as int?;
+    final id = _transactionRowId(row);
     if (row['fromLedger'] != true && id != null && id > 0) {
       await DatabaseHelper.instance.deleteTransaction(id);
     }
@@ -1376,16 +1404,35 @@ class _TransactionScreenState extends State<TransactionScreen>
                 style: TextStyle(color: Colors.red),
               ),
             ),
-          if (row['fromLedger'] != true)
+          if (row['fromLedger'] != true) ...[
+            if ((row['transactionType'] ?? '').toString() == 'PURCHASE')
+              TextButton(
+                onPressed: _sharingPdf
+                    ? null
+                    : () async {
+                        Navigator.pop(dialogContext);
+                        await _shareBillPdf(
+                          row,
+                          gstInvoice: false,
+                          openAfterSave: false,
+                        );
+                      },
+                child: const Text('ACCOUNTS SLIP'),
+              ),
             TextButton(
               onPressed: _sharingPdf
                   ? null
                   : () async {
                       Navigator.pop(dialogContext);
-                      await _sharePdf(row, openAfterSave: false);
+                      await _shareBillPdf(
+                        row,
+                        gstInvoice: true,
+                        openAfterSave: false,
+                      );
                     },
-              child: const Text('PDF'),
+              child: const Text('GST INVOICE'),
             ),
+          ],
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
             child: const Text("CLOSE"),
@@ -1400,51 +1447,69 @@ class _TransactionScreenState extends State<TransactionScreen>
         .toList();
   }
 
-  Future<Uint8List> _buildBillPdf(Map<String, dynamic> row) async {
+  BillTaxTotals _taxTotalsFromRow(
+    Map<String, dynamic> row,
+    List<BillLineItem> items,
+  ) {
+    return BillTaxTotals(
+      totalTaxable: double.tryParse(
+              (row['totalTaxable'] ?? row['totalValue'] ?? '0').toString()) ??
+          items.fold(0, (s, i) => s + i.tax.taxableValue),
+      totalInclusive: double.tryParse(
+              (row['totalInclusive'] ?? '0').toString()) ??
+          items.fold(0, (s, i) => s + i.tax.inclusiveAmount),
+      roundOff: double.tryParse((row['roundOff'] ?? '0').toString()) ?? 0,
+      grandTotal: double.tryParse(
+              (row['grandTotal'] ?? row['totalValue'] ?? '0').toString()) ??
+          items.fold(0, (s, i) => s + i.tax.inclusiveAmount),
+    );
+  }
+
+  Future<Uint8List> _buildGstInvoicePdf(Map<String, dynamic> row) async {
     final items = _itemsFromRow(row);
     final isSalesBill = row['transactionType'] == 'SALES';
-
-    if (isSalesBill) {
-      final buyer = PartyBillingProfile.fromTransactionRow(row);
-      final tdsApplicable = (row['tdsApplicable'] as int? ?? 0) == 1;
-      final tcsApplicable = (row['tcsApplicable'] as int? ?? 0) == 1;
-      final tdsAmount =
-          double.tryParse((row['tdsAmount'] ?? '0').toString()) ?? 0;
-      final tcsAmount =
-          double.tryParse((row['tcsAmount'] ?? '0').toString()) ?? 0;
-      final totals = BillTaxTotals(
-        totalTaxable:
-            double.tryParse((row['totalTaxable'] ?? row['totalValue'] ?? '0').toString()) ??
-                items.fold(0, (s, i) => s + i.tax.taxableValue),
-        totalInclusive: double.tryParse(
-                (row['totalInclusive'] ?? '0').toString()) ??
-            items.fold(0, (s, i) => s + i.tax.inclusiveAmount),
-        roundOff: double.tryParse((row['roundOff'] ?? '0').toString()) ?? 0,
-        grandTotal: double.tryParse((row['grandTotal'] ?? row['totalValue'] ?? '0').toString()) ??
-            items.fold(0, (s, i) => s + i.tax.inclusiveAmount),
+    final tdsApplicable = (row['tdsApplicable'] as int? ?? 0) == 1;
+    final tcsApplicable = (row['tcsApplicable'] as int? ?? 0) == 1;
+    final tdsAmount =
+        double.tryParse((row['tdsAmount'] ?? '0').toString()) ?? 0;
+    final tcsAmount =
+        double.tryParse((row['tcsAmount'] ?? '0').toString()) ?? 0;
+    final totals = _taxTotalsFromRow(row, items);
+    final doc = await PdfKit.document();
+    for (final copyLabel in [
+      SalesTaxInvoicePdf.copyOriginalForRecipient,
+      SalesTaxInvoicePdf.copyDuplicateForTransporter,
+    ]) {
+      doc.addPage(
+        isSalesBill
+            ? SalesTaxInvoicePdf.buildPage(
+                buyer: PartyBillingProfile.fromTransactionRow(row),
+                row: row,
+                items: items,
+                totals: totals,
+                tdsApplicable: tdsApplicable,
+                tcsApplicable: tcsApplicable,
+                tdsAmount: tdsAmount,
+                tcsAmount: tcsAmount,
+                copyLabel: copyLabel,
+              )
+            : PurchaseTaxInvoicePdf.buildPage(
+                row: row,
+                items: items,
+                totals: totals,
+                tdsApplicable: tdsApplicable,
+                tcsApplicable: tcsApplicable,
+                tdsAmount: tdsAmount,
+                tcsAmount: tcsAmount,
+                copyLabel: copyLabel,
+              ),
       );
-      final doc = await PdfKit.document();
-      for (final copyLabel in [
-        SalesTaxInvoicePdf.copyOriginalForRecipient,
-        SalesTaxInvoicePdf.copyDuplicateForTransporter,
-      ]) {
-        doc.addPage(
-          SalesTaxInvoicePdf.buildPage(
-            buyer: buyer,
-            row: row,
-            items: items,
-            totals: totals,
-            tdsApplicable: tdsApplicable,
-            tcsApplicable: tcsApplicable,
-            tdsAmount: tdsAmount,
-            tcsAmount: tcsAmount,
-            copyLabel: copyLabel,
-          ),
-        );
-      }
-      return doc.save();
     }
+    return doc.save();
+  }
 
+  Future<Uint8List> _buildAccountsSlipPdf(Map<String, dynamic> row) async {
+    final items = _itemsFromRow(row);
     final phone = await DatabaseHelper.instance.getPartyPhone(
       (row['partyName'] ?? '').toString(),
       isCustomer: _isCustomerParty,
@@ -1547,18 +1612,21 @@ class _TransactionScreenState extends State<TransactionScreen>
     );
   }
 
-  Future<void> _sharePdf(
+  Future<void> _shareBillPdf(
     Map<String, dynamic> row, {
+    required bool gstInvoice,
     bool openAfterSave = true,
   }) async {
     if (_sharingPdf) return;
     _sharingPdf = true;
     try {
-      final bytes = await _buildBillPdf(row);
+      final bytes = gstInvoice
+          ? await _buildGstInvoicePdf(row)
+          : await _buildAccountsSlipPdf(row);
       final isSales = row['transactionType'] == 'SALES';
       final kind = isSales ? 'sales' : 'purchase';
-      final type = isSales ? 'gst_invoice' : 'accounts';
-      final label = isSales ? 'GST invoice' : 'Accounts bill';
+      final type = gstInvoice ? 'gst_invoice' : 'accounts_slip';
+      final label = gstInvoice ? 'GST invoice' : 'Accounts slip';
       final file = await PdfKit.sharePdf(
         bytes: bytes,
         fileName: '${kind}_${type}_${row['billNo']}.pdf',
