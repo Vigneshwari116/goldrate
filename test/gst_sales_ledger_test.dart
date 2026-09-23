@@ -82,7 +82,7 @@ void main() {
     expect(totals.totalWeight, 15);
     expect(totals.grandTotal, 103000 + 51500);
     final footer = totals.toFooterCells();
-    expect(footer.first, 'RANGE TOTAL');
+    expect(footer.first, 'TOTAL');
     expect(footer.last.replaceAll(',', ''), contains('154500'));
   });
 

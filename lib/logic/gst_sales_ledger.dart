@@ -112,7 +112,7 @@ class GstSalesLedgerTotals {
     final wt2 = GstSalesLedgerRow._wt2;
     final rateFmt = GstSalesLedgerRow._rateFmt;
     return [
-      'RANGE TOTAL',
+      'TOTAL',
       '',
       '',
       '',
@@ -134,14 +134,14 @@ class GstSalesLedgerReport {
 
   static const headers = [
     'Bill No',
-    'Bill Date',
-    'Customer Name',
+    'Date',
+    'Customer',
     'GSTIN',
-    'Gross Weight',
-    'Net Weight',
-    'Total Weight',
+    'Gross Wt',
+    'Net Wt',
+    'Total Wt',
     'Rate',
-    'Taxable Value',
+    'Taxable',
     'CGST',
     'SGST',
     'IGST',

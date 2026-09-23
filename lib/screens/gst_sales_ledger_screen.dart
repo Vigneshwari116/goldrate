@@ -187,8 +187,9 @@ class _GstSalesLedgerScreenState extends State<GstSalesLedgerScreen>
     );
   }
 
+  /// Tighter flex so all 13 columns fit on a typical desktop width.
   static const _columnFlex = [
-    2, 2, 4, 3, 2, 2, 2, 2, 3, 2, 2, 2, 3,
+    1.1, 1.3, 2.0, 1.8, 1.0, 1.0, 1.0, 1.2, 1.6, 1.1, 1.1, 0.9, 1.4,
   ];
 
   static const _borderSide = BorderSide(color: AppColors.border, width: 1);
@@ -198,9 +199,11 @@ class _GstSalesLedgerScreenState extends State<GstSalesLedgerScreen>
     bool header = false,
     bool footer = false,
     bool boldGrand = false,
+    int columnIndex = 0,
   }) {
+    final numericCol = columnIndex >= 4;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 5),
       decoration: BoxDecoration(
         color: header
             ? AppColors.tableHeader
@@ -214,11 +217,16 @@ class _GstSalesLedgerScreenState extends State<GstSalesLedgerScreen>
       ),
       child: Text(
         text,
+        maxLines: header ? 2 : 1,
+        overflow: TextOverflow.ellipsis,
+        softWrap: header,
+        textAlign: numericCol ? TextAlign.right : TextAlign.left,
         style: TextStyle(
-          fontSize: header ? 11 : 12,
+          fontSize: header ? 9.5 : 10.5,
           fontWeight: header || footer || boldGrand
               ? FontWeight.w800
               : FontWeight.normal,
+          height: 1.15,
         ),
       ),
     );
@@ -243,6 +251,7 @@ class _GstSalesLedgerScreenState extends State<GstSalesLedgerScreen>
               header: header,
               footer: footer,
               boldGrand: !header && i == grandCol,
+              columnIndex: i,
             ),
         ],
       );
@@ -250,81 +259,87 @@ class _GstSalesLedgerScreenState extends State<GstSalesLedgerScreen>
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final minWidth =
-            constraints.maxWidth < 1200 ? 1200.0 : constraints.maxWidth;
-        return SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: SizedBox(
-            width: minWidth,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Table(
-                  border: const TableBorder(
-                    left: _borderSide,
-                    top: _borderSide,
-                    right: _borderSide,
-                    verticalInside: _borderSide,
-                    horizontalInside: _borderSide,
-                  ),
-                  columnWidths: {
-                    for (var i = 0; i < headers.length; i++)
-                      i: FlexColumnWidth(_columnFlex[i].toDouble()),
-                  },
-                  children: [
-                    buildRow(headers, header: true),
-                    if (rows.isEmpty)
-                      buildRow(
-                        const [
-                          'No sales bills in this date range',
-                          '',
-                          '',
-                          '',
-                          '',
-                          '',
-                          '',
-                          '',
-                          '',
-                          '',
-                          '',
-                          '',
-                          '',
-                        ],
-                      )
-                    else ...[
-                      for (final row in rows) buildRow(row.toCells()),
-                      buildRow(footer, footer: true),
-                    ],
+        final tableWidth = constraints.maxWidth;
+        Widget tableContent = SizedBox(
+          width: tableWidth,
+          child: Table(
+            border: const TableBorder(
+              left: _borderSide,
+              top: _borderSide,
+              right: _borderSide,
+              verticalInside: _borderSide,
+              horizontalInside: _borderSide,
+            ),
+            columnWidths: {
+              for (var i = 0; i < headers.length; i++)
+                i: FlexColumnWidth(_columnFlex[i]),
+            },
+            defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+            children: [
+              buildRow(headers, header: true),
+              if (rows.isEmpty)
+                buildRow(
+                  const [
+                    'No sales bills in this date range',
+                    '',
+                    '',
+                    '',
+                    '',
+                    '',
+                    '',
+                    '',
+                    '',
+                    '',
+                    '',
+                    '',
+                    '',
                   ],
-                ),
-                if (rows.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.navy,
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: AppColors.border),
-                      ),
-                      child: Text(
-                        'GRAND TOTAL: ₹${_totals.grandTotal.toStringAsFixed(2)}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 13,
-                        ),
-                      ),
+                )
+              else ...[
+                for (final row in rows) buildRow(row.toCells()),
+                buildRow(footer, footer: true),
+              ],
+            ],
+          ),
+        );
+
+        if (tableWidth < 920) {
+          tableContent = SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SizedBox(width: 920, child: tableContent),
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            tableContent,
+            if (rows.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.navy,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Text(
+                    'GRAND TOTAL: ₹${_totals.grandTotal.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
                     ),
                   ),
-                ],
-              ],
-            ),
-          ),
+                ),
+              ),
+            ],
+          ],
         );
       },
     );
