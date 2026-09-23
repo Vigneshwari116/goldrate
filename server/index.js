@@ -30,6 +30,12 @@ async function ensureRateMetaSchema() {
   await pool.query(sql);
 }
 
+async function ensurePurchasePoSchema() {
+  const migrationPath = path.join(__dirname, 'migrations', '017_purchase_po.sql');
+  const sql = fs.readFileSync(migrationPath, 'utf8');
+  await pool.query(sql);
+}
+
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled promise rejection:', reason);
 });
@@ -417,9 +423,10 @@ app.post('/api/transactions', async (req, res) => {
        payment_items, receipt_purpose,
        party_address, party_city, party_pincode, party_gstin, party_state,
        eway_bill, tds_applicable, tds_amount, tcs_applicable, tcs_amount,
-       total_taxable, total_inclusive, round_off, grand_total)
+       total_taxable, total_inclusive, round_off, grand_total,
+       po_no, po_date)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,
-             $23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36)
+             $23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38)
      RETURNING id`,
     [
       t.transactionType, t.billNo, t.partyName, t.items, t.totalWt, t.totalPureWt,
@@ -431,6 +438,7 @@ app.post('/api/transactions', async (req, res) => {
       t.tdsApplicable ?? null, t.tdsAmount ?? null, t.tcsApplicable ?? null,
       t.tcsAmount ?? null, t.totalTaxable ?? null, t.totalInclusive ?? null,
       t.roundOff ?? null, t.grandTotal ?? null,
+      t.poNo ?? null, t.poDate ?? null,
     ],
   );
   res.json({ id: result.rows[0].id });
@@ -669,7 +677,11 @@ app.use('/api', (_req, res) => {
 
 const port = process.env.PORT || 3000;
 
-Promise.all([ensureGstBillingSchema(), ensureRateMetaSchema()])
+Promise.all([
+  ensureGstBillingSchema(),
+  ensureRateMetaSchema(),
+  ensurePurchasePoSchema(),
+])
   .then(() => {
     app.listen(port, '0.0.0.0', () => {
       console.log(`Jewellery API listening on port ${port}`);
