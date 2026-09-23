@@ -96,7 +96,10 @@ class GstTaxInvoiceLayout {
     58,
   ];
 
-  static const double _taxCgstRateW = 36;
+  static const double _taxRateShare = 36 / 88;
+
+  static double _taxRatePartW(double groupWidth) =>
+      groupWidth * _taxRateShare;
 
   static pw.Widget _cell(
     String text, {
@@ -569,25 +572,62 @@ class GstTaxInvoiceLayout {
     String label, {
     double height = 30,
     pw.TextAlign align = pw.TextAlign.center,
+    bool splitLikeTaxGroup = false,
   }) {
+    if (!splitLikeTaxGroup) {
+      return pw.Container(
+        width: width,
+        height: height,
+        color: PdfColors.grey300,
+        alignment: align == pw.TextAlign.right
+            ? pw.Alignment.centerRight
+            : pw.Alignment.center,
+        padding: const pw.EdgeInsets.symmetric(horizontal: 2),
+        child: _text(
+          label,
+          size: 7,
+          weight: pw.FontWeight.bold,
+          align: align,
+        ),
+      );
+    }
     return pw.Container(
       width: width,
       height: height,
       color: PdfColors.grey300,
-      alignment: align == pw.TextAlign.right
-          ? pw.Alignment.centerRight
-          : pw.Alignment.center,
-      padding: const pw.EdgeInsets.symmetric(horizontal: 2),
-      child: _text(
-        label,
-        size: 7,
-        weight: pw.FontWeight.bold,
-        align: align,
+      child: pw.Column(
+        children: [
+          pw.Container(
+            height: 15,
+            width: width,
+            decoration: pw.BoxDecoration(
+              border: pw.Border(bottom: _borderSide),
+            ),
+          ),
+          pw.Expanded(
+            child: pw.Align(
+              alignment: align == pw.TextAlign.right
+                  ? pw.Alignment.centerRight
+                  : pw.Alignment.center,
+              child: pw.Padding(
+                padding: const pw.EdgeInsets.symmetric(horizontal: 2),
+                child: _text(
+                  label,
+                  size: 7,
+                  weight: pw.FontWeight.bold,
+                  align: align,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
   static pw.Widget _taxGroupHeaderCell(double groupWidth, String title) {
+    final rateW = _taxRatePartW(groupWidth);
+    final amountW = groupWidth - rateW;
     return pw.Container(
       width: groupWidth,
       height: 30,
@@ -595,36 +635,36 @@ class GstTaxInvoiceLayout {
       child: pw.Column(
         children: [
           pw.Container(
-            height: 15,
             width: groupWidth,
+            height: 15,
             alignment: pw.Alignment.center,
             decoration: pw.BoxDecoration(
-              border: pw.Border(
-                bottom: pw.BorderSide(color: _line, width: _border),
-              ),
+              border: pw.Border(bottom: _borderSide),
+              color: PdfColors.grey300,
             ),
             child: _text(title, size: 7, weight: pw.FontWeight.bold),
           ),
-          pw.Row(
-            children: [
-              pw.Container(
-                width: _taxCgstRateW,
-                height: 15,
-                alignment: pw.Alignment.center,
-                decoration: pw.BoxDecoration(
-                  border: pw.Border(
-                    right: pw.BorderSide(color: _line, width: _border),
+          pw.SizedBox(
+            height: 15,
+            child: pw.Row(
+              children: [
+                pw.Container(
+                  width: rateW,
+                  height: 15,
+                  alignment: pw.Alignment.center,
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border(right: _borderSide),
                   ),
+                  child: _text('Rate', size: 6.5, weight: pw.FontWeight.bold),
                 ),
-                child: _text('Rate', size: 6.5, weight: pw.FontWeight.bold),
-              ),
-              pw.Container(
-                width: groupWidth - _taxCgstRateW,
-                height: 15,
-                alignment: pw.Alignment.center,
-                child: _text('Amount', size: 6.5, weight: pw.FontWeight.bold),
-              ),
-            ],
+                pw.Container(
+                  width: amountW,
+                  height: 15,
+                  alignment: pw.Alignment.center,
+                  child: _text('Amount', size: 6.5, weight: pw.FontWeight.bold),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -636,16 +676,19 @@ class GstTaxInvoiceLayout {
     String rate,
     String amount,
   ) {
+    final rateW = _taxRatePartW(groupWidth);
+    final amountW = groupWidth - rateW;
     return pw.SizedBox(
       width: groupWidth,
       child: pw.Row(
         children: [
-          pw.SizedBox(
-            width: _taxCgstRateW,
+          pw.Container(
+            width: rateW,
+            decoration: pw.BoxDecoration(border: pw.Border(right: _borderSide)),
             child: _cell(rate, fontSize: 7.5, align: pw.TextAlign.right),
           ),
           pw.SizedBox(
-            width: groupWidth - _taxCgstRateW,
+            width: amountW,
             child: _cell(amount, fontSize: 7.5, align: pw.TextAlign.right),
           ),
         ],
