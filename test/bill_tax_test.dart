@@ -29,6 +29,17 @@ void main() {
     );
   });
 
+  test('default item descriptions for invoice lines', () {
+    expect(defaultItemDescriptionForType('GWT'), 'Gold Jewellery');
+    expect(defaultItemDescriptionForType('FWT'), 'Gold Jewellery (Fine)');
+    expect(defaultItemDescriptionForType('KWT'), 'Gold Jewellery (Kacha)');
+    expect(defaultItemDescriptionForType('SWT'), 'Silver Jewellery');
+    expect(
+      defaultItemDescriptionForType('GWT'),
+      isNot(contains('Bullion')),
+    );
+  });
+
   test('group tax by HSN', () {
     final rows = groupTaxByHsn([
       (hsn: '7113', tax: BillLineTax.compute(pureWt: 10, rate: 100)),

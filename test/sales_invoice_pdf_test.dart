@@ -69,8 +69,11 @@ void main() {
         touch: 100,
         rate: 1000,
         hsn: '7113',
+        description: 'Gold Ring',
       ),
     ];
+    expect(items.first.description, 'Gold Ring');
+    expect(items.first.description, isNot(contains('Bullion')));
     final totals = BillTaxTotals.compute(lines: items.map((i) => i.tax).toList());
 
     Future<Uint8List> render({

@@ -124,17 +124,17 @@ String _paiseLabel(int paise) {
   return paise == 1 ? 'paisa' : 'paise';
 }
 
-/// Description line on the reference tax invoice PDF.
-String invoicePdfLineDescription(String type) {
+/// Default goods description on sales tax invoice when line has no custom text.
+String defaultItemDescriptionForType(String type) {
   switch (type) {
     case 'GWT':
-      return 'Gold Bullion_999';
+      return 'Gold Jewellery';
     case 'FWT':
-      return 'Fine Gold';
+      return 'Gold Jewellery (Fine)';
     case 'KWT':
-      return 'Kacha Gold';
+      return 'Gold Jewellery (Kacha)';
     case 'SWT':
-      return 'Silver Bullion';
+      return 'Silver Jewellery';
     default:
       return type;
   }
