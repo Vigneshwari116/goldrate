@@ -256,7 +256,7 @@ class SalesTaxInvoicePdf {
         pw.TableRow(
           children: [
             _cell('${i + 1}', align: pw.TextAlign.center),
-            _cell(invoicePdfLineDescription(item.type)),
+            _cell(item.description),
             _cell(_inr.format(item.tax.taxableValue), align: pw.TextAlign.right),
             _cell('GM', align: pw.TextAlign.center),
             _cell(_rateFmt.format(item.rate), align: pw.TextAlign.right),

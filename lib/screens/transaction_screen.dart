@@ -124,6 +124,7 @@ class _TransactionScreenState extends State<TransactionScreen>
   String _paymentEntryType = _paymentItemTypes.first;
   final _billEntryWeight = TextEditingController(text: '0.000');
   final _billEntryTouch = TextEditingController();
+  final _billEntryDescription = TextEditingController();
   final _paymentEntryWeight = TextEditingController(text: '0.000');
   final _paymentEntryTouch = TextEditingController();
   final _paymentEntryAmount = TextEditingController(text: '0.00');
@@ -370,6 +371,7 @@ class _TransactionScreenState extends State<TransactionScreen>
     if (resetType) _billEntryType = _itemTypes.first;
     _billEntryWeight.text = '0.000';
     _billEntryTouch.clear();
+    _billEntryDescription.clear();
     _billTouchError = null;
   }
 
@@ -395,12 +397,14 @@ class _TransactionScreenState extends State<TransactionScreen>
     final rateName = kItemTypeToRateName[_billEntryType];
     final rate = _rates[rateName] ?? 0;
     final hsn = _hsnByType[_billEntryType] ?? kDefaultHsnByItemType[_billEntryType] ?? '';
+    final desc = _billEntryDescription.text.trim();
     return BillLineItem(
       type: _billEntryType,
       weight: weight,
       touch: touch,
       rate: rate,
       hsn: hsn,
+      description: desc.isEmpty ? null : desc,
     );
   }
 
@@ -530,6 +534,7 @@ class _TransactionScreenState extends State<TransactionScreen>
     _tcsAmountController.dispose();
     _billEntryWeight.dispose();
     _billEntryTouch.dispose();
+    _billEntryDescription.dispose();
     _paymentEntryWeight.dispose();
     _paymentEntryTouch.dispose();
     _paymentEntryAmount.dispose();
@@ -736,6 +741,9 @@ class _TransactionScreenState extends State<TransactionScreen>
       _billEntryType = item.type;
       _billEntryWeight.text = item.weight.toStringAsFixed(3);
       _billEntryTouch.text = item.touch.toStringAsFixed(2);
+      final defaultDesc = defaultItemDescriptionForType(item.type);
+      _billEntryDescription.text =
+          item.description == defaultDesc ? '' : item.description;
       _billTouchError = null;
       _billLines.removeAt(index);
     });
@@ -2401,6 +2409,23 @@ class _TransactionScreenState extends State<TransactionScreen>
           touchFocus: _billEntryTouchFocus,
           touchError: _billTouchError,
           onTouchSubmitted: _commitBillEntry,
+        ),
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: TextFormField(
+            controller: _billEntryDescription,
+            maxLength: 80,
+            decoration: InputDecoration(
+              labelText: 'Item description (optional)',
+              hintText: defaultItemDescriptionForType(_billEntryType),
+              isDense: true,
+              counterText: '',
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            ),
+            textInputAction: TextInputAction.done,
+            onFieldSubmitted: (_) => _commitBillEntry(),
+          ),
         ),
         _linesTable(
           showRate: false,
