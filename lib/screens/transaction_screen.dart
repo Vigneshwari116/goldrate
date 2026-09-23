@@ -19,6 +19,7 @@ import '../pdf/purchase_tax_invoice_pdf.dart';
 import '../pdf/sales_tax_invoice_pdf.dart';
 import '../widgets/party_billing_fields.dart';
 import '../pdf/pdf_kit.dart';
+import '../util/pdf_print.dart';
 import '../models/party_suggestion.dart';
 import '../widgets/party_search_field.dart';
 import '../util/party_save_prompt.dart';
@@ -1053,8 +1054,10 @@ class _TransactionScreenState extends State<TransactionScreen>
           if (_billRateOverrideByType.containsKey(type))
             TextButton(
               onPressed: () {
-                Navigator.pop(ctx, true);
-                setState(() => _billRateOverrideByType.remove(type));
+                Navigator.pop(ctx);
+                if (mounted) {
+                  setState(() => _billRateOverrideByType.remove(type));
+                }
               },
               child: const Text('USE DAILY RATE'),
             ),
@@ -1284,11 +1287,16 @@ class _TransactionScreenState extends State<TransactionScreen>
     await _load();
     if (!mounted) return;
     if (!wasEdit) {
-      await _shareBillPdf(
-        savedRow,
-        gstInvoice: true,
-        openAfterSave: false,
-      );
+      final txnType = (savedRow['transactionType'] ?? '').toString();
+      if (txnType == 'SALES') {
+        await _saveAndPrintBillPdf(savedRow, gstInvoice: true);
+      } else {
+        await _shareBillPdf(
+          savedRow,
+          gstInvoice: true,
+          openAfterSave: false,
+        );
+      }
     }
   }
 
@@ -1740,6 +1748,39 @@ class _TransactionScreenState extends State<TransactionScreen>
     );
   }
 
+  String _billPdfFileName(
+    Map<String, dynamic> row, {
+    required bool gstInvoice,
+  }) {
+    final isSales = row['transactionType'] == 'SALES';
+    final kind = isSales ? 'sales' : 'purchase';
+    final type = gstInvoice ? 'gst_invoice' : 'accounts_slip';
+    return '${kind}_${type}_${row['billNo']}.pdf';
+  }
+
+  Future<void> _saveAndPrintBillPdf(
+    Map<String, dynamic> row, {
+    required bool gstInvoice,
+  }) async {
+    if (_sharingPdf) return;
+    _sharingPdf = true;
+    try {
+      final bytes = gstInvoice
+          ? await _buildGstInvoicePdf(row)
+          : await _buildAccountsSlipPdf(row);
+      final fileName = _billPdfFileName(row, gstInvoice: gstInvoice);
+      final file = await PdfKit.savePdf(bytes: bytes, fileName: fileName);
+      if (!mounted) return;
+      _showMessage('PDF saved: ${file.path}');
+      await PdfPrint.showDialog(
+        bytes: bytes,
+        documentName: fileName,
+      );
+    } finally {
+      _sharingPdf = false;
+    }
+  }
+
   Future<void> _shareBillPdf(
     Map<String, dynamic> row, {
     required bool gstInvoice,
@@ -1751,13 +1792,10 @@ class _TransactionScreenState extends State<TransactionScreen>
       final bytes = gstInvoice
           ? await _buildGstInvoicePdf(row)
           : await _buildAccountsSlipPdf(row);
-      final isSales = row['transactionType'] == 'SALES';
-      final kind = isSales ? 'sales' : 'purchase';
-      final type = gstInvoice ? 'gst_invoice' : 'accounts_slip';
       final label = gstInvoice ? 'GST invoice' : 'Accounts slip';
       final file = await PdfKit.sharePdf(
         bytes: bytes,
-        fileName: '${kind}_${type}_${row['billNo']}.pdf',
+        fileName: _billPdfFileName(row, gstInvoice: gstInvoice),
         subject: '$label #${row['billNo']} - ${row['partyName'] ?? ''}',
         text:
             '$label (bill #${row['billNo']}). '
