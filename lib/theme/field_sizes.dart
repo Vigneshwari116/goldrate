@@ -9,7 +9,7 @@ class FieldSizes {
   static const touch = 64.0;
   static const pure = 72.0;
   static const cash = 88.0;
-  static const name = 168.0;
+  static const name = 140.0;
   static const shortLabel = 64.0;
 
   /// Billing / party profile fields (compact on wide layouts).
