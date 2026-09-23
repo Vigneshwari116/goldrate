@@ -123,11 +123,36 @@ class GstTaxInvoiceLayout {
     );
   }
 
-  /// Placeholder e-invoice block (no live IRN/QR integration).
-  static pw.Widget _eInvoicePlaceholder() {
-    return pw.Container(
-      decoration: pw.BoxDecoration(border: pw.Border.all(color: _line, width: _border)),
-      padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+  static pw.Widget _invoiceTitleRow(String copyLabel) {
+    return pw.Row(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Expanded(
+          child: pw.RichText(
+            text: pw.TextSpan(
+              children: [
+                pw.TextSpan(
+                  text: 'INVOICE ',
+                  style: _style(size: 11, weight: pw.FontWeight.bold),
+                ),
+                pw.TextSpan(
+                  text: copyLabel,
+                  style: _style(size: 9, fontStyle: pw.FontStyle.italic),
+                ),
+              ],
+            ),
+          ),
+        ),
+        _text('e-Invoice', size: 8, weight: pw.FontWeight.bold, align: pw.TextAlign.right),
+      ],
+    );
+  }
+
+  /// IRN / Ack lines (plain) + QR placeholder — full width below title.
+  static pw.Widget _eInvoiceIrRow() {
+    const qrSize = 92.0;
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 4),
       child: pw.Row(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
@@ -135,16 +160,15 @@ class GstTaxInvoiceLayout {
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
-                _text('e-Invoice', size: 8, weight: pw.FontWeight.bold),
                 _text('IRN : Not yet integrated', size: 7),
                 _text('Ack No. : $_placeholder', size: 7),
-                _text('Ack Date. : $_placeholder', size: 7),
+                _text('Ack Date : $_placeholder', size: 7),
               ],
             ),
           ),
           pw.Container(
-            width: 54,
-            height: 54,
+            width: qrSize,
+            height: qrSize,
             decoration: pw.BoxDecoration(
               color: PdfColors.grey300,
               border: pw.Border.all(color: _line, width: _border),
@@ -419,7 +443,8 @@ class GstTaxInvoiceLayout {
               pw.Container(
                 width: rateWidth,
                 height: subHeight,
-                alignment: pw.Alignment.center,
+                alignment: pw.Alignment.centerRight,
+                padding: const pw.EdgeInsets.only(right: 2),
                 decoration: pw.BoxDecoration(
                   color: PdfColors.grey300,
                   border: pw.Border(
@@ -428,12 +453,13 @@ class GstTaxInvoiceLayout {
                     bottom: _borderSide,
                   ),
                 ),
-                child: _text('Rate', size: 6, weight: pw.FontWeight.bold),
+                child: _text('Rate', size: 6, weight: pw.FontWeight.bold, align: pw.TextAlign.right),
               ),
               pw.Container(
                 width: amountWidth,
                 height: subHeight,
-                alignment: pw.Alignment.center,
+                alignment: pw.Alignment.centerRight,
+                padding: const pw.EdgeInsets.only(right: 2),
                 decoration: pw.BoxDecoration(
                   color: PdfColors.grey300,
                   border: pw.Border(
@@ -441,7 +467,7 @@ class GstTaxInvoiceLayout {
                     bottom: _borderSide,
                   ),
                 ),
-                child: _text('Amount', size: 6, weight: pw.FontWeight.bold),
+                child: _text('Amount', size: 6, weight: pw.FontWeight.bold, align: pw.TextAlign.right),
               ),
             ],
           ),
@@ -471,9 +497,9 @@ class GstTaxInvoiceLayout {
           children: [
             _cell(h.hsn, fontSize: 7),
             _cell(_inr.format(h.taxable), fontSize: 7, align: pw.TextAlign.right),
-            _cell('${h.cgstPercent.toStringAsFixed(2)}%', fontSize: 7, align: pw.TextAlign.center),
+            _cell('${h.cgstPercent.toStringAsFixed(2)}%', fontSize: 7, align: pw.TextAlign.right),
             _cell(_inr.format(h.cgstAmount), fontSize: 7, align: pw.TextAlign.right),
-            _cell('${h.sgstPercent.toStringAsFixed(2)}%', fontSize: 7, align: pw.TextAlign.center),
+            _cell('${h.sgstPercent.toStringAsFixed(2)}%', fontSize: 7, align: pw.TextAlign.right),
             _cell(_inr.format(h.sgstAmount), fontSize: 7, align: pw.TextAlign.right),
             _cell(_inr.format(h.totalTax), fontSize: 7, align: pw.TextAlign.right),
           ],
@@ -508,10 +534,50 @@ class GstTaxInvoiceLayout {
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
               _taxHeaderTallCell(w[0], 'HSN/SAC'),
-              _taxHeaderTallCell(w[1], 'Taxable\nValue'),
+              pw.Container(
+                width: w[1],
+                height: 28,
+                decoration: pw.BoxDecoration(
+                  color: PdfColors.grey300,
+                  border: pw.Border(
+                    top: _borderSide,
+                    left: _borderSide,
+                    right: _borderSide,
+                    bottom: _borderSide,
+                  ),
+                ),
+                alignment: pw.Alignment.centerRight,
+                padding: const pw.EdgeInsets.only(right: 3),
+                child: _text(
+                  'Taxable\nValue',
+                  size: 6.5,
+                  weight: pw.FontWeight.bold,
+                  align: pw.TextAlign.right,
+                ),
+              ),
               _taxGroupHeader(w[2], w[3], 'CGST'),
               _taxGroupHeader(w[4], w[5], 'SGST/UTGST'),
-              _taxHeaderTallCell(w[6], 'Total Tax\nAmount'),
+              pw.Container(
+                width: w[6],
+                height: 28,
+                decoration: pw.BoxDecoration(
+                  color: PdfColors.grey300,
+                  border: pw.Border(
+                    top: _borderSide,
+                    left: _borderSide,
+                    right: _borderSide,
+                    bottom: _borderSide,
+                  ),
+                ),
+                alignment: pw.Alignment.centerRight,
+                padding: const pw.EdgeInsets.only(right: 3),
+                child: _text(
+                  'Total Tax\nAmount',
+                  size: 6.5,
+                  weight: pw.FontWeight.bold,
+                  align: pw.TextAlign.right,
+                ),
+              ),
             ],
           ),
           pw.Table(
@@ -548,52 +614,58 @@ class GstTaxInvoiceLayout {
   }
 
   static pw.Widget _declarationBlock(String signatureName) {
-    return pw.Table(
-      border: _tableBorder,
-      columnWidths: {
-        0: const pw.FlexColumnWidth(1),
-        1: const pw.FlexColumnWidth(1),
-      },
+    const blockHeight = 78.0;
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.stretch,
       children: [
-        pw.TableRow(
-          children: [
-            pw.Padding(
-              padding: const pw.EdgeInsets.all(6),
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  _text('Declaration', weight: pw.FontWeight.bold, size: 8),
-                  _text(
-                    'Certified that the above particulars are true and correct',
-                    size: 7.5,
+        pw.Container(
+          decoration: pw.BoxDecoration(border: pw.Border.all(color: _line, width: _border)),
+          padding: const pw.EdgeInsets.all(6),
+          child: pw.SizedBox(
+            height: blockHeight,
+            child: pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.end,
+              children: [
+                pw.Expanded(
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          _text('Declaration', weight: pw.FontWeight.bold, size: 8),
+                          _text(
+                            'Certified that the above particulars are true and correct',
+                            size: 7.5,
+                          ),
+                        ],
+                      ),
+                      _text("Customer's Seal and Signature", size: 7.5),
+                    ],
                   ),
-                  pw.SizedBox(height: 20),
-                  _text("Customer's Seal and Signature", size: 7.5),
-                ],
-              ),
+                ),
+                pw.Expanded(
+                  child: pw.Align(
+                    alignment: pw.Alignment.bottomRight,
+                    child: _text(
+                      'for $signatureName',
+                      size: 8,
+                      weight: pw.FontWeight.bold,
+                      align: pw.TextAlign.right,
+                    ),
+                  ),
+                ),
+              ],
             ),
-            pw.Padding(
-              padding: const pw.EdgeInsets.all(6),
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.end,
-                children: [
-                  pw.SizedBox(height: 28),
-                  _text(
-                    'for $signatureName',
-                    size: 8,
-                    weight: pw.FontWeight.bold,
-                    align: pw.TextAlign.right,
-                  ),
-                  pw.SizedBox(height: 24),
-                  _text(
-                    'Authorised Signatory',
-                    size: 7.5,
-                    align: pw.TextAlign.right,
-                  ),
-                ],
-              ),
-            ),
-          ],
+          ),
+        ),
+        pw.Padding(
+          padding: const pw.EdgeInsets.only(top: 4, right: 6),
+          child: pw.Align(
+            alignment: pw.Alignment.centerRight,
+            child: _text('Authorised Signatory', size: 7.5, align: pw.TextAlign.right),
+          ),
         ),
       ],
     );
@@ -640,23 +712,8 @@ class GstTaxInvoiceLayout {
       build: (context) => pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.stretch,
         children: [
-          pw.Center(
-            child: pw.RichText(
-              text: pw.TextSpan(
-                children: [
-                  pw.TextSpan(
-                    text: 'INVOICE ',
-                    style: _style(size: 11, weight: pw.FontWeight.bold),
-                  ),
-                  pw.TextSpan(
-                    text: copyLabel,
-                    style: _style(size: 9, fontStyle: pw.FontStyle.italic),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          pw.SizedBox(height: 6),
+          _invoiceTitleRow(copyLabel),
+          _eInvoiceIrRow(),
           pw.Row(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
@@ -667,17 +724,11 @@ class GstTaxInvoiceLayout {
               pw.SizedBox(width: 4),
               pw.Expanded(
                 flex: 10,
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-                  children: [
-                    _eInvoicePlaceholder(),
-                    _metadataGrid(
-                      billNo: billNo,
-                      date: date,
-                      referenceNo: referenceNo,
-                      buyersOrderNo: buyersOrderNo,
-                    ),
-                  ],
+                child: _metadataGrid(
+                  billNo: billNo,
+                  date: date,
+                  referenceNo: referenceNo,
+                  buyersOrderNo: buyersOrderNo,
                 ),
               ),
             ],

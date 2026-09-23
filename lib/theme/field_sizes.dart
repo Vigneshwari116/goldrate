@@ -11,4 +11,16 @@ class FieldSizes {
   static const cash = 88.0;
   static const name = 200.0;
   static const shortLabel = 64.0;
+
+  /// Billing / party profile fields (compact on wide layouts).
+  static const billingName = 260.0;
+  static const mobile = 132.0;
+  static const billingAddress = 400.0;
+  static const billingCity = 168.0;
+  static const billingPincode = 108.0;
+  static const billingGstin = 220.0;
+  static const billingState = 180.0;
+  static const billingEway = 240.0;
+  static const billingPoNo = 140.0;
+  static const billingPoDate = 132.0;
 }
