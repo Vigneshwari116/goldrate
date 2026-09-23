@@ -142,14 +142,6 @@ class PartyBillingFields extends StatelessWidget {
             ],
           );
 
-    final ewayField = showEwayBill && ewayBillController != null
-        ? field(
-            'E-Way Bill No (optional)',
-            ewayBillController!,
-            width: FieldSizes.billingEway,
-          )
-        : null;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -158,7 +150,12 @@ class PartyBillingFields extends StatelessWidget {
         addressField,
         cityPinRow,
         gstStateRow,
-        if (ewayField != null) ewayField,
+        if (showEwayBill && ewayBillController != null)
+          field(
+            'E-Way Bill No (optional)',
+            ewayBillController!,
+            width: FieldSizes.billingEway,
+          ),
       ],
     );
   }
