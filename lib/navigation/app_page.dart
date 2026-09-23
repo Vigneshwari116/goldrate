@@ -9,6 +9,7 @@ enum AppPage {
   suppliers,
   rates,
   reports,
+  gstSalesLedger,
   rateRecords,
   backup,
   printerSettings,

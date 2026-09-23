@@ -12,6 +12,7 @@ import 'login_screen.dart';
 import 'master_screen.dart';
 import 'opening_weight_screen.dart';
 import 'printer_settings_screen.dart';
+import 'gst_sales_ledger_screen.dart';
 import 'reports_screen.dart';
 import 'reset_screen.dart';
 import 'supplier_master_screen.dart';
@@ -60,6 +61,8 @@ class _AppShellState extends State<AppShell> {
         return 'DAILY RATE';
       case AppPage.reports:
         return 'DAILY REPORTS';
+      case AppPage.gstSalesLedger:
+        return 'GST SALES LEDGER';
       case AppPage.rateRecords:
         return 'RATE RECORDS';
       case AppPage.backup:
@@ -127,6 +130,7 @@ class _AppShellState extends State<AppShell> {
     AppPage.suppliers,
     AppPage.rates,
     AppPage.reports,
+    AppPage.gstSalesLedger,
     AppPage.rateRecords,
     AppPage.backup,
     AppPage.printerSettings,
@@ -195,6 +199,12 @@ class _AppShellState extends State<AppShell> {
           child: ReportsScreen(
             embedded: true,
             isActive: _page == AppPage.reports,
+          ),
+        ),
+        _KeepAlivePage(
+          child: GstSalesLedgerScreen(
+            embedded: true,
+            isActive: _page == AppPage.gstSalesLedger,
           ),
         ),
         _KeepAlivePage(child: HistoryScreen(embedded: true)),
@@ -421,12 +431,20 @@ class _AppShellState extends State<AppShell> {
                     _group(
                       icon: Icons.bar_chart,
                       label: 'REPORTS & AUDIT',
-                      pages: const [AppPage.reports, AppPage.rateRecords],
+                      pages: const [
+                        AppPage.reports,
+                        AppPage.gstSalesLedger,
+                        AppPage.rateRecords,
+                      ],
                       children: [
                         _leaf(
                             icon: Icons.assessment,
                             label: 'Reports',
                             page: AppPage.reports),
+                        _leaf(
+                            icon: Icons.receipt_long,
+                            label: 'GST Sales Ledger',
+                            page: AppPage.gstSalesLedger),
                         _leaf(
                             icon: Icons.history,
                             label: 'Rate Records',
