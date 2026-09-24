@@ -21,6 +21,8 @@ class FieldSizes {
   static const billingPincode = 108.0;
   static const billingGstin = 220.0;
   static const billingState = 180.0;
+  /// Equal width for City/Pincode and GSTIN/State pairs on bill entry.
+  static const billingPairField = (billingAddress - 8) / 2;
   static const billingEway = 240.0;
   static const billingPoNo = 140.0;
   static const billingPoDate = 132.0;

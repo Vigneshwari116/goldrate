@@ -117,6 +117,14 @@ class _TransactionScreenState extends State<TransactionScreen>
   final _partyGstinController = TextEditingController();
   final _partyStateController = TextEditingController();
   final _ewayBillController = TextEditingController();
+  final _billNarrationController = TextEditingController();
+  final _partyAddressFocus = FocusNode();
+  final _partyCityFocus = FocusNode();
+  final _partyPincodeFocus = FocusNode();
+  final _partyGstinFocus = FocusNode();
+  final _partyStateFocus = FocusNode();
+  final _ewayBillFocus = FocusNode();
+  final _billNarrationFocus = FocusNode();
   final _poNoController = TextEditingController();
   final _poDateController = TextEditingController();
   bool _tdsApplicable = false;
@@ -554,6 +562,14 @@ class _TransactionScreenState extends State<TransactionScreen>
     _partyGstinController.dispose();
     _partyStateController.dispose();
     _ewayBillController.dispose();
+    _billNarrationController.dispose();
+    _partyAddressFocus.dispose();
+    _partyCityFocus.dispose();
+    _partyPincodeFocus.dispose();
+    _partyGstinFocus.dispose();
+    _partyStateFocus.dispose();
+    _ewayBillFocus.dispose();
+    _billNarrationFocus.dispose();
     _poNoController.dispose();
     _poDateController.dispose();
     _tdsAmountController.dispose();
@@ -655,6 +671,7 @@ class _TransactionScreenState extends State<TransactionScreen>
     _partyGstinController.clear();
     _partyStateController.clear();
     _ewayBillController.clear();
+    _billNarrationController.clear();
     _tdsApplicable = false;
     _tdsAmountController.clear();
     _tcsApplicable = false;
@@ -693,8 +710,35 @@ class _TransactionScreenState extends State<TransactionScreen>
   void _selectParty(PartySuggestion party) {
     _partyController.text = party.name;
     _onPartyTextChanged(party.name);
-    _focusFirstPanelField();
+    _focusBillingAddress();
   }
+
+  void _focusBillingAddress() {
+    FocusChain.focusNextFrame(
+      _partyAddressFocus,
+      controller: _partyAddressController,
+    );
+  }
+
+  void _focusAfterState() {
+    if (_isSales) {
+      FocusChain.focusNextFrame(
+        _ewayBillFocus,
+        controller: _ewayBillController,
+      );
+    } else {
+      _focusNarration();
+    }
+  }
+
+  void _focusNarration() {
+    FocusChain.focusNextFrame(
+      _billNarrationFocus,
+      controller: _billNarrationController,
+    );
+  }
+
+  void _focusAfterNarration() => _focusFirstPanelField();
 
   bool _partyHasMatches(String name) =>
       PartySearchField.filterParties(_partySuggestions, name).isNotEmpty;
@@ -707,7 +751,7 @@ class _TransactionScreenState extends State<TransactionScreen>
     if (name.isEmpty) return;
     if (_partyHasMatches(name) && !_partyExactMatch(name)) return;
     if (!await _ensurePartySaved()) return;
-    _focusFirstPanelField();
+    _focusBillingAddress();
   }
 
   void _onPartyNameChanged(String value) {
@@ -983,6 +1027,7 @@ class _TransactionScreenState extends State<TransactionScreen>
       _partyGstinController.text = (row['partyGstin'] ?? '').toString();
       _partyStateController.text = (row['partyState'] ?? '').toString();
       _ewayBillController.text = (row['ewayBill'] ?? '').toString();
+      _billNarrationController.text = (row['billNarration'] ?? '').toString();
       _poNoController.text = (row['poNo'] ?? '').toString();
       _poDateController.text = (row['poDate'] ?? '').toString();
       _tdsApplicable = (row['tdsApplicable'] as int? ?? 0) == 1;
@@ -1225,6 +1270,7 @@ class _TransactionScreenState extends State<TransactionScreen>
       'partyGstin': _partyGstinController.text.trim(),
       'partyState': _partyStateController.text.trim(),
       if (_isSales) 'ewayBill': _ewayBillController.text.trim(),
+      'billNarration': _billNarrationController.text.trim(),
       if (_isPurchase) 'poNo': _poNoController.text.trim(),
       if (_isPurchase) 'poDate': _poDateController.text.trim(),
       'tdsApplicable': _tdsApplicable ? 1 : 0,
@@ -2040,11 +2086,6 @@ class _TransactionScreenState extends State<TransactionScreen>
               onChanged: _onPartyNameChanged,
             ),
           ),
-          if (_partyController.text.trim().isNotEmpty &&
-              _partyOutstanding != null) ...[
-            const SizedBox(height: 8),
-            _currentBalanceStrip(),
-          ],
           if (!_isVoucher && _partyController.text.trim().isNotEmpty) ...[
             const SizedBox(height: 10),
             PartyBillingFields(
@@ -2054,8 +2095,65 @@ class _TransactionScreenState extends State<TransactionScreen>
               pincodeController: _partyPincodeController,
               gstinController: _partyGstinController,
               stateController: _partyStateController,
-              showEwayBill: _isSales,
-              ewayBillController: _ewayBillController,
+              addressFocus: _partyAddressFocus,
+              cityFocus: _partyCityFocus,
+              pincodeFocus: _partyPincodeFocus,
+              gstinFocus: _partyGstinFocus,
+              stateFocus: _partyStateFocus,
+              onAddressSubmitted: () => FocusChain.focusNextFrame(
+                _partyCityFocus,
+                controller: _partyCityController,
+              ),
+              onCitySubmitted: () => FocusChain.focusNextFrame(
+                _partyPincodeFocus,
+                controller: _partyPincodeController,
+              ),
+              onPincodeSubmitted: () => FocusChain.focusNextFrame(
+                _partyGstinFocus,
+                controller: _partyGstinController,
+              ),
+              onGstinSubmitted: () => FocusChain.focusNextFrame(
+                _partyStateFocus,
+                controller: _partyStateController,
+              ),
+              onStateSubmitted: _focusAfterState,
+            ),
+            if (_isSales) ...[
+              const SizedBox(height: 2),
+              SizedBox(
+                width: FieldSizes.billingEway,
+                child: TextFormField(
+                  controller: _ewayBillController,
+                  focusNode: _ewayBillFocus,
+                  style: const TextStyle(fontSize: 13),
+                  textInputAction: TextInputAction.next,
+                  onFieldSubmitted: (_) => _focusNarration(),
+                  decoration: const InputDecoration(
+                    labelText: 'E-Way Bill No (optional)',
+                    isDense: true,
+                  ),
+                ),
+              ),
+            ],
+            if (_partyOutstanding != null) ...[
+              const SizedBox(height: 8),
+              _currentBalanceStrip(),
+            ],
+            const SizedBox(height: 8),
+            SizedBox(
+              width: FieldSizes.billingAddress,
+              child: TextFormField(
+                controller: _billNarrationController,
+                focusNode: _billNarrationFocus,
+                maxLines: 2,
+                style: const TextStyle(fontSize: 13),
+                textInputAction: TextInputAction.done,
+                onFieldSubmitted: (_) => _focusAfterNarration(),
+                decoration: const InputDecoration(
+                  labelText: 'Narration',
+                  isDense: true,
+                ),
+              ),
             ),
           ],
           if (_showPanels) ...[

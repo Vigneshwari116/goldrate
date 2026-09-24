@@ -9,10 +9,14 @@ class PartySearchField extends StatefulWidget {
   /// Filters [parties] for the autocomplete dropdown while typing.
   static Iterable<PartySuggestion> filterParties(
     List<PartySuggestion> parties,
-    String query,
-  ) {
+    String query, {
+    bool showAllWhenEmpty = false,
+  }) {
     final trimmed = query.trim();
-    if (trimmed.isEmpty) return const Iterable.empty();
+    if (trimmed.isEmpty) {
+      if (showAllWhenEmpty) return parties.take(24);
+      return const Iterable.empty();
+    }
     return parties.where((p) => p.matches(trimmed)).take(24);
   }
 
@@ -69,7 +73,11 @@ class _PartySearchFieldState extends State<PartySearchField> {
   }
 
   Iterable<PartySuggestion> _options(String query) {
-    return PartySearchField.filterParties(widget.parties, query);
+    return PartySearchField.filterParties(
+      widget.parties,
+      query,
+      showAllWhenEmpty: true,
+    );
   }
 
   @override

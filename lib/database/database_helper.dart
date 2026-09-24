@@ -34,7 +34,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 17,
+      version: 18,
       onCreate: _createDatabase,
       onUpgrade: _upgradeDatabase,
     );
@@ -169,7 +169,8 @@ class DatabaseHelper {
         roundOff TEXT,
         grandTotal TEXT,
         poNo TEXT,
-        poDate TEXT
+        poDate TEXT,
+        billNarration TEXT
       )
     ''');
 
@@ -534,6 +535,9 @@ class DatabaseHelper {
     if (oldVersion < 17) {
       await db.execute('ALTER TABLE transactions ADD COLUMN poNo TEXT');
       await db.execute('ALTER TABLE transactions ADD COLUMN poDate TEXT');
+    }
+    if (oldVersion < 18) {
+      await db.execute('ALTER TABLE transactions ADD COLUMN billNarration TEXT');
     }
   }
 

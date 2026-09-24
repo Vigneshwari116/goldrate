@@ -14,9 +14,17 @@ class PartyBillingFields extends StatelessWidget {
     required this.pincodeController,
     required this.gstinController,
     required this.stateController,
-    this.showEwayBill = false,
-    this.ewayBillController,
     this.compact = false,
+    this.addressFocus,
+    this.cityFocus,
+    this.pincodeFocus,
+    this.gstinFocus,
+    this.stateFocus,
+    this.onAddressSubmitted,
+    this.onCitySubmitted,
+    this.onPincodeSubmitted,
+    this.onGstinSubmitted,
+    this.onStateSubmitted,
   });
 
   final TextEditingController addressController;
@@ -24,9 +32,18 @@ class PartyBillingFields extends StatelessWidget {
   final TextEditingController pincodeController;
   final TextEditingController gstinController;
   final TextEditingController stateController;
-  final bool showEwayBill;
-  final TextEditingController? ewayBillController;
   final bool compact;
+
+  final FocusNode? addressFocus;
+  final FocusNode? cityFocus;
+  final FocusNode? pincodeFocus;
+  final FocusNode? gstinFocus;
+  final FocusNode? stateFocus;
+  final VoidCallback? onAddressSubmitted;
+  final VoidCallback? onCitySubmitted;
+  final VoidCallback? onPincodeSubmitted;
+  final VoidCallback? onGstinSubmitted;
+  final VoidCallback? onStateSubmitted;
 
   String? _gstinValidator(String? v) {
     final value = (v ?? '').trim();
@@ -43,6 +60,7 @@ class PartyBillingFields extends StatelessWidget {
       color: AppColors.mutedBlue,
     );
     final narrow = !Responsive.isWide(context);
+    final pairWidth = FieldSizes.billingPairField;
 
     Widget field(
       String label,
@@ -53,15 +71,21 @@ class PartyBillingFields extends StatelessWidget {
       String? Function(String?)? validator,
       int? maxLength,
       double? width,
+      FocusNode? focusNode,
+      VoidCallback? onSubmitted,
+      TextInputAction inputAction = TextInputAction.next,
     }) {
       final input = TextFormField(
         controller: c,
+        focusNode: focusNode,
         maxLines: maxLines,
         keyboardType: keyboard,
         inputFormatters: formatters,
         validator: validator,
         maxLength: maxLength,
         style: TextStyle(fontSize: compact ? 13 : 14),
+        textInputAction: inputAction,
+        onFieldSubmitted: onSubmitted == null ? null : (_) => onSubmitted(),
         decoration: InputDecoration(
           labelText: label,
           isDense: compact,
@@ -80,12 +104,19 @@ class PartyBillingFields extends StatelessWidget {
       addressController,
       maxLines: 2,
       width: FieldSizes.billingAddress,
+      focusNode: addressFocus,
+      onSubmitted: onAddressSubmitted,
     );
 
     final cityPinRow = narrow
         ? Column(
             children: [
-              field('City', cityController),
+              field(
+                'City',
+                cityController,
+                focusNode: cityFocus,
+                onSubmitted: onCitySubmitted,
+              ),
               field(
                 'Pincode',
                 pincodeController,
@@ -94,13 +125,21 @@ class PartyBillingFields extends StatelessWidget {
                   FilteringTextInputFormatter.digitsOnly,
                   LengthLimitingTextInputFormatter(6),
                 ],
+                focusNode: pincodeFocus,
+                onSubmitted: onPincodeSubmitted,
               ),
             ],
           )
         : Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              field('City', cityController, width: FieldSizes.billingCity),
+              field(
+                'City',
+                cityController,
+                width: pairWidth,
+                focusNode: cityFocus,
+                onSubmitted: onCitySubmitted,
+              ),
               const SizedBox(width: 8),
               field(
                 'Pincode',
@@ -110,7 +149,9 @@ class PartyBillingFields extends StatelessWidget {
                   FilteringTextInputFormatter.digitsOnly,
                   LengthLimitingTextInputFormatter(6),
                 ],
-                width: FieldSizes.billingPincode,
+                width: pairWidth,
+                focusNode: pincodeFocus,
+                onSubmitted: onPincodeSubmitted,
               ),
             ],
           );
@@ -123,8 +164,16 @@ class PartyBillingFields extends StatelessWidget {
                 gstinController,
                 maxLength: 15,
                 validator: _gstinValidator,
+                focusNode: gstinFocus,
+                onSubmitted: onGstinSubmitted,
               ),
-              field('State', stateController),
+              field(
+                'State',
+                stateController,
+                focusNode: stateFocus,
+                onSubmitted: onStateSubmitted,
+                inputAction: TextInputAction.done,
+              ),
             ],
           )
         : Row(
@@ -135,10 +184,19 @@ class PartyBillingFields extends StatelessWidget {
                 gstinController,
                 maxLength: 15,
                 validator: _gstinValidator,
-                width: FieldSizes.billingGstin,
+                width: pairWidth,
+                focusNode: gstinFocus,
+                onSubmitted: onGstinSubmitted,
               ),
               const SizedBox(width: 8),
-              field('State', stateController, width: FieldSizes.billingState),
+              field(
+                'State',
+                stateController,
+                width: pairWidth,
+                focusNode: stateFocus,
+                onSubmitted: onStateSubmitted,
+                inputAction: TextInputAction.done,
+              ),
             ],
           );
 
@@ -150,12 +208,6 @@ class PartyBillingFields extends StatelessWidget {
         addressField,
         cityPinRow,
         gstStateRow,
-        if (showEwayBill && ewayBillController != null)
-          field(
-            'E-Way Bill No (optional)',
-            ewayBillController!,
-            width: FieldSizes.billingEway,
-          ),
       ],
     );
   }

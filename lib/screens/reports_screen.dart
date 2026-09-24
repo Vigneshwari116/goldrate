@@ -4,6 +4,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../database/database_helper.dart';
+import '../logic/customer_abstract.dart';
 import '../logic/gold_ledger.dart';
 import '../logic/report_columns.dart';
 import '../logic/stock_ledger.dart';
@@ -24,6 +25,7 @@ enum _ReportTab {
   receiptVoucherReport,
   paymentVoucherReport,
   customerLedger,
+  customerAbstract,
   supplierLedger,
 }
 
@@ -257,6 +259,7 @@ class _ReportsScreenState extends State<ReportsScreen>
             tab(_ReportTab.receiptVoucherReport, 'RECEIPT VOUCHER'),
             tab(_ReportTab.paymentVoucherReport, 'PAYMENT VOUCHER'),
             tab(_ReportTab.customerLedger, 'CUSTOMER LEDGER'),
+            tab(_ReportTab.customerAbstract, 'CUSTOMER ABSTRACT'),
             tab(_ReportTab.supplierLedger, 'SUPPLIER LEDGER'),
           ],
         ),
@@ -354,6 +357,8 @@ class _ReportsScreenState extends State<ReportsScreen>
         );
       case _ReportTab.customerLedger:
         return _partyLedgerRecords(customer: true);
+      case _ReportTab.customerAbstract:
+        return _customerAbstractReport();
       case _ReportTab.supplierLedger:
         return _partyLedgerRecords(customer: false);
     }
@@ -638,6 +643,120 @@ class _ReportsScreenState extends State<ReportsScreen>
                 },
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _customerAbstractReport() {
+    final byName = _customerLedgerByName;
+    final query = _customerNameQuery.text;
+    final goldRate = GoldLedger.goldRate(_rates);
+    final rows = CustomerAbstractReport.build(
+      transactions: _txns,
+      vouchers: _vouchers,
+      masterRows: _customers,
+      from: _from,
+      to: _to,
+      allHistory: _allHistory,
+      nameQuery: byName ? query : '',
+      goldRate: goldRate,
+    );
+    final totals = CustomerAbstractReport.totalsFor(rows);
+    final headers = CustomerAbstractReport.headers;
+    final tableRows = [
+      for (final row in rows) row.toCells(),
+      totals.toFooterCells(),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _ledgerModeBar(
+          byName: byName,
+          query: _customerNameQuery,
+          nameHint: 'Customer name',
+          partyNames: _customerNames,
+          onModeChanged: (nameMode) => setState(() {
+            _customerLedgerByName = nameMode;
+            if (!nameMode) _customerNameQuery.clear();
+          }),
+        ),
+        Expanded(
+          child: _reportShell(
+            title: 'CUSTOMER ABSTRACT',
+            records: rows.length,
+            units: totals.netPure,
+            total: totals.cashRupees,
+            totalText:
+                'GROSS: ${totals.totalGross.toStringAsFixed(3)} g  |  '
+                'PURE: ${totals.netPure.toStringAsFixed(3)} g  |  '
+                'CASH: ₹${totals.cashRupees.toStringAsFixed(2)}',
+            child: _customerAbstractTable(rows, totals),
+            pdfRows: tableRows,
+            headers: headers,
+            pdfKeepRowsTogether: true,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _customerAbstractTable(
+    List<CustomerAbstractRow> rows,
+    CustomerAbstractTotals totals,
+  ) {
+    if (rows.isEmpty) {
+      return const Center(child: Text('No records in this filter'));
+    }
+    const flex = [3, 2, 2, 2, 2];
+    Widget cell(String text, {bool bold = false, bool footer = false}) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        child: Text(
+          text,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: bold ? FontWeight.w800 : FontWeight.w500,
+            color: footer ? AppColors.navy : Colors.black87,
+          ),
+        ),
+      );
+    }
+
+    TableRow dataRow(List<String> cells, {bool footer = false}) {
+      return TableRow(
+        decoration: footer
+            ? BoxDecoration(
+                color: AppColors.headerBand,
+                border: Border(top: BorderSide(color: AppColors.border)),
+              )
+            : null,
+        children: [
+          for (var i = 0; i < cells.length; i++)
+            cell(cells[i], bold: footer, footer: footer),
+        ],
+      );
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      child: Table(
+        border: TableBorder.all(color: AppColors.border),
+        columnWidths: {
+          for (var i = 0; i < flex.length; i++)
+            i: FlexColumnWidth(flex[i].toDouble()),
+        },
+        children: [
+          TableRow(
+            decoration: BoxDecoration(color: AppColors.headerBand),
+            children: [
+              for (final h in CustomerAbstractReport.headers)
+                cell(h, bold: true),
+            ],
+          ),
+          for (final row in rows) dataRow(row.toCells()),
+          dataRow(totals.toFooterCells(), footer: true),
         ],
       ),
     );
@@ -964,6 +1083,7 @@ class _ReportsScreenState extends State<ReportsScreen>
     ],
     String? totalText,
     bool hideTitleAndRecords = false,
+    bool pdfKeepRowsTogether = false,
   }) {
     return Padding(
       padding: const EdgeInsets.all(12),
@@ -1057,6 +1177,7 @@ class _ReportsScreenState extends State<ReportsScreen>
                   pdfRows,
                   total,
                   totalText: totalText,
+                  keepRowsTogether: pdfKeepRowsTogether,
                 ),
                 child: Text(
                   isMobileNative
@@ -1077,6 +1198,7 @@ class _ReportsScreenState extends State<ReportsScreen>
     List<List<String>> rows,
     double total, {
     String? totalText,
+    bool keepRowsTogether = false,
   }) async {
     final doc = await PdfKit.document();
     doc.addPage(
@@ -1095,6 +1217,8 @@ class _ReportsScreenState extends State<ReportsScreen>
           pw.SizedBox(height: 10),
           if (rows.isEmpty)
             pw.Text('No records')
+          else if (keepRowsTogether)
+            ..._pdfRowsKeptTogether(headers, rows)
           else
             pw.TableHelper.fromTextArray(
               headers: headers,
@@ -1120,5 +1244,55 @@ class _ReportsScreenState extends State<ReportsScreen>
         SnackBar(content: Text('PDF saved: ${file.path}')),
       );
     }
+  }
+
+  List<pw.Widget> _pdfRowsKeptTogether(
+    List<String> headers,
+    List<List<String>> rows,
+  ) {
+    const flex = [3, 2, 2, 2, 2];
+    final border = pw.TableBorder.all(color: PdfColors.grey700, width: 0.4);
+
+    pw.Widget lineRow(
+      List<String> cells, {
+      bool header = false,
+      bool footer = false,
+    }) {
+      return pw.Container(
+        decoration: pw.BoxDecoration(
+          border: border,
+          color: header || footer ? PdfColors.grey300 : null,
+        ),
+        padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+        child: pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            for (var i = 0; i < headers.length; i++)
+              pw.Expanded(
+                flex: flex[i],
+                child: pw.Text(
+                  i < cells.length ? cells[i] : '',
+                  style: pw.TextStyle(
+                    fontSize: header ? 9 : 8,
+                    fontWeight: header || footer
+                        ? pw.FontWeight.bold
+                        : pw.FontWeight.normal,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      );
+    }
+
+    if (rows.isEmpty) return [pw.Text('No records')];
+    final body = rows.length > 1 ? rows.sublist(0, rows.length - 1) : rows;
+    final footer = rows.length > 1 ? rows.last : null;
+
+    return [
+      lineRow(headers, header: true),
+      for (final row in body) lineRow(row),
+      if (footer != null) lineRow(footer, footer: true),
+    ];
   }
 }
