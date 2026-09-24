@@ -107,7 +107,8 @@ CREATE TABLE IF NOT EXISTS transactions (
   round_off TEXT,
   grand_total TEXT,
   po_no TEXT,
-  po_date TEXT
+  po_date TEXT,
+  bill_narration TEXT
 );
 
 CREATE TABLE IF NOT EXISTS party_profiles (

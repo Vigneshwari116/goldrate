@@ -53,6 +53,8 @@ Or paste the SQL from `schema.sql` manually in psql.
 
 **Purchase PO fields (v17 / `017_purchase_po.sql`):** optional `po_no` / `po_date` on purchase transactions (`POST /api/transactions`).
 
+**Bill narration (v18 / `018_bill_narration.sql`):** optional `bill_narration` on transactions (`POST /api/transactions`, JSON key `billNarration`).
+
 **Rate “Last Updated” (v16 / `016_rate_meta.sql`):** records the daily-rate SAVE timestamp even when values are unchanged (`POST /api/rates/last-saved`; stats read `rate_meta`).
 
 **GST billing (party profiles, HSN, transaction tax columns):** new API
