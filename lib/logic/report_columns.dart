@@ -22,6 +22,9 @@ class ReportColumns {
 
   static const billColumnFlex = [2, 2, 3, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1];
 
+  /// Purchase bill list — receipt (R.WT) weights only, no issue group.
+  static const purchaseBillColumnFlex = [2, 2, 3, 2, 2, 1, 1, 1, 1];
+
   static const ledgerColumnFlex = [2, 2, 3, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 3];
 
   static List<String> billListHeaders({bool ledger = false}) => [
@@ -32,30 +35,56 @@ class ReportColumns {
       ];
 
   /// Top header row — parent labels spanning weight groups.
-  static List<String> billListGroupHeaders({bool ledger = false}) => [
-        ...(ledger ? ledgerInfoHeaders : billInfoHeaders),
+  static List<String> billListGroupHeaders({
+    bool ledger = false,
+    bool purchaseOnly = false,
+  }) {
+    if (purchaseOnly && !ledger) {
+      return [
+        ...billInfoHeaders,
         'R.WEIGHT',
         '',
         '',
         '',
-        'ISSUE WT',
-        '',
-        '',
-        '',
-        if (ledger) '',
       ];
+    }
+    return [
+      ...(ledger ? ledgerInfoHeaders : billInfoHeaders),
+      'R.WEIGHT',
+      '',
+      '',
+      '',
+      'ISSUE WT',
+      '',
+      '',
+      '',
+      if (ledger) '',
+    ];
+  }
 
   /// Bottom header row — leaf column labels.
-  static List<String> billListLeafHeaders({bool ledger = false}) => [
-        ...(ledger ? ledgerInfoHeaders : billInfoHeaders),
-        ...kStockWeightTypes,
-        ...kStockWeightTypes,
-        if (ledger) 'NARRATION',
-      ];
+  static List<String> billListLeafHeaders({
+    bool ledger = false,
+    bool purchaseOnly = false,
+  }) {
+    if (purchaseOnly && !ledger) {
+      return [...billInfoHeaders, ...kStockWeightTypes];
+    }
+    return [
+      ...(ledger ? ledgerInfoHeaders : billInfoHeaders),
+      ...kStockWeightTypes,
+      ...kStockWeightTypes,
+      if (ledger) 'NARRATION',
+    ];
+  }
 
-  static List<List<String>> billListPdfHeaderRows({bool ledger = false}) => [
-        billListGroupHeaders(ledger: ledger),
-        billListLeafHeaders(ledger: ledger),
+  static List<List<String>> billListPdfHeaderRows({
+    bool ledger = false,
+    bool purchaseOnly = false,
+  }) =>
+      [
+        billListGroupHeaders(ledger: ledger, purchaseOnly: purchaseOnly),
+        billListLeafHeaders(ledger: ledger, purchaseOnly: purchaseOnly),
       ];
 
   static List<String> billRowCells({
@@ -64,7 +93,18 @@ class ReportColumns {
     required Map<String, double> issueWeights,
     String? narration,
     bool blankWhenZero = true,
+    bool purchaseOnly = false,
   }) {
+    if (purchaseOnly) {
+      return [
+        ...infoCells,
+        ...formatWeightRowCells(
+          receiptWeights,
+          blankWhenZero: blankWhenZero,
+        ),
+        if (narration != null) narration,
+      ];
+    }
     return [
       ...infoCells,
       ...formatReceiptIssueWeightCells(
@@ -84,15 +124,21 @@ class ReportColumns {
     required Map<String, double> totalReceiptWeights,
     required Map<String, double> totalIssueWeights,
     String? trailing,
+    bool purchaseOnly = false,
   }) {
     final row = List<String>.filled(columnCount, '');
     row[labelColumnIndex] = label;
     row[4] = formatReportCash(totalCash, blankWhenZero: false);
-    final weights = formatReceiptIssueWeightCells(
-      totalReceiptWeights,
-      totalIssueWeights,
-      blankWhenZero: false,
-    );
+    final weights = purchaseOnly
+        ? formatWeightRowCells(
+            totalReceiptWeights,
+            blankWhenZero: false,
+          )
+        : formatReceiptIssueWeightCells(
+            totalReceiptWeights,
+            totalIssueWeights,
+            blankWhenZero: false,
+          );
     for (var i = 0; i < weights.length; i++) {
       row[5 + i] = weights[i];
     }

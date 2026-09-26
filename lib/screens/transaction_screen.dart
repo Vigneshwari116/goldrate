@@ -181,7 +181,7 @@ class _TransactionScreenState extends State<TransactionScreen>
 
   bool get _isVoucher => _isReceiptVoucher || _isPaymentVoucher;
 
-  bool get _hideIssuePanel => _isReceiptVoucher;
+  bool get _hideIssuePanel => _isReceiptVoucher || _isPurchaseBill;
 
   bool get _hideReceiptPanel => _isPaymentVoucher;
 
@@ -515,6 +515,18 @@ class _TransactionScreenState extends State<TransactionScreen>
     );
   }
 
+  void _commitPurchaseReceiptEntry() {
+    if (_paymentEntryType == 'CASH') {
+      _commitPaymentEntry();
+      return;
+    }
+    _billEntryType = _paymentEntryType;
+    _billEntryWeight.text = _paymentEntryWeight.text;
+    _billEntryTouch.text = _paymentEntryTouch.text;
+    _commitBillEntry();
+    _resetPaymentEntry(resetType: false);
+  }
+
   void _commitPaymentEntry() {
     if (_paymentEntryType != 'CASH') {
       final touchMessage =
@@ -712,11 +724,18 @@ class _TransactionScreenState extends State<TransactionScreen>
 
   void _focusFirstPanelField() {
     if (_hideIssuePanel) {
-      _focusPaymentEntry();
-      return;
-    }
-    if (_isPurchase) {
-      _focusPaymentEntry();
+      if (_isPurchaseBill) {
+        if (_paymentEntryType == 'CASH') {
+          _focusPaymentEntry();
+        } else {
+          FocusChain.focusNextFrame(
+            _paymentEntryWeightFocus,
+            controller: _paymentEntryWeight,
+          );
+        }
+      } else {
+        _focusPaymentEntry();
+      }
       return;
     }
     FocusChain.focusNextFrame(
@@ -1086,8 +1105,8 @@ class _TransactionScreenState extends State<TransactionScreen>
     return true;
   }
 
-  Future<void> _editBillEntryRate() async {
-    final type = _billEntryType;
+  Future<void> _editBillEntryRate([String? typeOverride]) async {
+    final type = typeOverride ?? _billEntryType;
     final rateName = kItemTypeToRateName[type] ?? type;
     final master = _masterRateForType(type);
     final current = _effectiveRateForType(type);
@@ -1152,8 +1171,8 @@ class _TransactionScreenState extends State<TransactionScreen>
   }
 
   /// Compact Daily Rate chip above metal entry (ISSUE on Sales, RECEIPT on Purchase).
-  Widget _billEntryRateChip() {
-    final type = _billEntryType;
+  Widget _billEntryRateChip({String? typeOverride}) {
+    final type = typeOverride ?? _billEntryType;
     final rateName = kItemTypeToRateName[type] ?? type;
     final rate = _effectiveRateForType(type);
     final overridden = _billRateOverrideByType.containsKey(type);
@@ -1164,7 +1183,7 @@ class _TransactionScreenState extends State<TransactionScreen>
         child: Material(
           color: Colors.transparent,
           child: InkWell(
-            onTap: _editBillEntryRate,
+            onTap: () => _editBillEntryRate(type),
             borderRadius: BorderRadius.circular(6),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -2544,7 +2563,9 @@ class _TransactionScreenState extends State<TransactionScreen>
   Widget _paymentEntryBlock({
     required String prefix,
     bool enabled = true,
+    VoidCallback? onCommit,
   }) {
+    final commit = onCommit ?? _commitPaymentEntry;
     final isCash = _paymentEntryType == 'CASH';
     final cashAmount =
         double.tryParse(_paymentEntryAmount.text.trim()) ?? 0;
@@ -2603,7 +2624,7 @@ class _TransactionScreenState extends State<TransactionScreen>
             baseOffset: 0,
             extentOffset: _paymentEntryAmount.text.length,
           ),
-          onFieldSubmitted: (_) => _commitPaymentEntry(),
+          onFieldSubmitted: (_) => commit(),
           onChanged: (_) => setState(() {}),
         ),
       );
@@ -2705,7 +2726,7 @@ class _TransactionScreenState extends State<TransactionScreen>
           baseOffset: 0,
           extentOffset: _paymentEntryTouch.text.length,
         ),
-        onFieldSubmitted: (_) => _commitPaymentEntry(),
+        onFieldSubmitted: (_) => commit(),
         onChanged: (_) => setState(() {
           if (isValidTouchPercent(_paymentEntryTouch.text)) {
             _paymentTouchError = null;
@@ -2932,10 +2953,81 @@ class _TransactionScreenState extends State<TransactionScreen>
   }
 
   Widget _receiptPanel() {
-    if (_isPurchase) {
-      return _billPanel(title: 'RECEIPT', prefix: 'R');
+    if (_isPurchaseBill) {
+      return _purchaseReceiptPanel();
     }
     return _paymentPanel(title: 'RECEIPT', prefix: 'R');
+  }
+
+  Widget _purchaseReceiptPanel() {
+    final isCash = _paymentEntryType == 'CASH';
+    return _panelShell(
+      title: 'RECEIPT',
+      totalLabel: 'RECEIPT totals',
+      totalPure: _billTotalPure,
+      totalCash: _paymentTotalCash,
+      combinedCashAndGrams: true,
+      rows: [
+        if (!isCash) _billEntryRateChip(typeOverride: _paymentEntryType),
+        _paymentEntryBlock(
+          prefix: 'R',
+          onCommit: _commitPurchaseReceiptEntry,
+        ),
+        if (!isCash)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: TextFormField(
+              controller: _billEntryDescription,
+              maxLength: 80,
+              decoration: InputDecoration(
+                labelText: 'Item description (optional)',
+                hintText: defaultItemDescriptionForType(_paymentEntryType),
+                isDense: true,
+                counterText: '',
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              ),
+              textInputAction: TextInputAction.done,
+              onFieldSubmitted: (_) => _commitPurchaseReceiptEntry(),
+            ),
+          ),
+        _linesTable(
+          showRate: false,
+          rows: [
+            for (var i = 0; i < _billLines.length; i++)
+              _lineDataRow(
+                index: i,
+                type: _billLines[i].type,
+                weight: _billLines[i].weight,
+                touch: _billLines[i].touch,
+                pureWt: _billLines[i].pureWt,
+                onEdit: () => _editBillLine(i),
+                onRemove: () => setState(() {
+                  _billLines.removeAt(i);
+                  _syncAutoTds(force: true);
+                }),
+              ),
+            for (var i = 0; i < _paymentLines.length; i++)
+              _lineDataRow(
+                index: _billLines.length + i,
+                type: _paymentLines[i].type,
+                displayType: _receiptTypeLabel(_paymentLines[i].type),
+                weight: _paymentLines[i].weight,
+                touch: _paymentLines[i].touch,
+                cashAmount: _paymentLines[i].cashAmount,
+                pureWt: _paymentLines[i].pureWtAtRate(_goldRate),
+                onEdit: () => _editPaymentLine(i),
+                onRemove: () => setState(() => _paymentLines.removeAt(i)),
+              ),
+          ],
+        ),
+        if (_goldRate <= 0 && _paymentTotalCash > 0)
+          const Text(
+            'Set G.P RATE on Master to convert cash to gold.',
+            style: TextStyle(fontSize: 10.5, color: Colors.black54),
+          ),
+      ],
+    );
   }
 
   Widget _billPanel({required String title, required String prefix}) {
