@@ -2030,6 +2030,31 @@ class _TransactionScreenState extends State<TransactionScreen>
       ),
     );
   }
+  Widget _partyNameField() {
+    final field = PartySearchField(
+      label: _isCustomerParty ? 'Customer Name' : 'Supplier Name',
+      controller: _partyController,
+      onFocusNodeReady: _bindPartyFocus,
+      parties: _partySuggestions,
+      helperText: 'Search saved name, mobile, or city',
+      readOnly: _editingTransactionId != null,
+      onFocus: _refreshParties,
+      onSelected: _selectParty,
+      onFieldSubmitted: () => _advanceFromParty(_partyController.text),
+      onChanged: _onPartyNameChanged,
+    );
+    if (Responsive.isCompact(context)) {
+      return KeyedSubtree(
+        key: const Key('party_name_field'),
+        child: field,
+      );
+    }
+    return KeyedSubtree(
+      key: const Key('party_name_field'),
+      child: SizedBox(width: FieldSizes.name, child: field),
+    );
+  }
+
   Widget _buildFormCard() {
     return Container(
       decoration: BoxDecoration(
@@ -2041,51 +2066,17 @@ class _TransactionScreenState extends State<TransactionScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text(
-                _numberLabel,
-                style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.mutedBlue),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                "$_nextBillNo",
-                style: const TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.bold),
-              ),
-              const Spacer(),
-              Text(
-                DateFormat("dd-MM-yyyy  hh:mm a").format(DateTime.now()),
-                style: const TextStyle(
-                    fontSize: 11.5, color: Colors.black54),
-              ),
-            ],
+          TransactionBillHeader(
+            numberLabel: _numberLabel,
+            billNumber: '$_nextBillNo',
+            dateTimeText: DateFormat('dd-MM-yyyy  hh:mm a').format(DateTime.now()),
           ),
           const SizedBox(height: 12),
           if (_isPurchase) ...[
             _purchasePoFields(),
             const SizedBox(height: 10),
           ],
-          SizedBox(
-            width: FieldSizes.name,
-            child: PartySearchField(
-              label: _isCustomerParty
-                  ? 'Customer Name'
-                  : 'Supplier Name',
-              controller: _partyController,
-              onFocusNodeReady: _bindPartyFocus,
-              parties: _partySuggestions,
-              helperText: 'Search saved name, mobile, or city',
-              readOnly: _editingTransactionId != null,
-              onFocus: _refreshParties,
-              onSelected: _selectParty,
-              onFieldSubmitted: () => _advanceFromParty(_partyController.text),
-              onChanged: _onPartyNameChanged,
-            ),
-          ),
+          _partyNameField(),
           if (!_isVoucher && _partyController.text.trim().isNotEmpty) ...[
             const SizedBox(height: 10),
             PartyBillingFields(
@@ -3220,6 +3211,64 @@ class _TransactionScreenState extends State<TransactionScreen>
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Bill / voucher number and live timestamp above the entry form.
+class TransactionBillHeader extends StatelessWidget {
+  const TransactionBillHeader({
+    super.key,
+    required this.numberLabel,
+    required this.billNumber,
+    required this.dateTimeText,
+  });
+
+  final String numberLabel;
+  final String billNumber;
+  final String dateTimeText;
+
+  @override
+  Widget build(BuildContext context) {
+    const labelStyle = TextStyle(
+      fontSize: 12,
+      fontWeight: FontWeight.w600,
+      color: AppColors.mutedBlue,
+    );
+    const numberStyle = TextStyle(
+      fontSize: 15,
+      fontWeight: FontWeight.bold,
+    );
+    const dateStyle = TextStyle(
+      fontSize: 11.5,
+      color: Colors.black54,
+    );
+
+    if (Responsive.isCompact(context)) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(numberLabel, style: labelStyle),
+              const SizedBox(width: 8),
+              Text(billNumber, style: numberStyle),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(dateTimeText, style: dateStyle),
+        ],
+      );
+    }
+
+    return Row(
+      children: [
+        Text(numberLabel, style: labelStyle),
+        const SizedBox(width: 8),
+        Text(billNumber, style: numberStyle),
+        const Spacer(),
+        Text(dateTimeText, style: dateStyle),
+      ],
     );
   }
 }
