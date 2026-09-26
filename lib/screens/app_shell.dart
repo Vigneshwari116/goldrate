@@ -475,9 +475,6 @@ class _AppShellState extends State<AppShell> {
                       label: 'REPORTS & AUDIT',
                       pages: const [
                         AppPage.reports,
-                        AppPage.gstPurchaseLedger,
-                        AppPage.gstSalesLedger,
-                        AppPage.gstMonthlyLedger,
                         AppPage.rateRecords,
                       ],
                       children: [
@@ -485,7 +482,21 @@ class _AppShellState extends State<AppShell> {
                             icon: Icons.assessment,
                             label: 'Reports',
                             page: AppPage.reports),
-                        _navSectionLabel('GST REPORTS'),
+                        _leaf(
+                            icon: Icons.history,
+                            label: 'Rate Records',
+                            page: AppPage.rateRecords),
+                      ],
+                    ),
+                    _group(
+                      icon: Icons.receipt_long,
+                      label: 'GST REPORTS',
+                      pages: const [
+                        AppPage.gstPurchaseLedger,
+                        AppPage.gstSalesLedger,
+                        AppPage.gstMonthlyLedger,
+                      ],
+                      children: [
                         _leaf(
                             icon: Icons.shopping_cart_checkout,
                             label: 'GST Purchase Ledger',
@@ -498,10 +509,6 @@ class _AppShellState extends State<AppShell> {
                             icon: Icons.account_balance,
                             label: 'Total GST Ledger',
                             page: AppPage.gstMonthlyLedger),
-                        _leaf(
-                            icon: Icons.history,
-                            label: 'Rate Records',
-                            page: AppPage.rateRecords),
                       ],
                     ),
                     _group(
