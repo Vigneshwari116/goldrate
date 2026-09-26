@@ -164,7 +164,10 @@ class StockSummaryTable extends StatelessWidget {
         final availableWidth = constraints.maxWidth.isFinite && constraints.maxWidth > 0
             ? constraints.maxWidth
             : scrollColumnWidth * boxHeaders.length;
-        final columnWidth = _columnWidthFor(availableWidth);
+        final minTableWidth = scrollColumnWidth * boxHeaders.length;
+        final columnWidth = availableWidth >= minTableWidth
+            ? _columnWidthFor(availableWidth)
+            : scrollColumnWidth;
         final tableWidth = columnWidth * boxHeaders.length;
         return _billBoxTable(
           title: title,
@@ -174,6 +177,7 @@ class StockSummaryTable extends StatelessWidget {
           closing: closing,
           columnWidth: columnWidth,
           tableWidth: tableWidth,
+          availableWidth: availableWidth,
         );
       },
     );
@@ -187,6 +191,7 @@ class StockSummaryTable extends StatelessWidget {
     required Map<String, double> closing,
     required double columnWidth,
     required double tableWidth,
+    required double availableWidth,
   }) {
 
     Widget cell({
@@ -301,9 +306,18 @@ class StockSummaryTable extends StatelessWidget {
       ],
     );
 
-    return SizedBox(
+    Widget tableBox = SizedBox(
       width: tableWidth,
       child: table,
     );
+
+    if (tableWidth > availableWidth + 0.5) {
+      tableBox = SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: tableBox,
+      );
+    }
+
+    return tableBox;
   }
 }
