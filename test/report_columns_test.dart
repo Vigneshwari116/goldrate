@@ -17,6 +17,14 @@ void main() {
     expect(headers.last, 'NARRATION');
   });
 
+  test('purchase bill list has receipt weights only', () {
+    final headers = ReportColumns.billListLeafHeaders(purchaseOnly: true);
+    expect(headers.length, 9);
+    expect(headers.sublist(5, 9), kStockWeightTypes);
+    final group = ReportColumns.billListGroupHeaders(purchaseOnly: true);
+    expect(group.where((h) => h == 'ISSUE WT'), isEmpty);
+  });
+
   test('formatReportCash formats rupees with symbol', () {
     expect(formatReportCash(15000), '₹15,000');
     expect(formatReportCash(0), '');

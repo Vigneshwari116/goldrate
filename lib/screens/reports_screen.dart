@@ -486,6 +486,7 @@ class _ReportsScreenState extends State<ReportsScreen>
         return an.compareTo(bn);
       });
 
+    final purchaseReport = purchasesOnly;
     double totalReceipt = 0;
     double totalIssue = 0;
     double totalCash = 0;
@@ -499,9 +500,13 @@ class _ReportsScreenState extends State<ReportsScreen>
       final weights = billLedgerWeightsByType(bill, isSales: isSales);
       final cash = billCashRupees(bill);
       addStockWeights(totalReceiptWeights, weights.receipt);
-      addStockWeights(totalIssueWeights, weights.issue);
+      if (!purchaseReport) {
+        addStockWeights(totalIssueWeights, weights.issue);
+      }
       totalReceipt += sumStockWeights(weights.receipt);
-      totalIssue += sumStockWeights(weights.issue);
+      if (!purchaseReport) {
+        totalIssue += sumStockWeights(weights.issue);
+      }
       totalCash += cash;
       final billNo =
           '${isSales ? 'SAL' : 'PUR'}-${bill['billNo']}';
@@ -517,13 +522,18 @@ class _ReportsScreenState extends State<ReportsScreen>
             formatReportCash(cash),
           ],
           receiptWeights: weights.receipt,
-          issueWeights: weights.issue,
+          issueWeights: purchaseReport ? emptyStockWeights() : weights.issue,
+          purchaseOnly: purchaseReport,
         ),
       );
     }
 
-    final headers = ReportColumns.billListLeafHeaders();
-    final groupHeaders = ReportColumns.billListGroupHeaders();
+    final headers = ReportColumns.billListLeafHeaders(
+      purchaseOnly: purchaseReport,
+    );
+    final groupHeaders = ReportColumns.billListGroupHeaders(
+      purchaseOnly: purchaseReport,
+    );
     final footerRow = ReportColumns.billFooterCells(
       label: 'total',
       labelColumnIndex: 2,
@@ -531,28 +541,35 @@ class _ReportsScreenState extends State<ReportsScreen>
       totalCash: totalCash,
       totalReceiptWeights: totalReceiptWeights,
       totalIssueWeights: totalIssueWeights,
+      purchaseOnly: purchaseReport,
     );
     final pdfRows = [
       ...table,
       footerRow,
     ];
-    final totalPure = totalReceipt + totalIssue;
+    final totalPure =
+        purchaseReport ? totalReceipt : totalReceipt + totalIssue;
+    final totalText = purchaseReport
+        ? 'R.WT: ${totalReceipt.toStringAsFixed(3)} g  |  CASH: ${formatReportCash(totalCash, blankWhenZero: false)}'
+        : 'R.WT: ${totalReceipt.toStringAsFixed(3)} g  |  ISSUE: ${totalIssue.toStringAsFixed(3)} g  |  CASH: ${formatReportCash(totalCash, blankWhenZero: false)}';
 
     return _reportShell(
       title: title,
       records: rows.length,
       units: totalPure,
       total: 0,
-      totalText:
-          'R.WT: ${totalReceipt.toStringAsFixed(3)} g  |  ISSUE: ${totalIssue.toStringAsFixed(3)} g  |  CASH: ${formatReportCash(totalCash, blankWhenZero: false)}',
+      totalText: totalText,
       child: _billTableWithFooter(
         table,
         headers: headers,
         groupHeaders: groupHeaders,
-        columnFlex: ReportColumns.billColumnFlex,
+        columnFlex: purchaseReport
+            ? ReportColumns.purchaseBillColumnFlex
+            : ReportColumns.billColumnFlex,
         totalCash: totalCash,
         totalReceiptWeights: totalReceiptWeights,
         totalIssueWeights: totalIssueWeights,
+        purchaseOnly: purchaseReport,
       ),
       pdfRows: pdfRows,
       headers: headers,
@@ -990,6 +1007,7 @@ class _ReportsScreenState extends State<ReportsScreen>
     required double totalCash,
     required Map<String, double> totalReceiptWeights,
     required Map<String, double> totalIssueWeights,
+    bool purchaseOnly = false,
   }) {
     final footerRow = ReportColumns.billFooterCells(
       label: 'total',
@@ -998,6 +1016,7 @@ class _ReportsScreenState extends State<ReportsScreen>
       totalCash: totalCash,
       totalReceiptWeights: totalReceiptWeights,
       totalIssueWeights: totalIssueWeights,
+      purchaseOnly: purchaseOnly,
     );
     return _htmlTable(
       rows,
