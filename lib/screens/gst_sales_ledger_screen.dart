@@ -12,15 +12,19 @@ import '../util/app_date.dart';
 import '../util/platform_detect.dart';
 import '../util/screen_activation.dart';
 
+enum GstBillLedgerKind { sales, purchase }
+
 class GstSalesLedgerScreen extends StatefulWidget {
   const GstSalesLedgerScreen({
     super.key,
     this.embedded = false,
     this.isActive = true,
+    this.kind = GstBillLedgerKind.sales,
   });
 
   final bool embedded;
   final bool isActive;
+  final GstBillLedgerKind kind;
 
   @override
   State<GstSalesLedgerScreen> createState() => _GstSalesLedgerScreenState();
@@ -79,12 +83,31 @@ class _GstSalesLedgerScreenState extends State<GstSalesLedgerScreen>
     return !day.isBefore(from) && !day.isAfter(to);
   }
 
-  List<GstSalesLedgerRow> get _rows => GstSalesLedgerReport.rowsForTransactions(
+  bool get _isPurchase => widget.kind == GstBillLedgerKind.purchase;
+
+  String get _title =>
+      _isPurchase ? 'GST PURCHASE LEDGER' : 'GST SALES LEDGER';
+
+  List<String> get _headers => _isPurchase
+      ? GstPurchaseLedgerReport.headers
+      : GstSalesLedgerReport.headers;
+
+  List<GstSalesLedgerRow> get _rows {
+    if (_isPurchase) {
+      return GstPurchaseLedgerReport.rowsForTransactions(
         _txns,
         inDateRange: _inRange,
       );
+    }
+    return GstSalesLedgerReport.rowsForTransactions(
+      _txns,
+      inDateRange: _inRange,
+    );
+  }
 
-  GstSalesLedgerTotals get _totals => GstSalesLedgerReport.totalsFor(_rows);
+  GstSalesLedgerTotals get _totals => _isPurchase
+      ? GstPurchaseLedgerReport.totalsFor(_rows)
+      : GstSalesLedgerReport.totalsFor(_rows);
 
   String get _filterLabel =>
       'FILTER: ${_pretty.format(_from)} - ${_pretty.format(_to)}';
@@ -263,7 +286,7 @@ class _GstSalesLedgerScreenState extends State<GstSalesLedgerScreen>
   }
 
   Widget _table() {
-    final headers = GstSalesLedgerReport.headers;
+    final headers = _headers;
     final rows = _rows;
     final footer = _totals.toFooterCells();
     final grandCol = GstSalesLedgerReport.grandTotalColumnIndex;
@@ -294,7 +317,10 @@ class _GstSalesLedgerScreenState extends State<GstSalesLedgerScreen>
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(
-                child: GstSalesLedgerCompactList(rows: rows),
+                child: GstSalesLedgerCompactList(
+                  rows: rows,
+                  purchase: _isPurchase,
+                ),
               ),
               _grandTotalBar(),
             ],
@@ -321,8 +347,10 @@ class _GstSalesLedgerScreenState extends State<GstSalesLedgerScreen>
               buildRow(headers, header: true),
               if (rows.isEmpty)
                 buildRow(
-                  const [
-                    'No sales bills in this date range',
+                  [
+                    _isPurchase
+                        ? 'No purchase bills in this date range'
+                        : 'No sales bills in this date range',
                     '',
                     '',
                     '',
@@ -364,7 +392,7 @@ class _GstSalesLedgerScreenState extends State<GstSalesLedgerScreen>
   }
 
   Future<void> _exportPdf() async {
-    final headers = GstSalesLedgerReport.headers;
+    final headers = _headers;
     final rows = _rows.map((r) => r.toCells()).toList();
     final footer = _totals.toFooterCells();
     final grandCol = GstSalesLedgerReport.grandTotalColumnIndex;
@@ -380,7 +408,7 @@ class _GstSalesLedgerScreenState extends State<GstSalesLedgerScreen>
             style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
           ),
           pw.Text(
-            'GST SALES LEDGER',
+            _title,
             style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
           ),
           pw.Text(_filterLabel, style: const pw.TextStyle(fontSize: 9)),
@@ -453,9 +481,9 @@ class _GstSalesLedgerScreenState extends State<GstSalesLedgerScreen>
     final bytes = await doc.save();
     final file = await PdfKit.sharePdf(
       bytes: bytes,
-      fileName: 'gst_sales_ledger',
-      subject: 'GST Sales Ledger',
-      text: 'GST Sales Ledger for selected date range.',
+      fileName: _isPurchase ? 'gst_purchase_ledger' : 'gst_sales_ledger',
+      subject: _title,
+      text: '$_title for selected date range.',
     );
     if (!mounted) return;
     if (!isMobileNative) {
@@ -492,9 +520,9 @@ class _GstSalesLedgerScreenState extends State<GstSalesLedgerScreen>
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text(
-                                      'GST SALES LEDGER',
-                                      style: TextStyle(
+                                    Text(
+                                      _title,
+                                      style: const TextStyle(
                                         fontWeight: FontWeight.w800,
                                         letterSpacing: 0.4,
                                       ),
@@ -551,7 +579,7 @@ class _GstSalesLedgerScreenState extends State<GstSalesLedgerScreen>
 
     if (widget.embedded) return body;
     return Scaffold(
-      appBar: AppBar(title: const Text('GST SALES LEDGER')),
+      appBar: AppBar(title: Text(_title)),
       body: body,
     );
   }
@@ -559,19 +587,26 @@ class _GstSalesLedgerScreenState extends State<GstSalesLedgerScreen>
 
 /// Phone-width GST ledger — one expandable card per bill (no 920px table scroll).
 class GstSalesLedgerCompactList extends StatelessWidget {
-  const GstSalesLedgerCompactList({super.key, required this.rows});
+  const GstSalesLedgerCompactList({
+    super.key,
+    required this.rows,
+    this.purchase = false,
+  });
 
   final List<GstSalesLedgerRow> rows;
+  final bool purchase;
 
   static final _inr = NumberFormat('#,##0.00', 'en_IN');
 
   @override
   Widget build(BuildContext context) {
     if (rows.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
-          'No sales bills in this date range',
-          style: TextStyle(fontSize: 13, color: Colors.black54),
+          purchase
+              ? 'No purchase bills in this date range'
+              : 'No sales bills in this date range',
+          style: const TextStyle(fontSize: 13, color: Colors.black54),
         ),
       );
     }
