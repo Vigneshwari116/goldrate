@@ -11,6 +11,7 @@ import '../logic/stock_ledger.dart';
 import '../logic/transaction_records.dart';
 import '../pdf/pdf_kit.dart';
 import '../theme/app_theme.dart';
+import '../theme/responsive.dart';
 import '../util/app_date.dart';
 import '../util/platform_detect.dart';
 import '../util/screen_activation.dart';
@@ -579,7 +580,9 @@ class _ReportsScreenState extends State<ReportsScreen>
           _chip('NAME', () => onModeChanged(true), active: byName),
           if (byName)
             SizedBox(
-              width: 260,
+              width: Responsive.isCompact(context)
+                  ? MediaQuery.sizeOf(context).width - 24
+                  : 260,
               child: Autocomplete<String>(
                 optionsViewOpenDirection: OptionsViewOpenDirection.down,
                 initialValue: TextEditingValue(text: query.text),
@@ -1124,36 +1127,12 @@ class _ReportsScreenState extends State<ReportsScreen>
                             letterSpacing: 0.4,
                           ),
                         ))
-                  : Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(title,
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      letterSpacing: 0.4)),
-                              const SizedBox(height: 4),
-                              Text(
-                                'RECORDS: $records | UNITS: ${units.toStringAsFixed(3)}',
-                                style: const TextStyle(
-                                    fontSize: 12, color: Colors.black54),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 10),
-                          color: AppColors.navy,
-                          child: Text(
-                            totalText ?? 'TOTAL: ₹${total.toStringAsFixed(2)}',
-                            style: const TextStyle(
-                                color: Colors.white, fontWeight: FontWeight.w800),
-                          ),
-                        ),
-                      ],
+                  : ReportSummaryHeader(
+                      title: title,
+                      records: records,
+                      units: units,
+                      total: total,
+                      totalText: totalText,
                     ),
             ),
             const Divider(height: 1),
@@ -1294,5 +1273,74 @@ class _ReportsScreenState extends State<ReportsScreen>
       for (final row in body) lineRow(row),
       if (footer != null) lineRow(footer, footer: true),
     ];
+  }
+}
+
+/// Title + total chip for report cards (responsive on compact widths).
+class ReportSummaryHeader extends StatelessWidget {
+  const ReportSummaryHeader({
+    super.key,
+    required this.title,
+    required this.records,
+    required this.units,
+    required this.total,
+    this.totalText,
+  });
+
+  final String title;
+  final int records;
+  final double units;
+  final double total;
+  final String? totalText;
+
+  @override
+  Widget build(BuildContext context) {
+    final totalChip = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      color: AppColors.navy,
+      child: Text(
+        totalText ?? 'TOTAL: ₹${total.toStringAsFixed(2)}',
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+
+    final titleBlock = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.4,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'RECORDS: $records | UNITS: ${units.toStringAsFixed(3)}',
+          style: const TextStyle(fontSize: 12, color: Colors.black54),
+        ),
+      ],
+    );
+
+    if (Responsive.isCompact(context)) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          titleBlock,
+          const SizedBox(height: 8),
+          Align(alignment: Alignment.centerLeft, child: totalChip),
+        ],
+      );
+    }
+
+    return Row(
+      children: [
+        Expanded(child: titleBlock),
+        totalChip,
+      ],
+    );
   }
 }
