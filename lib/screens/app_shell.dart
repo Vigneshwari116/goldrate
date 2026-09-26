@@ -242,26 +242,12 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
-  Widget _navSectionLabel(String label) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 28, top: 10, bottom: 2, right: 12),
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: Color(0xFF9EC4DC),
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.8,
-        ),
-      ),
-    );
-  }
-
   Widget _leaf({
     required IconData icon,
     required String label,
     required AppPage page,
     bool nested = true,
+    double nestedIndent = 28,
   }) {
     final selected = _page == page;
     return ListTile(
@@ -269,13 +255,44 @@ class _AppShellState extends State<AppShell> {
       selected: selected,
       selectedTileColor: AppColors.drawerActive,
       contentPadding:
-          EdgeInsets.only(left: nested ? 28 : 12, right: 12),
+          EdgeInsets.only(left: nested ? nestedIndent : 12, right: 12),
       leading: Icon(icon, color: Colors.white, size: 18),
       title: Text(
         label,
         style: const TextStyle(color: Colors.white, fontSize: 13),
       ),
       onTap: () => _go(page),
+    );
+  }
+
+  Widget _drawerSubGroup({
+    required String label,
+    required List<AppPage> pages,
+    required List<Widget> children,
+  }) {
+    final open = pages.contains(_page);
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        key: PageStorageKey<String>('sub_$label'),
+        initiallyExpanded: open,
+        maintainState: true,
+        tilePadding: const EdgeInsets.only(left: 20, right: 8),
+        childrenPadding: EdgeInsets.zero,
+        leading: const SizedBox(width: 18),
+        iconColor: Colors.white70,
+        collapsedIconColor: Colors.white54,
+        title: Text(
+          label,
+          style: TextStyle(
+            color: open ? Colors.white : Colors.white70,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.4,
+          ),
+        ),
+        children: children,
+      ),
     );
   }
 
@@ -475,6 +492,9 @@ class _AppShellState extends State<AppShell> {
                       label: 'REPORTS & AUDIT',
                       pages: const [
                         AppPage.reports,
+                        AppPage.gstSalesLedger,
+                        AppPage.gstPurchaseLedger,
+                        AppPage.gstMonthlyLedger,
                         AppPage.rateRecords,
                       ],
                       children: [
@@ -482,33 +502,38 @@ class _AppShellState extends State<AppShell> {
                             icon: Icons.assessment,
                             label: 'Reports',
                             page: AppPage.reports),
+                        _drawerSubGroup(
+                          label: 'GST REPORTS',
+                          pages: const [
+                            AppPage.gstSalesLedger,
+                            AppPage.gstPurchaseLedger,
+                            AppPage.gstMonthlyLedger,
+                          ],
+                          children: [
+                            _leaf(
+                              icon: Icons.receipt_long,
+                              label: 'GST Sales Ledger',
+                              page: AppPage.gstSalesLedger,
+                              nestedIndent: 44,
+                            ),
+                            _leaf(
+                              icon: Icons.shopping_cart_checkout,
+                              label: 'GST Purchase Ledger',
+                              page: AppPage.gstPurchaseLedger,
+                              nestedIndent: 44,
+                            ),
+                            _leaf(
+                              icon: Icons.account_balance,
+                              label: 'Total GST Ledger',
+                              page: AppPage.gstMonthlyLedger,
+                              nestedIndent: 44,
+                            ),
+                          ],
+                        ),
                         _leaf(
                             icon: Icons.history,
                             label: 'Rate Records',
                             page: AppPage.rateRecords),
-                      ],
-                    ),
-                    _group(
-                      icon: Icons.receipt_long,
-                      label: 'GST REPORTS',
-                      pages: const [
-                        AppPage.gstPurchaseLedger,
-                        AppPage.gstSalesLedger,
-                        AppPage.gstMonthlyLedger,
-                      ],
-                      children: [
-                        _leaf(
-                            icon: Icons.shopping_cart_checkout,
-                            label: 'GST Purchase Ledger',
-                            page: AppPage.gstPurchaseLedger),
-                        _leaf(
-                            icon: Icons.receipt_long,
-                            label: 'GST Sales Ledger',
-                            page: AppPage.gstSalesLedger),
-                        _leaf(
-                            icon: Icons.account_balance,
-                            label: 'Total GST Ledger',
-                            page: AppPage.gstMonthlyLedger),
                       ],
                     ),
                     _group(
