@@ -5,6 +5,7 @@ import 'package:pdf/widgets.dart' as pw;
 
 import '../database/database_helper.dart';
 import '../logic/customer_abstract.dart';
+import '../logic/supplier_abstract.dart';
 import '../logic/gold_ledger.dart';
 import '../logic/report_columns.dart';
 import '../logic/stock_ledger.dart';
@@ -28,6 +29,7 @@ enum _ReportTab {
   customerLedger,
   customerAbstract,
   supplierLedger,
+  supplierAbstract,
 }
 
 class ReportsScreen extends StatefulWidget {
@@ -262,6 +264,7 @@ class _ReportsScreenState extends State<ReportsScreen>
             tab(_ReportTab.customerLedger, 'CUSTOMER LEDGER'),
             tab(_ReportTab.customerAbstract, 'CUSTOMER ABSTRACT'),
             tab(_ReportTab.supplierLedger, 'SUPPLIER LEDGER'),
+            tab(_ReportTab.supplierAbstract, 'SUPPLIER ABSTRACT'),
           ],
         ),
       ),
@@ -362,6 +365,8 @@ class _ReportsScreenState extends State<ReportsScreen>
         return _customerAbstractReport();
       case _ReportTab.supplierLedger:
         return _partyLedgerRecords(customer: false);
+      case _ReportTab.supplierAbstract:
+        return _supplierAbstractReport();
     }
   }
 
@@ -705,9 +710,86 @@ class _ReportsScreenState extends State<ReportsScreen>
     );
   }
 
+  Widget _supplierAbstractReport() {
+    final byName = _supplierLedgerByName;
+    final query = _supplierNameQuery.text;
+    final goldRate = GoldLedger.goldRate(_rates);
+    final rows = SupplierAbstractReport.build(
+      transactions: _txns,
+      vouchers: _vouchers,
+      masterRows: _suppliers,
+      from: _from,
+      to: _to,
+      allHistory: _allHistory,
+      nameQuery: byName ? query : '',
+      goldRate: goldRate,
+    );
+    final totals = SupplierAbstractReport.totalsFor(rows);
+    final headers = SupplierAbstractReport.headers;
+    final tableRows = [
+      for (final row in rows) row.toCells(),
+      totals.toFooterCells(),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _ledgerModeBar(
+          byName: byName,
+          query: _supplierNameQuery,
+          nameHint: 'Supplier name',
+          partyNames: _supplierNames,
+          onModeChanged: (nameMode) => setState(() {
+            _supplierLedgerByName = nameMode;
+            if (!nameMode) _supplierNameQuery.clear();
+          }),
+        ),
+        Expanded(
+          child: _reportShell(
+            title: 'SUPPLIER ABSTRACT',
+            records: rows.length,
+            units: totals.netPure,
+            total: totals.cashRupees,
+            totalText:
+                'GROSS: ${totals.totalGross.toStringAsFixed(3)} g  |  '
+                'PURE: ${totals.netPure.toStringAsFixed(3)} g  |  '
+                'CASH: ₹${totals.cashRupees.toStringAsFixed(2)}',
+            child: _supplierAbstractTable(rows, totals),
+            pdfRows: tableRows,
+            headers: headers,
+            pdfKeepRowsTogether: true,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _supplierAbstractTable(
+    List<SupplierAbstractRow> rows,
+    SupplierAbstractTotals totals,
+  ) {
+    return _partyAbstractTable(
+      rows.map((r) => r.toCells()).toList(),
+      totals.toFooterCells(),
+      SupplierAbstractReport.headers,
+    );
+  }
+
   Widget _customerAbstractTable(
     List<CustomerAbstractRow> rows,
     CustomerAbstractTotals totals,
+  ) {
+    return _partyAbstractTable(
+      rows.map((r) => r.toCells()).toList(),
+      totals.toFooterCells(),
+      CustomerAbstractReport.headers,
+    );
+  }
+
+  Widget _partyAbstractTable(
+    List<List<String>> rows,
+    List<String> footerCells,
+    List<String> headers,
   ) {
     if (rows.isEmpty) {
       return const Center(child: Text('No records in this filter'));
@@ -754,12 +836,11 @@ class _ReportsScreenState extends State<ReportsScreen>
           TableRow(
             decoration: BoxDecoration(color: AppColors.headerBand),
             children: [
-              for (final h in CustomerAbstractReport.headers)
-                cell(h, bold: true),
+              for (final h in headers) cell(h, bold: true),
             ],
           ),
-          for (final row in rows) dataRow(row.toCells()),
-          dataRow(totals.toFooterCells(), footer: true),
+          for (final row in rows) dataRow(row),
+          dataRow(footerCells, footer: true),
         ],
       ),
     );

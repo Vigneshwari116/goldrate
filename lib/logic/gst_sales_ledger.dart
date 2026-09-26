@@ -153,12 +153,13 @@ class GstSalesLedgerReport {
   static List<GstSalesLedgerRow> rowsForTransactions(
     List<Map<String, dynamic>> transactions, {
     required bool Function(String? date) inDateRange,
+    String transactionType = 'SALES',
   }) {
     final sales = transactions.where((r) {
       final type = normalizeTransactionType(
         (r['transactionType'] ?? '').toString(),
       );
-      return type == 'SALES' && inDateRange(r['date']?.toString());
+      return type == transactionType && inDateRange(r['date']?.toString());
     }).toList();
 
     sales.sort((a, b) {
@@ -246,4 +247,58 @@ class GstSalesLedgerReport {
     final v = double.tryParse((raw ?? '').toString());
     return v ?? fallback;
   }
+
+  /// Tax components for one bill (sales or purchase).
+  static ({
+    double taxable,
+    double cgst,
+    double sgst,
+    double igst,
+    double grandTotal,
+  }) taxBreakdownForBill(Map<String, dynamic> bill) {
+    final row = _rowFromBill(bill);
+    return (
+      taxable: row.taxableValue,
+      cgst: row.cgst,
+      sgst: row.sgst,
+      igst: row.igst,
+      grandTotal: row.grandTotal,
+    );
+  }
+}
+
+/// GST Purchase Ledger — same columns as sales, supplier as party.
+class GstPurchaseLedgerReport {
+  GstPurchaseLedgerReport._();
+
+  static const headers = [
+    'Bill No',
+    'Date',
+    'Supplier',
+    'GSTIN',
+    'Gross Wt',
+    'Net Wt',
+    'Total Wt',
+    'Rate',
+    'Taxable',
+    'CGST',
+    'SGST',
+    'IGST',
+    'Grand Total',
+  ];
+
+  static const int grandTotalColumnIndex = 12;
+
+  static List<GstSalesLedgerRow> rowsForTransactions(
+    List<Map<String, dynamic>> transactions, {
+    required bool Function(String? date) inDateRange,
+  }) =>
+      GstSalesLedgerReport.rowsForTransactions(
+        transactions,
+        inDateRange: inDateRange,
+        transactionType: 'PURCHASE',
+      );
+
+  static GstSalesLedgerTotals totalsFor(List<GstSalesLedgerRow> rows) =>
+      GstSalesLedgerReport.totalsFor(rows);
 }

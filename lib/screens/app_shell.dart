@@ -13,6 +13,7 @@ import 'login_screen.dart';
 import 'master_screen.dart';
 import 'opening_weight_screen.dart';
 import 'printer_settings_screen.dart';
+import 'gst_monthly_ledger_screen.dart';
 import 'gst_sales_ledger_screen.dart';
 import 'reports_screen.dart';
 import 'reset_screen.dart';
@@ -62,8 +63,12 @@ class _AppShellState extends State<AppShell> {
         return 'DAILY RATE';
       case AppPage.reports:
         return 'DAILY REPORTS';
+      case AppPage.gstPurchaseLedger:
+        return 'GST PURCHASE LEDGER';
       case AppPage.gstSalesLedger:
         return 'GST SALES LEDGER';
+      case AppPage.gstMonthlyLedger:
+        return 'TOTAL GST LEDGER';
       case AppPage.rateRecords:
         return 'RATE RECORDS';
       case AppPage.backup:
@@ -136,7 +141,9 @@ class _AppShellState extends State<AppShell> {
     AppPage.suppliers,
     AppPage.rates,
     AppPage.reports,
+    AppPage.gstPurchaseLedger,
     AppPage.gstSalesLedger,
+    AppPage.gstMonthlyLedger,
     AppPage.rateRecords,
     AppPage.backup,
     AppPage.printerSettings,
@@ -210,7 +217,21 @@ class _AppShellState extends State<AppShell> {
         _KeepAlivePage(
           child: GstSalesLedgerScreen(
             embedded: true,
+            isActive: _page == AppPage.gstPurchaseLedger,
+            kind: GstBillLedgerKind.purchase,
+          ),
+        ),
+        _KeepAlivePage(
+          child: GstSalesLedgerScreen(
+            embedded: true,
             isActive: _page == AppPage.gstSalesLedger,
+            kind: GstBillLedgerKind.sales,
+          ),
+        ),
+        _KeepAlivePage(
+          child: GstMonthlyLedgerScreen(
+            embedded: true,
+            isActive: _page == AppPage.gstMonthlyLedger,
           ),
         ),
         _KeepAlivePage(child: HistoryScreen(embedded: true)),
@@ -218,6 +239,21 @@ class _AppShellState extends State<AppShell> {
         _KeepAlivePage(child: PrinterSettingsScreen(embedded: true)),
         _KeepAlivePage(child: _ResetPage()),
       ],
+    );
+  }
+
+  Widget _navSectionLabel(String label) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 28, top: 10, bottom: 2, right: 12),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Color(0xFF9EC4DC),
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.8,
+        ),
+      ),
     );
   }
 
@@ -439,7 +475,9 @@ class _AppShellState extends State<AppShell> {
                       label: 'REPORTS & AUDIT',
                       pages: const [
                         AppPage.reports,
+                        AppPage.gstPurchaseLedger,
                         AppPage.gstSalesLedger,
+                        AppPage.gstMonthlyLedger,
                         AppPage.rateRecords,
                       ],
                       children: [
@@ -447,10 +485,19 @@ class _AppShellState extends State<AppShell> {
                             icon: Icons.assessment,
                             label: 'Reports',
                             page: AppPage.reports),
+                        _navSectionLabel('GST REPORTS'),
+                        _leaf(
+                            icon: Icons.shopping_cart_checkout,
+                            label: 'GST Purchase Ledger',
+                            page: AppPage.gstPurchaseLedger),
                         _leaf(
                             icon: Icons.receipt_long,
                             label: 'GST Sales Ledger',
                             page: AppPage.gstSalesLedger),
+                        _leaf(
+                            icon: Icons.account_balance,
+                            label: 'Total GST Ledger',
+                            page: AppPage.gstMonthlyLedger),
                         _leaf(
                             icon: Icons.history,
                             label: 'Rate Records',
