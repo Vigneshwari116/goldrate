@@ -7,6 +7,7 @@ import '../database/database_helper.dart';
 import '../logic/gst_sales_ledger.dart';
 import '../pdf/pdf_kit.dart';
 import '../theme/app_theme.dart';
+import '../theme/responsive.dart';
 import '../util/app_date.dart';
 import '../util/platform_detect.dart';
 import '../util/screen_activation.dart';
@@ -232,6 +233,35 @@ class _GstSalesLedgerScreenState extends State<GstSalesLedgerScreen>
     );
   }
 
+  Widget _grandTotalBar() {
+    if (_rows.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Align(
+        alignment: Alignment.centerRight,
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 8,
+          ),
+          decoration: BoxDecoration(
+            color: AppColors.navy,
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Text(
+            'GRAND TOTAL: ₹${_totals.grandTotal.toStringAsFixed(2)}',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+              fontSize: 12,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _table() {
     final headers = GstSalesLedgerReport.headers;
     final rows = _rows;
@@ -259,6 +289,18 @@ class _GstSalesLedgerScreenState extends State<GstSalesLedgerScreen>
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        if (Responsive.isCompact(context)) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: GstSalesLedgerCompactList(rows: rows),
+              ),
+              _grandTotalBar(),
+            ],
+          );
+        }
+
         final tableWidth = constraints.maxWidth;
         Widget tableContent = SizedBox(
           width: tableWidth,
@@ -314,31 +356,7 @@ class _GstSalesLedgerScreenState extends State<GstSalesLedgerScreen>
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             tableContent,
-            if (rows.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerRight,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.navy,
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Text(
-                    'GRAND TOTAL: ₹${_totals.grandTotal.toStringAsFixed(2)}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              ),
-            ],
+            _grandTotalBar(),
           ],
         );
       },
@@ -535,6 +553,117 @@ class _GstSalesLedgerScreenState extends State<GstSalesLedgerScreen>
     return Scaffold(
       appBar: AppBar(title: const Text('GST SALES LEDGER')),
       body: body,
+    );
+  }
+}
+
+/// Phone-width GST ledger — one expandable card per bill (no 920px table scroll).
+class GstSalesLedgerCompactList extends StatelessWidget {
+  const GstSalesLedgerCompactList({super.key, required this.rows});
+
+  final List<GstSalesLedgerRow> rows;
+
+  static final _inr = NumberFormat('#,##0.00', 'en_IN');
+
+  @override
+  Widget build(BuildContext context) {
+    if (rows.isEmpty) {
+      return const Center(
+        child: Text(
+          'No sales bills in this date range',
+          style: TextStyle(fontSize: 13, color: Colors.black54),
+        ),
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      itemCount: rows.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        final row = rows[index];
+        return Material(
+          color: AppColors.cardWhite,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+            side: const BorderSide(color: AppColors.border),
+          ),
+          child: Theme(
+            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+              childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              title: Text(
+                'Bill #${row.billNo} · ${row.billDate}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  color: AppColors.navy,
+                ),
+              ),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 4),
+                  Text(
+                    row.customerName,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Grand Total: ₹${_inr.format(row.grandTotal)}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12.5,
+                      color: AppColors.navy,
+                    ),
+                  ),
+                ],
+              ),
+              children: [
+                _line('GSTIN', row.gstin.isEmpty ? '—' : row.gstin),
+                _line('Gross Wt', '${row.grossWeight.toStringAsFixed(2)} GM'),
+                _line('Net Wt', '${row.netWeight.toStringAsFixed(3)} GM'),
+                _line('Total Wt', '${row.totalWeight.toStringAsFixed(2)} GM'),
+                _line('Rate', _inr.format(row.rate)),
+                _line('Taxable', '₹${_inr.format(row.taxableValue)}'),
+                _line('CGST', '₹${_inr.format(row.cgst)}'),
+                _line('SGST', '₹${_inr.format(row.sgst)}'),
+                _line('IGST', '₹${_inr.format(row.igst)}'),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _line(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 72,
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: AppColors.mutedBlue,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: const TextStyle(fontSize: 12),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
