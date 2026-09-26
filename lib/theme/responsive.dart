@@ -16,8 +16,14 @@ class Responsive {
   /// At or above: desktop behavior (side-by-side panels).
   static const double breakpoint = 900;
 
+  /// Phone-width layouts (fixed entry rows, overlay nav drawer).
+  static const double compactBreakpoint = 430;
+
   static bool isWide(BuildContext context) =>
       MediaQuery.of(context).size.width >= breakpoint;
+
+  static bool isCompact(BuildContext context) =>
+      MediaQuery.sizeOf(context).width < compactBreakpoint;
 }
 
 /// Puts `primary` (usually the entry form / main actions) and

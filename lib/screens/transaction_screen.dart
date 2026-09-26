@@ -2340,10 +2340,11 @@ class _TransactionScreenState extends State<TransactionScreen>
   }
 
   Widget _compactField({
-    required double width,
+    double? width,
     required Widget child,
   }) {
-    return SizedBox(width: width, child: child);
+    if (width != null) return SizedBox(width: width, child: child);
+    return child;
   }
 
   Widget _panelShell({
@@ -2526,178 +2527,216 @@ class _TransactionScreenState extends State<TransactionScreen>
     final cashAmount =
         double.tryParse(_paymentEntryAmount.text.trim()) ?? 0;
     final cashGold = GoldLedger.cashToGold(cashAmount, _goldRate);
+    final stack = Responsive.isCompact(context);
+    final fieldWidth = stack ? null : FieldSizes.paymentTypeDropdown;
+
+    final typeField = _compactField(
+      width: fieldWidth,
+      child: DropdownButtonFormField<String>(
+        value: _paymentEntryType,
+        isExpanded: true,
+        isDense: true,
+        decoration: const InputDecoration(
+          labelText: 'Type',
+          isDense: true,
+          contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        ),
+        items: _paymentItemTypes
+            .map(
+              (t) => DropdownMenuItem(
+                value: t,
+                child: Text(_receiptTypeLabel(t)),
+              ),
+            )
+            .toList(),
+        onChanged: enabled
+            ? (v) {
+                if (v == null) return;
+                _onPaymentTypeChanged(v);
+              }
+            : null,
+      ),
+    );
+
+    if (isCash) {
+      final amountField = _compactField(
+        width: stack ? null : FieldSizes.cash,
+        child: TextFormField(
+          controller: _paymentEntryAmount,
+          focusNode: _paymentEntryAmountFocus,
+          enabled: enabled,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+          ],
+          textAlign: TextAlign.right,
+          style: const TextStyle(fontSize: 13),
+          textInputAction: TextInputAction.done,
+          decoration: const InputDecoration(
+            labelText: '₹ Amount',
+            isDense: true,
+            contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+          ),
+          onTap: () => _paymentEntryAmount.selection = TextSelection(
+            baseOffset: 0,
+            extentOffset: _paymentEntryAmount.text.length,
+          ),
+          onFieldSubmitted: (_) => _commitPaymentEntry(),
+          onChanged: (_) => setState(() {}),
+        ),
+      );
+      final weightField = _compactField(
+        width: stack ? null : FieldSizes.weight,
+        child: InputDecorator(
+          decoration: InputDecoration(
+            labelText: '$prefix.Weight',
+            isDense: true,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+          ),
+          child: Text(
+            cashGold.toStringAsFixed(3),
+            textAlign: TextAlign.right,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+      if (stack) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            typeField,
+            const SizedBox(height: 6),
+            amountField,
+            const SizedBox(height: 6),
+            weightField,
+          ],
+        );
+      }
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          typeField,
+          const SizedBox(width: 6),
+          amountField,
+          const SizedBox(width: 6),
+          weightField,
+        ],
+      );
+    }
+
+    final weightField = _compactField(
+      width: stack ? null : FieldSizes.weight,
+      child: TextFormField(
+        controller: _paymentEntryWeight,
+        focusNode: _paymentEntryWeightFocus,
+        enabled: enabled,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        inputFormatters: [
+          FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+        ],
+        textAlign: TextAlign.right,
+        style: const TextStyle(fontSize: 13),
+        textInputAction: TextInputAction.next,
+        decoration: InputDecoration(
+          labelText: '$prefix.Weight',
+          isDense: true,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        ),
+        onTap: () => _paymentEntryWeight.selection = TextSelection(
+          baseOffset: 0,
+          extentOffset: _paymentEntryWeight.text.length,
+        ),
+        onChanged: (_) => setState(() {}),
+        onFieldSubmitted: (_) => FocusChain.focusNextFrame(
+          _paymentEntryTouchFocus,
+          controller: _paymentEntryTouch,
+        ),
+      ),
+    );
+    final touchField = _compactField(
+      width: stack ? null : FieldSizes.touch,
+      child: TextFormField(
+        controller: _paymentEntryTouch,
+        focusNode: _paymentEntryTouchFocus,
+        enabled: enabled,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        inputFormatters: [
+          TouchPercentInputFormatter(),
+        ],
+        textAlign: TextAlign.right,
+        style: const TextStyle(fontSize: 13),
+        textInputAction: TextInputAction.done,
+        decoration: InputDecoration(
+          labelText: '$prefix.Touch %',
+          isDense: true,
+          errorText: _paymentTouchError,
+          errorStyle: const TextStyle(fontSize: 10),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        ),
+        onTap: () => _paymentEntryTouch.selection = TextSelection(
+          baseOffset: 0,
+          extentOffset: _paymentEntryTouch.text.length,
+        ),
+        onFieldSubmitted: (_) => _commitPaymentEntry(),
+        onChanged: (_) => setState(() {
+          if (isValidTouchPercent(_paymentEntryTouch.text)) {
+            _paymentTouchError = null;
+          }
+        }),
+      ),
+    );
+    final pureField = _compactField(
+      width: stack ? null : FieldSizes.pure,
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: '$prefix.Pure Wt',
+          isDense: true,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        ),
+        child: Text(
+          _entryPure(_paymentEntryWeight, _paymentEntryTouch)
+              .toStringAsFixed(3),
+          textAlign: TextAlign.right,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+
+    if (stack) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          typeField,
+          const SizedBox(height: 6),
+          weightField,
+          const SizedBox(height: 6),
+          touchField,
+          const SizedBox(height: 6),
+          pureField,
+        ],
+      );
+    }
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        _compactField(
-          width: FieldSizes.paymentTypeDropdown,
-          child: DropdownButtonFormField<String>(
-            value: _paymentEntryType,
-            isExpanded: true,
-            isDense: true,
-            decoration: const InputDecoration(
-              labelText: 'Type',
-              isDense: true,
-              contentPadding:
-                  EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-            ),
-            items: _paymentItemTypes
-                .map(
-                  (t) => DropdownMenuItem(
-                    value: t,
-                    child: Text(_receiptTypeLabel(t)),
-                  ),
-                )
-                .toList(),
-            onChanged: enabled
-                ? (v) {
-                    if (v == null) return;
-                    _onPaymentTypeChanged(v);
-                  }
-                : null,
-          ),
-        ),
-        if (isCash) ...[
-          const SizedBox(width: 6),
-          _compactField(
-            width: FieldSizes.cash,
-            child: TextFormField(
-              controller: _paymentEntryAmount,
-              focusNode: _paymentEntryAmountFocus,
-              enabled: enabled,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-              ],
-              textAlign: TextAlign.right,
-              style: const TextStyle(fontSize: 13),
-              textInputAction: TextInputAction.done,
-              decoration: const InputDecoration(
-                labelText: '₹ Amount',
-                isDense: true,
-                contentPadding:
-                    EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-              ),
-              onTap: () => _paymentEntryAmount.selection = TextSelection(
-                baseOffset: 0,
-                extentOffset: _paymentEntryAmount.text.length,
-              ),
-              onFieldSubmitted: (_) => _commitPaymentEntry(),
-              onChanged: (_) => setState(() {}),
-            ),
-          ),
-          const SizedBox(width: 6),
-          _compactField(
-            width: FieldSizes.weight,
-            child: InputDecorator(
-              decoration: InputDecoration(
-                labelText: '$prefix.Weight',
-                isDense: true,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-              ),
-              child: Text(
-                cashGold.toStringAsFixed(3),
-                textAlign: TextAlign.right,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ),
-        ] else ...[
-          const SizedBox(width: 6),
-          _compactField(
-            width: FieldSizes.weight,
-            child: TextFormField(
-              controller: _paymentEntryWeight,
-              focusNode: _paymentEntryWeightFocus,
-              enabled: enabled,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-              ],
-              textAlign: TextAlign.right,
-              style: const TextStyle(fontSize: 13),
-              textInputAction: TextInputAction.next,
-              decoration: InputDecoration(
-                labelText: '$prefix.Weight',
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 6, vertical: 8),
-              ),
-              onTap: () => _paymentEntryWeight.selection = TextSelection(
-                baseOffset: 0,
-                extentOffset: _paymentEntryWeight.text.length,
-              ),
-              onChanged: (_) => setState(() {}),
-              onFieldSubmitted: (_) => FocusChain.focusNextFrame(
-                _paymentEntryTouchFocus,
-                controller: _paymentEntryTouch,
-              ),
-            ),
-          ),
-          const SizedBox(width: 6),
-          _compactField(
-            width: FieldSizes.touch,
-            child: TextFormField(
-              controller: _paymentEntryTouch,
-              focusNode: _paymentEntryTouchFocus,
-              enabled: enabled,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                TouchPercentInputFormatter(),
-              ],
-              textAlign: TextAlign.right,
-              style: const TextStyle(fontSize: 13),
-              textInputAction: TextInputAction.done,
-              decoration: InputDecoration(
-                labelText: '$prefix.Touch %',
-                isDense: true,
-                errorText: _paymentTouchError,
-                errorStyle: const TextStyle(fontSize: 10),
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 6, vertical: 8),
-              ),
-              onTap: () => _paymentEntryTouch.selection = TextSelection(
-                baseOffset: 0,
-                extentOffset: _paymentEntryTouch.text.length,
-              ),
-              onFieldSubmitted: (_) => _commitPaymentEntry(),
-              onChanged: (_) => setState(() {
-                if (isValidTouchPercent(_paymentEntryTouch.text)) {
-                  _paymentTouchError = null;
-                }
-              }),
-            ),
-          ),
-          const SizedBox(width: 6),
-          _compactField(
-            width: FieldSizes.pure,
-            child: InputDecorator(
-              decoration: InputDecoration(
-                labelText: '$prefix.Pure Wt',
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 6, vertical: 8),
-              ),
-              child: Text(
-                _entryPure(_paymentEntryWeight, _paymentEntryTouch)
-                    .toStringAsFixed(3),
-                textAlign: TextAlign.right,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ),
-        ],
+        typeField,
+        const SizedBox(width: 6),
+        weightField,
+        const SizedBox(width: 6),
+        touchField,
+        const SizedBox(width: 6),
+        pureField,
       ],
     );
   }
@@ -2715,128 +2754,148 @@ class _TransactionScreenState extends State<TransactionScreen>
     bool enabled = true,
   }) {
     final pure = _entryPure(weight, touch);
+    final stack = Responsive.isCompact(context);
+
+    final typeField = _compactField(
+      width: stack ? null : FieldSizes.typeDropdown,
+      child: DropdownButtonFormField<String>(
+        value: selectedType,
+        isExpanded: true,
+        isDense: true,
+        decoration: const InputDecoration(
+          labelText: 'Type',
+          isDense: true,
+          contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        ),
+        items: _itemTypes
+            .map(
+              (t) => DropdownMenuItem(
+                value: t,
+                child: Text(t),
+              ),
+            )
+            .toList(),
+        onChanged: enabled
+            ? (v) {
+                if (v == null) return;
+                onTypeChanged(v);
+                FocusChain.focusNextFrame(weightFocus, controller: weight);
+              }
+            : null,
+      ),
+    );
+    final weightField = _compactField(
+      width: stack ? null : FieldSizes.weight,
+      child: TextFormField(
+        controller: weight,
+        focusNode: weightFocus,
+        enabled: enabled,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        inputFormatters: [
+          FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+        ],
+        textAlign: TextAlign.right,
+        style: const TextStyle(fontSize: 13),
+        textInputAction: TextInputAction.next,
+        decoration: InputDecoration(
+          labelText: '$prefix.Weight',
+          isDense: true,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        ),
+        onTap: () => weight.selection = TextSelection(
+          baseOffset: 0,
+          extentOffset: weight.text.length,
+        ),
+        onChanged: (_) => setState(() {}),
+        onFieldSubmitted: (_) => FocusChain.focusNextFrame(
+          touchFocus,
+          controller: touch,
+        ),
+      ),
+    );
+    final touchField = _compactField(
+      width: stack ? null : FieldSizes.touch,
+      child: TextFormField(
+        controller: touch,
+        focusNode: touchFocus,
+        enabled: enabled,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        inputFormatters: [
+          TouchPercentInputFormatter(),
+        ],
+        textAlign: TextAlign.right,
+        style: const TextStyle(fontSize: 13),
+        textInputAction: TextInputAction.done,
+        decoration: InputDecoration(
+          labelText: '$prefix.Touch %',
+          isDense: true,
+          errorText: touchError,
+          errorStyle: const TextStyle(fontSize: 10),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        ),
+        onTap: () => touch.selection = TextSelection(
+          baseOffset: 0,
+          extentOffset: touch.text.length,
+        ),
+        onFieldSubmitted: (_) => onTouchSubmitted(),
+        onChanged: (_) => setState(() {
+          if (isValidTouchPercent(touch.text)) {
+            if (touch == _billEntryTouch) {
+              _billTouchError = null;
+            } else if (touch == _paymentEntryTouch) {
+              _paymentTouchError = null;
+            }
+          }
+        }),
+      ),
+    );
+    final pureField = _compactField(
+      width: stack ? null : FieldSizes.pure,
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: '$prefix.Pure Wt',
+          isDense: true,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        ),
+        child: Text(
+          pure.toStringAsFixed(3),
+          textAlign: TextAlign.right,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+
+    if (stack) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          typeField,
+          const SizedBox(height: 6),
+          weightField,
+          const SizedBox(height: 6),
+          touchField,
+          const SizedBox(height: 6),
+          pureField,
+        ],
+      );
+    }
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        _compactField(
-          width: FieldSizes.typeDropdown,
-          child: DropdownButtonFormField<String>(
-            value: selectedType,
-            isExpanded: true,
-            isDense: true,
-            decoration: const InputDecoration(
-              labelText: 'Type',
-              isDense: true,
-              contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-            ),
-            items: _itemTypes
-                .map(
-                  (t) => DropdownMenuItem(
-                    value: t,
-                    child: Text(t),
-                  ),
-                )
-                .toList(),
-            onChanged: enabled
-                ? (v) {
-                    if (v == null) return;
-                    onTypeChanged(v);
-                    FocusChain.focusNextFrame(weightFocus, controller: weight);
-                  }
-                : null,
-          ),
-        ),
+        typeField,
         const SizedBox(width: 6),
-        _compactField(
-          width: FieldSizes.weight,
-          child: TextFormField(
-            controller: weight,
-            focusNode: weightFocus,
-            enabled: enabled,
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-            ],
-            textAlign: TextAlign.right,
-            style: const TextStyle(fontSize: 13),
-            textInputAction: TextInputAction.next,
-            decoration: InputDecoration(
-              labelText: '$prefix.Weight',
-              isDense: true,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-            ),
-            onTap: () => weight.selection = TextSelection(
-              baseOffset: 0,
-              extentOffset: weight.text.length,
-            ),
-            onChanged: (_) => setState(() {}),
-            onFieldSubmitted: (_) => FocusChain.focusNextFrame(
-              touchFocus,
-              controller: touch,
-            ),
-          ),
-        ),
+        weightField,
         const SizedBox(width: 6),
-        _compactField(
-          width: FieldSizes.touch,
-          child: TextFormField(
-            controller: touch,
-            focusNode: touchFocus,
-            enabled: enabled,
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: [
-              TouchPercentInputFormatter(),
-            ],
-            textAlign: TextAlign.right,
-            style: const TextStyle(fontSize: 13),
-            textInputAction: TextInputAction.done,
-            decoration: InputDecoration(
-              labelText: '$prefix.Touch %',
-              isDense: true,
-              errorText: touchError,
-              errorStyle: const TextStyle(fontSize: 10),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-            ),
-            onTap: () => touch.selection = TextSelection(
-              baseOffset: 0,
-              extentOffset: touch.text.length,
-            ),
-            onFieldSubmitted: (_) => onTouchSubmitted(),
-            onChanged: (_) => setState(() {
-              if (isValidTouchPercent(touch.text)) {
-                if (touch == _billEntryTouch) {
-                  _billTouchError = null;
-                } else if (touch == _paymentEntryTouch) {
-                  _paymentTouchError = null;
-                }
-              }
-            }),
-          ),
-        ),
+        touchField,
         const SizedBox(width: 6),
-        _compactField(
-          width: FieldSizes.pure,
-          child: InputDecorator(
-            decoration: InputDecoration(
-              labelText: '$prefix.Pure Wt',
-              isDense: true,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-            ),
-            child: Text(
-              pure.toStringAsFixed(3),
-              textAlign: TextAlign.right,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ),
+        pureField,
       ],
     );
   }

@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../navigation/app_page.dart';
 import '../theme/app_theme.dart';
+import '../theme/responsive.dart';
 import '../util/session_prefs.dart';
 import 'backup_screen.dart';
 import 'customer_master_screen.dart';
@@ -88,7 +89,12 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _go(AppPage page) {
-    setState(() => _page = page);
+    setState(() {
+      _page = page;
+      if (Responsive.isCompact(context) && _navOpen) {
+        _navOpen = false;
+      }
+    });
     SessionPrefs.setLastPage(page);
   }
 
@@ -522,13 +528,44 @@ class _AppShellState extends State<AppShell> {
           ],
         ),
       ),
-      body: Row(
-        children: [
-          if (_navOpen) _sidebar() else _sidebarRail(),
-          Expanded(
-            child: _body(),
-          ),
-        ],
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = Responsive.isCompact(context);
+
+          if (compact && _navOpen) {
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                Row(
+                  children: [
+                    _sidebarRail(),
+                    Expanded(child: _body()),
+                  ],
+                ),
+                Positioned.fill(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _navOpen = false),
+                    behavior: HitTestBehavior.opaque,
+                    child: const ColoredBox(color: Color(0x99000000)),
+                  ),
+                ),
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  child: _sidebar(),
+                ),
+              ],
+            );
+          }
+
+          return Row(
+            children: [
+              if (_navOpen) _sidebar() else _sidebarRail(),
+              Expanded(child: _body()),
+            ],
+          );
+        },
       ),
     );
   }
