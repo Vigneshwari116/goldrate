@@ -89,8 +89,66 @@ CREATE TABLE IF NOT EXISTS transactions (
   new_grams TEXT,
   new_rupees TEXT,
   cash_to_gold TEXT,
-  gold_rate_used TEXT
+  gold_rate_used TEXT,
+  payment_items TEXT,
+  receipt_purpose TEXT,
+  party_address TEXT,
+  party_city TEXT,
+  party_pincode TEXT,
+  party_gstin TEXT,
+  party_state TEXT,
+  eway_bill TEXT,
+  tds_applicable INTEGER,
+  tds_amount TEXT,
+  tcs_applicable INTEGER,
+  tcs_amount TEXT,
+  total_taxable TEXT,
+  total_inclusive TEXT,
+  round_off TEXT,
+  grand_total TEXT,
+  po_no TEXT,
+  po_date TEXT,
+  bill_narration TEXT
 );
+
+CREATE TABLE IF NOT EXISTS party_profiles (
+  name_key TEXT NOT NULL,
+  is_customer INTEGER NOT NULL,
+  display_name TEXT NOT NULL,
+  mobile TEXT,
+  address TEXT,
+  city TEXT,
+  pincode TEXT,
+  gstin TEXT,
+  state TEXT,
+  PRIMARY KEY (name_key, is_customer)
+);
+
+CREATE TABLE IF NOT EXISTS shop_settings (
+  id INTEGER PRIMARY KEY,
+  shop_name TEXT,
+  address TEXT,
+  phone TEXT,
+  gstin TEXT,
+  state TEXT,
+  state_code TEXT
+);
+
+INSERT INTO shop_settings (id, shop_name, address, phone, gstin, state, state_code)
+VALUES (1, '', '', '', '', '', '')
+ON CONFLICT (id) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS item_type_hsn (
+  item_type TEXT PRIMARY KEY,
+  hsn_code TEXT NOT NULL
+);
+
+INSERT INTO item_type_hsn (item_type, hsn_code) VALUES
+  ('GWT', '7113'),
+  ('FWT', '7113'),
+  ('KWT', '7113'),
+  ('SWT', '7114')
+ON CONFLICT (item_type) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS vouchers (
   id SERIAL PRIMARY KEY,

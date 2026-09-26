@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../navigation/app_page.dart';
 import '../theme/app_theme.dart';
+import '../theme/responsive.dart';
 import '../util/session_prefs.dart';
 import 'backup_screen.dart';
 import 'customer_master_screen.dart';
@@ -12,9 +13,9 @@ import 'login_screen.dart';
 import 'master_screen.dart';
 import 'opening_weight_screen.dart';
 import 'printer_settings_screen.dart';
+import 'gst_sales_ledger_screen.dart';
 import 'reports_screen.dart';
 import 'reset_screen.dart';
-import 'stock_screen.dart';
 import 'supplier_master_screen.dart';
 import 'transaction_screen.dart';
 
@@ -45,8 +46,6 @@ class _AppShellState extends State<AppShell> {
         return 'HOME';
       case AppPage.openingWeight:
         return 'OPENING WEIGHT';
-      case AppPage.stock:
-        return 'STOCK';
       case AppPage.sales:
         return 'SALES';
       case AppPage.purchase:
@@ -63,6 +62,8 @@ class _AppShellState extends State<AppShell> {
         return 'DAILY RATE';
       case AppPage.reports:
         return 'DAILY REPORTS';
+      case AppPage.gstSalesLedger:
+        return 'GST SALES LEDGER';
       case AppPage.rateRecords:
         return 'RATE RECORDS';
       case AppPage.backup:
@@ -88,7 +89,12 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _go(AppPage page) {
-    setState(() => _page = page);
+    setState(() {
+      _page = page;
+      if (Responsive.isCompact(context) && _navOpen) {
+        _navOpen = false;
+      }
+    });
     SessionPrefs.setLastPage(page);
   }
 
@@ -122,7 +128,6 @@ class _AppShellState extends State<AppShell> {
   static const _pageOrder = [
     AppPage.home,
     AppPage.openingWeight,
-    AppPage.stock,
     AppPage.sales,
     AppPage.purchase,
     AppPage.receipt,
@@ -131,6 +136,7 @@ class _AppShellState extends State<AppShell> {
     AppPage.suppliers,
     AppPage.rates,
     AppPage.reports,
+    AppPage.gstSalesLedger,
     AppPage.rateRecords,
     AppPage.backup,
     AppPage.printerSettings,
@@ -149,7 +155,6 @@ class _AppShellState extends State<AppShell> {
       children: [
         _KeepAlivePage(child: _HomePage()),
         _KeepAlivePage(child: OpeningWeightScreen(embedded: true)),
-        _KeepAlivePage(child: StockScreen(embedded: true)),
         _KeepAlivePage(
           child: TransactionScreen(
             kind: TransactionKind.sales,
@@ -190,11 +195,22 @@ class _AppShellState extends State<AppShell> {
             isActive: _page == AppPage.suppliers,
           ),
         ),
-        _KeepAlivePage(child: MasterScreen(embedded: true)),
+        _KeepAlivePage(
+          child: MasterScreen(
+            embedded: true,
+            isActive: _page == AppPage.rates,
+          ),
+        ),
         _KeepAlivePage(
           child: ReportsScreen(
             embedded: true,
             isActive: _page == AppPage.reports,
+          ),
+        ),
+        _KeepAlivePage(
+          child: GstSalesLedgerScreen(
+            embedded: true,
+            isActive: _page == AppPage.gstSalesLedger,
           ),
         ),
         _KeepAlivePage(child: HistoryScreen(embedded: true)),
@@ -363,21 +379,10 @@ class _AppShellState extends State<AppShell> {
                         label: 'Home',
                         page: AppPage.home,
                         nested: false),
-                    _group(
-                      icon: Icons.inventory_2,
-                      label: 'INVENTORY',
-                      pages: const [AppPage.openingWeight, AppPage.stock],
-                      children: [
-                        _leaf(
-                            icon: Icons.scale,
-                            label: 'Opening Weight',
-                            page: AppPage.openingWeight),
-                        _leaf(
-                            icon: Icons.inventory_2,
-                            label: 'Stock',
-                            page: AppPage.stock),
-                      ],
-                    ),
+                    _leaf(
+                        icon: Icons.scale,
+                        label: 'Opening Weight',
+                        page: AppPage.openingWeight),
                     _group(
                       icon: Icons.swap_horiz,
                       label: 'TRANSACTIONS',
@@ -432,12 +437,20 @@ class _AppShellState extends State<AppShell> {
                     _group(
                       icon: Icons.bar_chart,
                       label: 'REPORTS & AUDIT',
-                      pages: const [AppPage.reports, AppPage.rateRecords],
+                      pages: const [
+                        AppPage.reports,
+                        AppPage.gstSalesLedger,
+                        AppPage.rateRecords,
+                      ],
                       children: [
                         _leaf(
                             icon: Icons.assessment,
                             label: 'Reports',
                             page: AppPage.reports),
+                        _leaf(
+                            icon: Icons.receipt_long,
+                            label: 'GST Sales Ledger',
+                            page: AppPage.gstSalesLedger),
                         _leaf(
                             icon: Icons.history,
                             label: 'Rate Records',
@@ -515,13 +528,44 @@ class _AppShellState extends State<AppShell> {
           ],
         ),
       ),
-      body: Row(
-        children: [
-          if (_navOpen) _sidebar() else _sidebarRail(),
-          Expanded(
-            child: _body(),
-          ),
-        ],
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = Responsive.isCompact(context);
+
+          if (compact && _navOpen) {
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                Row(
+                  children: [
+                    _sidebarRail(),
+                    Expanded(child: _body()),
+                  ],
+                ),
+                Positioned.fill(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _navOpen = false),
+                    behavior: HitTestBehavior.opaque,
+                    child: const ColoredBox(color: Color(0x99000000)),
+                  ),
+                ),
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  child: _sidebar(),
+                ),
+              ],
+            );
+          }
+
+          return Row(
+            children: [
+              if (_navOpen) _sidebar() else _sidebarRail(),
+              Expanded(child: _body()),
+            ],
+          );
+        },
       ),
     );
   }
@@ -535,7 +579,11 @@ class _HomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final shell = context.findAncestorStateOfType<_AppShellState>();
-    return HomeScreen(onOpen: shell?._go ?? (_) {});
+    return HomeScreen(
+      onOpen: shell?._go ?? (_) {},
+      embedded: true,
+      isActive: shell?._page == AppPage.home,
+    );
   }
 }
 

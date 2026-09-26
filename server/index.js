@@ -1,13 +1,54 @@
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
+const {
+  decodeNameParam,
+  installAsyncRouteWrapper,
+  parsePositiveInt,
+} = require('./route_utils');
 
 const app = express();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
+pool.on('error', (err) => {
+  console.error('Unexpected database pool error:', err);
+});
+
+/** Idempotent GST billing schema (party_profiles, shop_settings, HSN, txn columns). */
+async function ensureGstBillingSchema() {
+  const migrationPath = path.join(__dirname, 'migrations', '015_gst_billing.sql');
+  const sql = fs.readFileSync(migrationPath, 'utf8');
+  await pool.query(sql);
+}
+
+async function ensureRateMetaSchema() {
+  const migrationPath = path.join(__dirname, 'migrations', '016_rate_meta.sql');
+  const sql = fs.readFileSync(migrationPath, 'utf8');
+  await pool.query(sql);
+}
+
+async function ensurePurchasePoSchema() {
+  const migrationPath = path.join(__dirname, 'migrations', '017_purchase_po.sql');
+  const sql = fs.readFileSync(migrationPath, 'utf8');
+  await pool.query(sql);
+}
+
+async function ensureBillNarrationSchema() {
+  const migrationPath = path.join(__dirname, 'migrations', '018_bill_narration.sql');
+  const sql = fs.readFileSync(migrationPath, 'utf8');
+  await pool.query(sql);
+}
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection:', reason);
+});
+
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
+installAsyncRouteWrapper(app);
 
 // Convert DB snake_case rows to Flutter camelCase keys.
 function toCamel(row) {
@@ -45,23 +86,106 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // ---------- Rates ----------
+const DEFAULT_RATE_NAMES = ['G.P RATE', 'F.T RATE', 'KACHA RATE', 'S RATE'];
+
+async function dedupeRates() {
+  for (const name of DEFAULT_RATE_NAMES) {
+    const { rows } = await pool.query(
+      'SELECT * FROM rates WHERE rate_name = $1 ORDER BY id',
+      [name],
+    );
+    if (rows.length === 0) {
+      await pool.query(
+        'INSERT INTO rates (rate_name, rate_value) VALUES ($1, $2)',
+        [name, ''],
+      );
+      continue;
+    }
+    if (rows.length === 1) continue;
+
+    const keeper = rows.reduce((best, row) => {
+      if (!best) return row;
+      const bestVal = (best.rate_value ?? '').toString().trim();
+      const rowVal = (row.rate_value ?? '').toString().trim();
+      if (rowVal && !bestVal) return row;
+      if (bestVal && !rowVal) return best;
+      return row.id > best.id ? row : best;
+    }, null);
+
+    for (const row of rows) {
+      if (row.id !== keeper.id) {
+        await pool.query('DELETE FROM rates WHERE id = $1', [row.id]);
+      }
+    }
+  }
+}
+
 app.get('/api/rates', async (_req, res) => {
+  await seedDefaultRates();
+  await dedupeRates();
   const result = await pool.query('SELECT * FROM rates ORDER BY id');
   res.json(toCamelList(result.rows));
 });
 
+app.post('/api/rates/ensure-defaults', async (_req, res) => {
+  await seedDefaultRates();
+  await dedupeRates();
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/seed-rates', async (_req, res) => {
+  await seedDefaultRates();
+  res.json({ ok: true });
+});
+
+async function seedDefaultRates() {
+  const count = await pool.query('SELECT COUNT(*)::int AS count FROM rates');
+  if (count.rows[0].count > 0) return;
+  await pool.query(
+    `INSERT INTO rates (rate_name, rate_value) VALUES
+      ('G.P RATE', ''),
+      ('F.T RATE', ''),
+      ('KACHA RATE', ''),
+      ('S RATE', '')`,
+  );
+}
+
 app.put('/api/rates/:id', async (req, res) => {
-  const { id } = req.params;
+  const id = parsePositiveInt(req.params.id, 'rate id');
   const { rateName, rateValue, date, time } = req.body;
+
+  const existing = await pool.query('SELECT rate_value FROM rates WHERE id = $1', [
+    id,
+  ]);
+  if (existing.rows.length === 0) {
+    res.json({ rowsAffected: 0 });
+    return;
+  }
+
+  const currentValue = (existing.rows[0].rate_value ?? '').toString().trim();
+  const nextValue = (rateValue ?? '').toString().trim();
+  if (currentValue === nextValue) {
+    res.json({ rowsAffected: 0 });
+    return;
+  }
+
   const updated = await pool.query(
     'UPDATE rates SET rate_value = $1 WHERE id = $2 RETURNING *',
     [rateValue, id],
   );
   if (updated.rows.length > 0) {
-    await pool.query(
-      'INSERT INTO rate_history (rate_name, rate_value, date, time) VALUES ($1, $2, $3, $4)',
+    const dup = await pool.query(
+      `SELECT id FROM rate_history
+       WHERE rate_name = $1 AND rate_value = $2 AND date = $3 AND time = $4
+       LIMIT 1`,
       [rateName, rateValue, date, time],
     );
+    if (dup.rows.length === 0) {
+      await pool.query(
+        'INSERT INTO rate_history (rate_name, rate_value, date, time) VALUES ($1, $2, $3, $4)',
+        [rateName, rateValue, date, time],
+      );
+    }
   }
   res.json({ rowsAffected: updated.rowCount });
 });
@@ -71,13 +195,34 @@ app.get('/api/rates/history', async (_req, res) => {
   res.json(toCamelList(result.rows));
 });
 
+app.post('/api/rates/last-saved', async (req, res) => {
+  const date = (req.body.date ?? '').toString();
+  const time = (req.body.time ?? '').toString();
+  await pool.query(
+    `INSERT INTO rate_meta (id, last_date, last_time)
+     VALUES (1, $1, $2)
+     ON CONFLICT (id) DO UPDATE SET
+       last_date = EXCLUDED.last_date,
+       last_time = EXCLUDED.last_time`,
+    [date, time],
+  );
+  res.json({ ok: true });
+});
+
 app.get('/api/rates/stats', async (_req, res) => {
   const countResult = await pool.query('SELECT COUNT(*)::int AS count FROM rate_history');
+  const meta = await pool.query(
+    'SELECT last_date, last_time FROM rate_meta WHERE id = 1',
+  );
   const latest = await pool.query('SELECT date, time FROM rate_history ORDER BY id DESC LIMIT 1');
+  const metaDate = meta.rows[0]?.last_date ?? '';
+  const metaTime = meta.rows[0]?.last_time ?? '';
+  const histDate = latest.rows[0]?.date ?? '';
+  const histTime = latest.rows[0]?.time ?? '';
   res.json({
     count: countResult.rows[0].count,
-    lastDate: latest.rows[0]?.date ?? '',
-    lastTime: latest.rows[0]?.time ?? '',
+    lastDate: metaDate !== '' ? metaDate : histDate,
+    lastTime: metaTime !== '' ? metaTime : histTime,
   });
 });
 
@@ -100,8 +245,27 @@ app.post('/api/customers', async (req, res) => {
   res.json({ id: result.rows[0].id });
 });
 
+app.delete('/api/customers/by-name/:name', async (req, res) => {
+  const name = decodeNameParam(req.params.name);
+  const result = await pool.query(
+    'DELETE FROM customers WHERE LOWER(name) = LOWER($1)',
+    [name],
+  );
+  res.json({ rowsAffected: result.rowCount });
+});
+
+app.delete('/api/customers/by-bill-ref/:billRef', async (req, res) => {
+  const billRef = decodeURIComponent(req.params.billRef);
+  const result = await pool.query(
+    'DELETE FROM customers WHERE bill_ref = $1',
+    [billRef],
+  );
+  res.json({ rowsAffected: result.rowCount });
+});
+
 app.delete('/api/customers/:id', async (req, res) => {
-  const result = await pool.query('DELETE FROM customers WHERE id = $1', [req.params.id]);
+  const id = parsePositiveInt(req.params.id, 'customer id');
+  const result = await pool.query('DELETE FROM customers WHERE id = $1', [id]);
   res.json({ rowsAffected: result.rowCount });
 });
 
@@ -111,13 +275,22 @@ app.get('/api/customers/names', async (_req, res) => {
 });
 
 app.get('/api/customers/:name/outstanding', async (req, res) => {
-  const result = await pool.query('SELECT * FROM customers WHERE name = $1', [req.params.name]);
+  const name = decodeURIComponent(req.params.name);
+  const result = await pool.query(
+    'SELECT * FROM customers WHERE LOWER(name) = LOWER($1)',
+    [name],
+  );
   let rupees = 0, grams = 0, crRupees = 0, drRupees = 0, crGrams = 0, drGrams = 0;
   for (const row of result.rows) {
     const cr = parseFloat(row.cr) || 0;
     const dr = parseFloat(row.dr) || 0;
     const unit = row.balance_unit || 'RUPEES';
-    const net = dr - cr;
+    const billRef = (row.bill_ref || '').toString().trim();
+    let net = dr - cr;
+    if (unit === 'GRAMS' && !billRef) {
+      const gold = parseFloat(row.dr_gross) || 0;
+      if (Math.abs(gold) > 0.0005) net = gold;
+    }
     if (unit === 'GRAMS') {
       grams += net; crGrams += cr; drGrams += dr;
     } else {
@@ -160,8 +333,27 @@ app.post('/api/suppliers', async (req, res) => {
   res.json({ id: result.rows[0].id });
 });
 
+app.delete('/api/suppliers/by-name/:name', async (req, res) => {
+  const name = decodeNameParam(req.params.name);
+  const result = await pool.query(
+    'DELETE FROM suppliers WHERE LOWER(name) = LOWER($1)',
+    [name],
+  );
+  res.json({ rowsAffected: result.rowCount });
+});
+
+app.delete('/api/suppliers/by-bill-ref/:billRef', async (req, res) => {
+  const billRef = decodeURIComponent(req.params.billRef);
+  const result = await pool.query(
+    'DELETE FROM suppliers WHERE bill_ref = $1',
+    [billRef],
+  );
+  res.json({ rowsAffected: result.rowCount });
+});
+
 app.delete('/api/suppliers/:id', async (req, res) => {
-  const result = await pool.query('DELETE FROM suppliers WHERE id = $1', [req.params.id]);
+  const id = parsePositiveInt(req.params.id, 'supplier id');
+  const result = await pool.query('DELETE FROM suppliers WHERE id = $1', [id]);
   res.json({ rowsAffected: result.rowCount });
 });
 
@@ -171,13 +363,22 @@ app.get('/api/suppliers/names', async (_req, res) => {
 });
 
 app.get('/api/suppliers/:name/outstanding', async (req, res) => {
-  const result = await pool.query('SELECT * FROM suppliers WHERE name = $1', [req.params.name]);
+  const name = decodeURIComponent(req.params.name);
+  const result = await pool.query(
+    'SELECT * FROM suppliers WHERE LOWER(name) = LOWER($1)',
+    [name],
+  );
   let rupees = 0, grams = 0, crRupees = 0, drRupees = 0, crGrams = 0, drGrams = 0;
   for (const row of result.rows) {
     const cr = parseFloat(row.cr) || 0;
     const dr = parseFloat(row.dr) || 0;
     const unit = row.balance_unit || 'RUPEES';
-    const net = dr - cr;
+    const billRef = (row.bill_ref || '').toString().trim();
+    let net = dr - cr;
+    if (unit === 'GRAMS' && !billRef) {
+      const gold = parseFloat(row.gross) || 0;
+      if (Math.abs(gold) > 0.0005) net = gold;
+    }
     if (unit === 'GRAMS') {
       grams += net; crGrams += cr; drGrams += dr;
     } else {
@@ -242,19 +443,130 @@ app.post('/api/transactions', async (req, res) => {
     `INSERT INTO transactions
       (transaction_type, bill_no, party_name, items, total_wt, total_pure_wt, total_value,
        payment_mode, payment_amount, balance, balance_unit, staff_name, date, time,
-       old_grams, old_rupees, new_grams, new_rupees, cash_to_gold, gold_rate_used)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+       old_grams, old_rupees, new_grams, new_rupees, cash_to_gold, gold_rate_used,
+       payment_items, receipt_purpose,
+       party_address, party_city, party_pincode, party_gstin, party_state,
+       eway_bill, tds_applicable, tds_amount, tcs_applicable, tcs_amount,
+       total_taxable, total_inclusive, round_off, grand_total,
+       po_no, po_date, bill_narration)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,
+             $23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39)
      RETURNING id`,
-    [t.transactionType, t.billNo, t.partyName, t.items, t.totalWt, t.totalPureWt,
-     t.totalValue, t.paymentMode, t.paymentAmount, t.balance, t.balanceUnit,
-     t.staffName, t.date, t.time, t.oldGrams, t.oldRupees, t.newGrams, t.newRupees,
-     t.cashToGold, t.goldRateUsed],
+    [
+      t.transactionType, t.billNo, t.partyName, t.items, t.totalWt, t.totalPureWt,
+      t.totalValue, t.paymentMode, t.paymentAmount, t.balance, t.balanceUnit,
+      t.staffName, t.date, t.time, t.oldGrams, t.oldRupees, t.newGrams, t.newRupees,
+      t.cashToGold, t.goldRateUsed, t.paymentItems, t.receiptPurpose,
+      t.partyAddress ?? null, t.partyCity ?? null, t.partyPincode ?? null,
+      t.partyGstin ?? null, t.partyState ?? null, t.ewayBill ?? null,
+      t.tdsApplicable ?? null, t.tdsAmount ?? null, t.tcsApplicable ?? null,
+      t.tcsAmount ?? null, t.totalTaxable ?? null, t.totalInclusive ?? null,
+      t.roundOff ?? null, t.grandTotal ?? null,
+      t.poNo ?? null, t.poDate ?? null,
+      t.billNarration ?? null,
+    ],
   );
   res.json({ id: result.rows[0].id });
 });
 
+// ---------- GST billing settings ----------
+app.get('/api/party-profile', async (req, res) => {
+  const name = (req.query.name ?? '').toString().trim();
+  const isCustomer = req.query.isCustomer === 'true';
+  if (!name) {
+    return res.status(400).json({ error: 'name is required' });
+  }
+  const nameKey = name.trim().toLowerCase();
+  const result = await pool.query(
+    `SELECT * FROM party_profiles
+     WHERE name_key = $1 AND is_customer = $2`,
+    [nameKey, isCustomer ? 1 : 0],
+  );
+  if (result.rows.length === 0) {
+    return res.json({
+      displayName: name,
+      isCustomer,
+      mobile: '',
+      address: '',
+      city: '',
+      pincode: '',
+      gstin: '',
+      state: '',
+    });
+  }
+  res.json(toCamel(result.rows[0]));
+});
+
+app.put('/api/party-profile', async (req, res) => {
+  const p = req.body;
+  const nameKey = (p.nameKey ?? p.displayName ?? p.name ?? '').toString().trim().toLowerCase();
+  const displayName = (p.displayName ?? p.name ?? '').toString().trim();
+  const isCustomer = p.isCustomer === true || p.isCustomer === 1 || p.isCustomer === '1';
+  if (!nameKey || !displayName) {
+    return res.status(400).json({ error: 'nameKey and displayName are required' });
+  }
+  await pool.query(
+    `INSERT INTO party_profiles
+      (name_key, is_customer, display_name, mobile, address, city, pincode, gstin, state)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+     ON CONFLICT (name_key, is_customer) DO UPDATE SET
+      display_name = EXCLUDED.display_name,
+      mobile = EXCLUDED.mobile,
+      address = EXCLUDED.address,
+      city = EXCLUDED.city,
+      pincode = EXCLUDED.pincode,
+      gstin = EXCLUDED.gstin,
+      state = EXCLUDED.state`,
+    [
+      nameKey,
+      isCustomer ? 1 : 0,
+      displayName,
+      p.mobile ?? '',
+      p.address ?? '',
+      p.city ?? '',
+      p.pincode ?? '',
+      (p.gstin ?? '').toString().toUpperCase(),
+      p.state ?? '',
+    ],
+  );
+  res.json({ ok: true });
+});
+
+app.get('/api/settings/hsn', async (_req, res) => {
+  const result = await pool.query('SELECT item_type, hsn_code FROM item_type_hsn');
+  const map = {
+    GWT: '7113',
+    FWT: '7113',
+    KWT: '7113',
+    SWT: '7114',
+  };
+  for (const row of result.rows) {
+    map[row.item_type] = row.hsn_code;
+  }
+  res.json(map);
+});
+
+app.put('/api/settings/hsn', async (req, res) => {
+  const map = req.body.map ?? req.body;
+  if (!map || typeof map !== 'object') {
+    return res.status(400).json({ error: 'map object required' });
+  }
+  for (const [itemType, hsnCode] of Object.entries(map)) {
+    const code = (hsnCode ?? '').toString().trim();
+    if (!itemType || !code) continue;
+    await pool.query(
+      `INSERT INTO item_type_hsn (item_type, hsn_code)
+       VALUES ($1,$2)
+       ON CONFLICT (item_type) DO UPDATE SET hsn_code = EXCLUDED.hsn_code`,
+      [itemType, code],
+    );
+  }
+  res.json({ ok: true });
+});
+
 app.delete('/api/transactions/:id', async (req, res) => {
-  const result = await pool.query('DELETE FROM transactions WHERE id = $1', [req.params.id]);
+  const id = parsePositiveInt(req.params.id, 'transaction id');
+  const result = await pool.query('DELETE FROM transactions WHERE id = $1', [id]);
   res.json({ rowsAffected: result.rowCount });
 });
 
@@ -292,7 +604,8 @@ app.post('/api/vouchers', async (req, res) => {
 });
 
 app.delete('/api/vouchers/:id', async (req, res) => {
-  const result = await pool.query('DELETE FROM vouchers WHERE id = $1', [req.params.id]);
+  const id = parsePositiveInt(req.params.id, 'voucher id');
+  const result = await pool.query('DELETE FROM vouchers WHERE id = $1', [id]);
   res.json({ rowsAffected: result.rowCount });
 });
 
@@ -319,9 +632,9 @@ app.get('/api/stock/current', async (_req, res) => {
     }
     for (const item of items) {
       const type = item.type || '';
-      const pureWt = parseFloat(item.pureWt) || 0;
+      const weight = parseFloat(item.weight) || 0;
       if (Object.prototype.hasOwnProperty.call(stock, type)) {
-        stock[type] += sign * pureWt;
+        stock[type] += sign * weight;
       }
     }
   }
@@ -357,6 +670,10 @@ app.post('/api/admin/reset', async (_req, res) => {
     await pool.query('DELETE FROM rates');
     await pool.query('DELETE FROM suppliers');
     await pool.query('DELETE FROM customers');
+    await pool.query('DELETE FROM party_profiles');
+    await pool.query('DELETE FROM item_type_hsn');
+    await pool.query('DELETE FROM shop_settings');
+    await ensureGstBillingSchema();
     await pool.query(
       `INSERT INTO rates (rate_name, rate_value) VALUES
         ('G.P RATE', ''),
@@ -370,12 +687,33 @@ app.post('/api/admin/reset', async (_req, res) => {
   }
 });
 
+// JSON error responses for failed API handlers (prevents process crashes).
+app.use('/api', (err, _req, res, next) => {
+  if (!err) return next();
+  console.error('API error:', err);
+  const status = err.status && err.status >= 400 && err.status < 600 ? err.status : 500;
+  res.status(status).json({ error: err.message || 'Internal server error' });
+});
+
 // JSON 404 for unknown API routes (avoids HTML error pages in the Flutter client).
 app.use('/api', (_req, res) => {
   res.status(404).json({ error: 'API route not found' });
 });
 
 const port = process.env.PORT || 3000;
-app.listen(port, '0.0.0.0', () => {
-  console.log(`Jewellery API listening on port ${port}`);
-});
+
+Promise.all([
+  ensureGstBillingSchema(),
+  ensureRateMetaSchema(),
+  ensurePurchasePoSchema(),
+  ensureBillNarrationSchema(),
+])
+  .then(() => {
+    app.listen(port, '0.0.0.0', () => {
+      console.log(`Jewellery API listening on port ${port}`);
+    });
+  })
+  .catch((err) => {
+    console.error('Database schema migration failed:', err);
+    process.exit(1);
+  });

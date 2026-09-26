@@ -1,5 +1,13 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
+
+import '../util/app_date.dart';
+import '../util/party_name_key.dart';
+import 'report_columns.dart';
+import 'stock_ledger.dart';
+import 'transaction_records.dart';
 
 /// Cash-to-gold conversion and running party balances.
 ///
@@ -228,6 +236,9 @@ class PartyLedgerRecord {
   final String billRef;
   final String partyName;
   final String typeLabel;
+  final double cashRupees;
+  final Map<String, double> receiptWeights;
+  final Map<String, double> issueWeights;
   final double receiptWeight;
   final double issueWeight;
   final double pureGold;
@@ -239,6 +250,9 @@ class PartyLedgerRecord {
     required this.billRef,
     required this.partyName,
     required this.typeLabel,
+    this.cashRupees = 0,
+    required this.receiptWeights,
+    required this.issueWeights,
     required this.receiptWeight,
     required this.issueWeight,
     required this.pureGold,
@@ -246,16 +260,18 @@ class PartyLedgerRecord {
     this.narration = '',
   });
 
-  List<String> toTableCells({required int billNo}) => [
-        date,
-        '$billNo',
-        partyName,
-        typeLabel,
-        _formatWeight(receiptWeight),
-        _formatWeight(issueWeight),
-        _formatWeight(pureGold),
-        narration,
-      ];
+  List<String> toTableCells() => ReportColumns.billRowCells(
+        infoCells: [
+          billRef,
+          date,
+          partyName,
+          typeLabel,
+          formatReportCash(cashRupees),
+        ],
+        receiptWeights: receiptWeights,
+        issueWeights: issueWeights,
+        narration: narration,
+      );
 }
 
 /// Ledger rows grouped by party with opening/closing balances.
@@ -275,12 +291,48 @@ class PartyLedgerSection {
   });
 
   List<List<String>> toTableRows() {
-    final out = <List<String>>[];
-    for (var i = 0; i < rows.length; i++) {
-      out.add(rows[i].toTableCells(billNo: i + 1));
-    }
-    return out;
+    return [for (final row in rows) row.toTableCells()];
   }
+
+  /// Opening balance row placed directly under the ledger table header.
+  List<String> openingTableRow() => ReportColumns.billRowCells(
+        infoCells: [
+          '',
+          '',
+          partyName,
+          'opening balance',
+          '',
+        ],
+        receiptWeights: emptyStockWeights(),
+        issueWeights: emptyStockWeights(),
+        narration: signedLedgerBalance(openingBalance),
+      );
+
+  /// Total / closing balance row at the bottom of the ledger table.
+  List<String> footerTableRow() => ReportColumns.billFooterCells(
+        label: 'total',
+        labelColumnIndex: 3,
+        columnCount: ReportColumns.ledgerColumnFlex.length,
+        totalCash: totalCash,
+        totalReceiptWeights: totalReceiptWeights,
+        totalIssueWeights: totalIssueWeights,
+        trailing: 'closing balance: ${signedLedgerBalance(closingBalance)}',
+      );
+
+  double get totalCash =>
+      rows.fold(0.0, (sum, row) => sum + row.cashRupees);
+
+  Map<String, double> get totalReceiptWeights => sumStockWeightMaps(
+        rows.map((row) => row.receiptWeights),
+      );
+
+  Map<String, double> get totalIssueWeights => sumStockWeightMaps(
+        rows.map((row) => row.issueWeights),
+      );
+
+  double get totalReceipt => sumStockWeights(totalReceiptWeights);
+
+  double get totalIssue => sumStockWeights(totalIssueWeights);
 }
 
 /// Net gold-balance change for one ledger row (running balance per line).
@@ -307,8 +359,128 @@ double ledgerRowBalanceDelta(PartyLedgerRecord row, {required bool customer}) {
   return 0;
 }
 
-String _formatWeight(double grams) =>
-    grams.abs() < 0.0005 ? '' : grams.toStringAsFixed(3);
+/// Comma-separated item types (GWT/FWT/KWT/SWT) from a bill's line items.
+String billParticulars(Map<String, dynamic> bill) {
+  final items = bill['items'];
+  if (items is! List && items is! String) return '';
+  final parsed = items is String
+      ? _decodeItemsJson(items)
+      : items is List
+          ? items
+          : const [];
+  final types = <String>{};
+  for (final raw in parsed) {
+    if (raw is! Map) continue;
+    final type = (raw['type'] ?? '').toString().trim().toUpperCase();
+    if (type.isNotEmpty) types.add(type);
+  }
+  if (types.isEmpty) return '';
+  final ordered = ['GWT', 'FWT', 'KWT', 'SWT']
+      .where(types.contains)
+      .followedBy(types.where((t) => !['GWT', 'FWT', 'KWT', 'SWT'].contains(t)));
+  return ordered.join('/');
+}
+
+/// Cash rupees paid on a bill or voucher (paymentItems CASH lines or CASH/UPI mode).
+double billCashRupees(Map<String, dynamic> row) {
+  var total = 0.0;
+  for (final item in _decodeItemsField(row['paymentItems'])) {
+    if (item is! Map) continue;
+    if ((item['type'] ?? '').toString().trim().toUpperCase() != 'CASH') {
+      continue;
+    }
+    total += double.tryParse(
+          (item['cashAmount'] ?? item['amount'] ?? '').toString(),
+        ) ??
+        0;
+  }
+  if (total > 0.005) return total;
+
+  final mode = paymentModeLabel(row['paymentMode']?.toString());
+  if (mode == 'CASH' || mode == 'UPI') {
+    return double.tryParse(
+          (row['paymentAmount'] ?? row['amount'] ?? '').toString(),
+        ) ??
+        0;
+  }
+  return 0;
+}
+
+/// Report mode label — GOLD, CASH, UPI, or MIXED when metal and cash both present.
+String billReportModeLabel(Map<String, dynamic> bill) {
+  final cash = billCashRupees(bill);
+  final metal = sumStockWeights(billPaymentBoxWeights(bill));
+  final mode = paymentModeLabel(bill['paymentMode']?.toString());
+
+  if (cash > 0.005 && metal > 0.0005) return 'MIXED';
+  if (cash > 0.005) return mode == 'UPI' ? 'UPI' : 'CASH';
+  if (metal > 0.0005) return 'GOLD';
+  return mode;
+}
+
+List<dynamic> _decodeItemsField(dynamic raw) {
+  if (raw is List) return raw;
+  return _decodeItemsJson((raw ?? '').toString());
+}
+
+List<dynamic> _decodeItemsJson(String raw) {
+  try {
+    final decoded = raw.trim();
+    if (decoded.isEmpty || decoded == '[]') return const [];
+    return (jsonDecode(decoded) as List?) ?? const [];
+  } catch (_) {
+    return const [];
+  }
+}
+
+/// Gram balance from one customer/supplier ledger row.
+///
+/// Master rows (no [billRef]) use **Gold Weight** (`drGross` / `gross`).
+/// Bill/voucher rows use net pure grams (`dr − cr`).
+double partyLedgerRowGrams(
+  Map<String, dynamic> row, {
+  required bool isCustomer,
+}) {
+  final unit = (row['balanceUnit'] ?? 'RUPEES').toString().toUpperCase();
+  if (unit != 'GRAMS') return 0;
+
+  final cr = double.tryParse((row['cr'] ?? '0').toString()) ?? 0;
+  final dr = double.tryParse((row['dr'] ?? '0').toString()) ?? 0;
+  final ref = (row['billRef'] ?? '').toString().trim();
+
+  if (ref.isEmpty) {
+    final goldRaw = isCustomer ? row['drGross'] : row['gross'];
+    final gold = double.tryParse((goldRaw ?? '0').toString()) ?? 0;
+    if (gold.abs() > 0.0005) return gold;
+    return dr - cr;
+  }
+  return dr - cr;
+}
+
+/// Net opening balance in grams from master rows with no bill reference.
+/// Uses **Gold Weight** (`drGross` / `gross`) when set on the master form.
+Map<String, double> buildMasterOpeningBalances(
+  List<Map<String, dynamic>> masterRows, {
+  required bool isCustomer,
+}) {
+  final acc = <String, double>{};
+  for (final row in masterRows) {
+    final name = (row['name'] ?? '').toString().trim();
+    if (name.isEmpty) continue;
+    final ref = (row['billRef'] ?? '').toString().trim();
+    if (ref.isNotEmpty) continue;
+    final grams = partyLedgerRowGrams(row, isCustomer: isCustomer);
+    if (grams.abs() < 0.0005) continue;
+    final key = partyNameKey(name);
+    acc[key] = (acc[key] ?? 0) + grams;
+  }
+  return acc;
+}
+
+String signedLedgerBalance(double grams) {
+  final sign = grams > 0 ? '+' : grams < 0 ? '' : '';
+  return '$sign${grams.toStringAsFixed(3)} g';
+}
 
 double? goldRateOnRow(Map<String, dynamic> row) {
   final rate = double.tryParse((row['goldRateUsed'] ?? '').toString());
@@ -347,7 +519,47 @@ double _billPureWeight(Map<String, dynamic> bill) {
   return stored ?? 0;
 }
 
+void _applyLumpPaymentFallback(
+  Map<String, double> weights, {
+  required String paymentMode,
+  required double paymentAmt,
+  required double cashToGold,
+}) {
+  if (sumStockWeights(weights) > 0.0005) return;
+  if (paymentMode == 'GOLD' && paymentAmt > 0) {
+    weights['GWT'] = paymentAmt;
+  } else if (cashToGold > 0) {
+    weights['GWT'] = cashToGold;
+  }
+}
+
+void _applyItemWeightFallback(
+  Map<String, double> weights,
+  double totalPure,
+) {
+  if (sumStockWeights(weights) > 0.0005) return;
+  if (totalPure > 0.0005) {
+    weights['GWT'] = totalPure;
+  }
+}
+
 ({double receipt, double issue, double pure}) billLedgerWeights(
+  Map<String, dynamic> bill, {
+  required bool isSales,
+}) {
+  final byType = billLedgerWeightsByType(bill, isSales: isSales);
+  return (
+    receipt: sumStockWeights(byType.receipt),
+    issue: sumStockWeights(byType.issue),
+    pure: byType.pure,
+  );
+}
+
+({
+  Map<String, double> receipt,
+  Map<String, double> issue,
+  double pure,
+}) billLedgerWeightsByType(
   Map<String, dynamic> bill, {
   required bool isSales,
 }) {
@@ -358,23 +570,31 @@ double _billPureWeight(Map<String, dynamic> bill) {
   final cashToGold =
       double.tryParse((bill['cashToGold'] ?? '').toString()) ?? 0;
 
-  var receipt = 0.0;
-  var issue = 0.0;
+  final itemWeights = billBoxWeights(bill);
+  final paymentWeights = billPaymentBoxWeights(bill);
+  final receipt = copyStockWeights(
+    isSales ? paymentWeights : itemWeights,
+  );
+  final issue = copyStockWeights(
+    isSales ? itemWeights : paymentWeights,
+  );
 
   if (isSales) {
-    issue = totalPure;
-    if (paymentMode == 'GOLD') {
-      receipt = paymentAmt;
-    } else if (cashToGold > 0) {
-      receipt = cashToGold;
-    }
+    _applyItemWeightFallback(issue, totalPure);
+    _applyLumpPaymentFallback(
+      receipt,
+      paymentMode: paymentMode,
+      paymentAmt: paymentAmt,
+      cashToGold: cashToGold,
+    );
   } else {
-    receipt = totalPure;
-    if (paymentMode == 'GOLD') {
-      issue = paymentAmt;
-    } else if (cashToGold > 0) {
-      issue = cashToGold;
-    }
+    _applyItemWeightFallback(receipt, totalPure);
+    _applyLumpPaymentFallback(
+      issue,
+      paymentMode: paymentMode,
+      paymentAmt: paymentAmt,
+      cashToGold: cashToGold,
+    );
   }
 
   return (receipt: receipt, issue: issue, pure: totalPure);
@@ -384,11 +604,51 @@ double _billPureWeight(Map<String, dynamic> bill) {
   Map<String, dynamic> voucher, {
   required bool customer,
 }) {
+  final byType = voucherLedgerWeightsByType(voucher, customer: customer);
+  return (
+    receipt: sumStockWeights(byType.receipt),
+    issue: sumStockWeights(byType.issue),
+    pure: byType.pure,
+  );
+}
+
+({
+  Map<String, double> receipt,
+  Map<String, double> issue,
+  double pure,
+}) voucherLedgerWeightsByType(
+  Map<String, dynamic> voucher, {
+  required bool customer,
+}) {
   final paid = goldPaidOnRow(voucher);
+  final paymentWeights = billPaymentBoxWeights(voucher);
+  final paymentMode = (voucher['paymentMode'] ?? '').toString().toUpperCase();
+  final paymentAmt =
+      double.tryParse((voucher['amount'] ?? voucher['paymentAmount'] ?? '')
+              .toString()) ??
+      0;
+  final cashToGold =
+      double.tryParse((voucher['cashToGold'] ?? '').toString()) ?? 0;
+
   if (customer) {
-    return (receipt: paid, issue: 0.0, pure: paid);
+    final receipt = copyStockWeights(paymentWeights);
+    _applyLumpPaymentFallback(
+      receipt,
+      paymentMode: paymentMode,
+      paymentAmt: paymentAmt,
+      cashToGold: cashToGold > 0 ? cashToGold : paid,
+    );
+    return (receipt: receipt, issue: emptyStockWeights(), pure: paid);
   }
-  return (receipt: 0.0, issue: paid, pure: paid);
+
+  final issue = copyStockWeights(paymentWeights);
+  _applyLumpPaymentFallback(
+    issue,
+    paymentMode: paymentMode,
+    paymentAmt: paymentAmt,
+    cashToGold: cashToGold > 0 ? cashToGold : paid,
+  );
+  return (receipt: emptyStockWeights(), issue: issue, pure: paid);
 }
 
 bool inAppDateRange({
@@ -427,13 +687,12 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
   final records = <PartyLedgerRecord>[];
   final q = nameQuery.trim().toLowerCase();
 
-  bool nameMatches(String name) {
-    if (q.isEmpty) return true;
-    return name.toLowerCase().contains(q);
-  }
+  bool nameMatches(String name) => partyNameMatches(name, nameQuery);
 
   for (final bill in transactions) {
-    final type = (bill['transactionType'] ?? '').toString();
+    final type = normalizeTransactionType(
+      (bill['transactionType'] ?? '').toString(),
+    );
     final name = (bill['partyName'] ?? '').toString();
     if (!nameMatches(name)) continue;
     if (!inAppDateRange(
@@ -444,7 +703,7 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
     )) {
       continue;
     }
-    final weights = billLedgerWeights(bill, isSales: type == 'SALES');
+    final weights = billLedgerWeightsByType(bill, isSales: type == 'SALES');
     if (customer && type == 'SALES') {
       final paymentAmt =
           double.tryParse((bill['paymentAmount'] ?? '').toString()) ?? 0;
@@ -453,8 +712,11 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
         billRef: 'SAL-${bill['billNo']}',
         partyName: name,
         typeLabel: transactionTypeLabel('SALES', bill['paymentMode']?.toString()),
-        receiptWeight: weights.receipt,
-        issueWeight: weights.issue,
+        cashRupees: billCashRupees(bill),
+        receiptWeights: weights.receipt,
+        issueWeights: weights.issue,
+        receiptWeight: sumStockWeights(weights.receipt),
+        issueWeight: sumStockWeights(weights.issue),
         pureGold: weights.pure,
         goldRate: goldRateOnRow(bill),
         narration: ledgerPaymentNarration(
@@ -471,8 +733,11 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
         partyName: name,
         typeLabel:
             transactionTypeLabel('PURCHASE', bill['paymentMode']?.toString()),
-        receiptWeight: weights.receipt,
-        issueWeight: weights.issue,
+        cashRupees: billCashRupees(bill),
+        receiptWeights: weights.receipt,
+        issueWeights: weights.issue,
+        receiptWeight: sumStockWeights(weights.receipt),
+        issueWeight: sumStockWeights(weights.issue),
         pureGold: weights.pure,
         goldRate: goldRateOnRow(bill),
         narration: ledgerPaymentNarration(
@@ -502,7 +767,7 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
       continue;
     }
     final vType = (v['voucherType'] ?? '').toString();
-    final weights = voucherLedgerWeights(v, customer: customer);
+    final weights = voucherLedgerWeightsByType(v, customer: customer);
     final voucherAmt =
         double.tryParse((v['amount'] ?? '').toString()) ?? 0;
     records.add(PartyLedgerRecord(
@@ -510,8 +775,11 @@ List<PartyLedgerRecord> buildPartyLedgerRecords({
       billRef: '$vType-${v['voucherNo']}',
       partyName: name,
       typeLabel: transactionTypeLabel(vType, v['paymentMode']?.toString()),
-      receiptWeight: weights.receipt,
-      issueWeight: weights.issue,
+      cashRupees: billCashRupees(v),
+      receiptWeights: weights.receipt,
+      issueWeights: weights.issue,
+      receiptWeight: sumStockWeights(weights.receipt),
+      issueWeight: sumStockWeights(weights.issue),
       pureGold: weights.pure,
       goldRate: goldRateOnRow(v),
       narration: ledgerPaymentNarration(
@@ -538,6 +806,7 @@ List<PartyLedgerSection> buildPartyLedgerSections({
   required bool customer,
   required List<Map<String, dynamic>> transactions,
   required List<Map<String, dynamic>> vouchers,
+  List<Map<String, dynamic>> masterRows = const [],
   DateTime? from,
   DateTime? to,
   bool allHistory = false,
@@ -555,32 +824,64 @@ List<PartyLedgerSection> buildPartyLedgerSections({
     goldRate: goldRate,
   );
 
-  final names = records.map((r) => r.partyName).toSet().toList()..sort();
+  final masterOpening = buildMasterOpeningBalances(masterRows, isCustomer: customer);
+  final q = nameQuery.trim().toLowerCase();
+
+  final displayNames = <String, String>{};
+  void rememberDisplay(String name) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    final key = partyNameKey(trimmed);
+    displayNames.putIfAbsent(key, () => trimmed);
+  }
+
+  for (final row in masterRows) {
+    rememberDisplay((row['name'] ?? '').toString());
+  }
+  for (final record in records) {
+    rememberDisplay(record.partyName);
+  }
+
+  final nameKeys = <String>{
+    ...records.map((r) => partyNameKey(r.partyName)),
+    ...masterOpening.keys,
+  };
+
+  final sortedKeys = nameKeys.toList()..sort();
   final balances = {
     for (final row in buildPartyNameWise(
       customer: customer,
-      knownNames: names,
+      knownNames: sortedKeys.map((k) => displayNames[k] ?? k).toList(),
       transactions: transactions,
       vouchers: vouchers,
+      masterOpening: masterOpening,
       from: from,
       to: to,
       allHistory: allHistory,
     ))
-      row.name: row,
+      partyNameKey(row.name): row,
   };
 
   final grouped = <String, List<PartyLedgerRecord>>{};
   for (final record in records) {
-    grouped.putIfAbsent(record.partyName, () => []).add(record);
+    grouped
+        .putIfAbsent(partyNameKey(record.partyName), () => [])
+        .add(record);
+  }
+
+  Iterable<String> visibleKeys = sortedKeys;
+  if (q.isNotEmpty) {
+    visibleKeys = sortedKeys.where((k) => k.contains(q));
   }
 
   return [
-    for (final name in names)
+    for (final key in visibleKeys)
       PartyLedgerSection(
-        partyName: name,
-        openingBalance: balances[name]?.opening ?? 0,
-        closingBalance: balances[name]?.closing ?? 0,
-        rows: grouped[name] ?? const [],
+        partyName: displayNames[key] ?? key,
+        openingBalance: balances[key]?.opening ?? masterOpening[key] ?? 0,
+        closingBalance:
+            balances[key]?.closing ?? masterOpening[key] ?? 0,
+        rows: grouped[key] ?? const [],
         customer: customer,
       ),
   ];
@@ -649,17 +950,6 @@ String paymentModeLabel(String? raw) {
   return m;
 }
 
-DateTime? parseAppDate(String? raw) {
-  if (raw == null || raw.isEmpty) return null;
-  try {
-    final p = raw.split(RegExp(r'[-/]'));
-    if (p.length < 3) return null;
-    return DateTime(int.parse(p[2]), int.parse(p[1]), int.parse(p[0]));
-  } catch (_) {
-    return null;
-  }
-}
-
 /// Gold grams received as payment on a bill or voucher.
 double goldPaidOnRow(Map<String, dynamic> row) {
   final mode = (row['paymentMode'] ?? '').toString().toUpperCase();
@@ -686,19 +976,27 @@ List<PartyNameWiseRow> buildPartyNameWise({
   required Iterable<String> knownNames,
   required List<Map<String, dynamic>> transactions,
   required List<Map<String, dynamic>> vouchers,
+  Map<String, double> masterOpening = const {},
   DateTime? from,
   DateTime? to,
   bool allHistory = false,
 }) {
   final acc = <String, _NameWiseAcc>{};
+  final displayNames = <String, String>{};
   void ensure(String name) {
     final n = name.trim();
     if (n.isEmpty) return;
-    acc.putIfAbsent(n, () => _NameWiseAcc());
+    final key = partyNameKey(n);
+    displayNames.putIfAbsent(key, () => n);
+    acc.putIfAbsent(key, () => _NameWiseAcc());
   }
 
   for (final n in knownNames) {
     ensure(n);
+  }
+  for (final entry in masterOpening.entries) {
+    ensure(entry.key);
+    acc[partyNameKey(entry.key)]!.opening += entry.value;
   }
 
   final fromDay = from == null
@@ -714,7 +1012,8 @@ List<PartyNameWiseRow> buildPartyNameWise({
     String kind,
   ) {
     ensure(name);
-    final a = acc[name.trim()];
+    final key = partyNameKey(name.trim());
+    final a = acc[key];
     if (a == null) return;
     if (allHistory || fromDay == null || toDay == null) {
       a.debit += debit;
@@ -735,7 +1034,9 @@ List<PartyNameWiseRow> buildPartyNameWise({
   }
 
   for (final bill in transactions) {
-    final type = (bill['transactionType'] ?? '').toString();
+    final type = normalizeTransactionType(
+      (bill['transactionType'] ?? '').toString(),
+    );
     final name = (bill['partyName'] ?? '').toString();
     final grams = double.tryParse((bill['totalPureWt'] ?? '').toString()) ?? 0;
     final paid = goldPaidOnRow(bill);
@@ -767,13 +1068,13 @@ List<PartyNameWiseRow> buildPartyNameWise({
 
   final names = acc.keys.toList()..sort();
   return [
-    for (final n in names)
+    for (final key in names)
       PartyNameWiseRow(
-        name: n,
-        types: acc[n]!.types.isEmpty ? '-' : acc[n]!.types.join(', '),
-        opening: acc[n]!.opening,
-        debit: acc[n]!.debit,
-        credit: acc[n]!.credit,
+        name: displayNames[key] ?? key,
+        types: acc[key]!.types.isEmpty ? '-' : acc[key]!.types.join(', '),
+        opening: acc[key]!.opening,
+        debit: acc[key]!.debit,
+        credit: acc[key]!.credit,
       ),
   ];
 }

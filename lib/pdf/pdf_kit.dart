@@ -52,6 +52,17 @@ class PdfKit {
         name.toLowerCase().endsWith('.pdf') ? name : '$name.pdf',
       );
 
+  static Future<File> savePdf({
+    required Uint8List bytes,
+    required String fileName,
+  }) {
+    return FileShare.savePdfBytes(
+      bytes: bytes,
+      fileName: safeFileName(fileName),
+      folderName: 'JewelleryPDFs',
+    );
+  }
+
   static Future<File> sharePdf({
     required Uint8List bytes,
     required String fileName,

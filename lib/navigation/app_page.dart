@@ -1,7 +1,6 @@
 enum AppPage {
   home,
   openingWeight,
-  stock,
   sales,
   purchase,
   receipt,
@@ -10,6 +9,7 @@ enum AppPage {
   suppliers,
   rates,
   reports,
+  gstSalesLedger,
   rateRecords,
   backup,
   printerSettings,

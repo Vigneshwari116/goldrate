@@ -11,14 +11,23 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 
 import '../database/database_helper.dart';
+import '../logic/bill_tax.dart';
 import '../logic/gold_ledger.dart';
-import '../pdf/estimate_receipt_pdf.dart';
+import '../models/bill_line_item.dart';
+import '../models/party_billing_profile.dart';
+import '../pdf/purchase_tax_invoice_pdf.dart';
+import '../pdf/sales_tax_invoice_pdf.dart';
+import '../pdf/simple_sales_tax_invoice_pdf.dart';
+import '../util/sales_invoice_prefs.dart';
+import '../widgets/party_billing_fields.dart';
 import '../pdf/pdf_kit.dart';
+import '../util/pdf_print.dart';
 import '../models/party_suggestion.dart';
 import '../widgets/party_search_field.dart';
 import '../util/party_save_prompt.dart';
 import '../util/focus_chain.dart';
 import '../util/screen_activation.dart';
+import '../util/touch_input.dart';
 import '../theme/app_theme.dart';
 import '../theme/field_sizes.dart';
 import '../theme/responsive.dart';
@@ -33,40 +42,13 @@ const Map<String, String> kItemTypeToRateName = {
   'SWT': 'S RATE',
 };
 
-class _TransactionItem {
-  final String type;
-  final double weight;
-  final double touch;
-  final double rate;
-
-  _TransactionItem({
-    required this.type,
-    required this.weight,
-    required this.touch,
-    required this.rate,
-  });
-
-  double get pureWt => weight * touch / 100;
-
-  double get value => pureWt * rate;
-
-  Map<String, dynamic> toJson() => {
-    'type': type,
-    'weight': weight,
-    'touch': touch,
-    'pureWt': double.parse(pureWt.toStringAsFixed(3)),
-    'rate': rate,
-    'value': value,
-  };
-
-  factory _TransactionItem.fromJson(Map<String, dynamic> json) =>
-      _TransactionItem(
-        type: json['type'] as String,
-        weight: (json['weight'] as num).toDouble(),
-        touch: (json['touch'] as num).toDouble(),
-        rate: (json['rate'] as num?)?.toDouble() ?? 0,
-      );
-}
+/// Receipt-side labels on Sales bills (old gold from customer).
+const Map<String, String> kOldGoldReceiptTypeLabels = {
+  'GWT': 'O.GWT',
+  'FWT': 'O.FWT',
+  'KWT': 'O.KWT',
+  'SWT': 'O.SWT',
+};
 
 class _PanelLine {
   final String type;
@@ -126,15 +108,38 @@ class _TransactionScreenState extends State<TransactionScreen>
   final _partyController = TextEditingController();
   FocusNode? _partyFocus;
 
-  final List<_TransactionItem> _billLines = [];
+  final List<BillLineItem> _billLines = [];
+  Map<String, String> _hsnByType = Map<String, String>.from(kDefaultHsnByItemType);
+
+  final _partyAddressController = TextEditingController();
+  final _partyCityController = TextEditingController();
+  final _partyPincodeController = TextEditingController();
+  final _partyGstinController = TextEditingController();
+  final _partyStateController = TextEditingController();
+  final _ewayBillController = TextEditingController();
+  final _billNarrationController = TextEditingController();
+  final _partyAddressFocus = FocusNode();
+  final _partyCityFocus = FocusNode();
+  final _partyPincodeFocus = FocusNode();
+  final _partyGstinFocus = FocusNode();
+  final _partyStateFocus = FocusNode();
+  final _ewayBillFocus = FocusNode();
+  final _billNarrationFocus = FocusNode();
+  final _poNoController = TextEditingController();
+  final _poDateController = TextEditingController();
+  bool _tdsApplicable = false;
+  final _tdsAmountController = TextEditingController();
+  bool _tcsApplicable = false;
+  final _tcsAmountController = TextEditingController();
   final List<_PanelLine> _paymentLines = [];
 
   String _billEntryType = _itemTypes.first;
   String _paymentEntryType = _paymentItemTypes.first;
   final _billEntryWeight = TextEditingController(text: '0.000');
-  final _billEntryTouch = TextEditingController(text: '0.00');
+  final _billEntryTouch = TextEditingController();
+  final _billEntryDescription = TextEditingController();
   final _paymentEntryWeight = TextEditingController(text: '0.000');
-  final _paymentEntryTouch = TextEditingController(text: '0.00');
+  final _paymentEntryTouch = TextEditingController();
   final _paymentEntryAmount = TextEditingController(text: '0.00');
 
   final _billEntryWeightFocus = FocusNode();
@@ -148,12 +153,25 @@ class _TransactionScreenState extends State<TransactionScreen>
   bool _loading = true;
   bool _saving = false;
   bool _sharingPdf = false;
-
   List<Map<String, dynamic>> _history = [];
   Map<String, double> _rates = {};
+  final Map<String, double> _billRateOverrideByType = {};
   List<PartySuggestion> _partySuggestions = [];
   Map<String, double>? _partyOutstanding;
   Timer? _partyRefreshTimer;
+  String? _billTouchError;
+  String? _paymentTouchError;
+  int? _editingTransactionId;
+  int? _editingBillNo;
+  String? _editingPreserveDate;
+  String? _editingPreserveTime;
+
+  int? _transactionRowId(Map<String, dynamic> row) {
+    final id = row['id'];
+    if (id is int) return id;
+    if (id is num) return id.toInt();
+    return int.tryParse(id?.toString() ?? '');
+  }
 
   /// Purchase looks up Suppliers (stock coming in from them); Sales
   /// looks up Customers (stock going out to them).
@@ -166,6 +184,15 @@ class _TransactionScreenState extends State<TransactionScreen>
   bool get _hideIssuePanel => _isReceiptVoucher;
 
   bool get _hideReceiptPanel => _isPaymentVoucher;
+
+  bool get _isSales => widget.kind == TransactionKind.sales;
+
+  String _receiptTypeLabel(String type) {
+    if (_isSales && kOldGoldReceiptTypeLabels.containsKey(type)) {
+      return kOldGoldReceiptTypeLabels[type]!;
+    }
+    return type;
+  }
 
   bool get _isCustomerParty =>
       widget.kind == TransactionKind.sales || _isReceiptVoucher;
@@ -192,8 +219,15 @@ class _TransactionScreenState extends State<TransactionScreen>
   String get _numberLabel => _isVoucher ? 'VOUCHER NO' : 'BILL NO';
 
   String get _saveButtonLabel {
-    if (_isReceiptVoucher) return 'SAVE RECEIPT';
-    if (_isPaymentVoucher) return 'SAVE PAYMENT';
+    if (_isReceiptVoucher) {
+      return _editingTransactionId != null ? 'UPDATE RECEIPT' : 'SAVE RECEIPT';
+    }
+    if (_isPaymentVoucher) {
+      return _editingTransactionId != null ? 'UPDATE PAYMENT' : 'SAVE PAYMENT';
+    }
+    if (_editingTransactionId != null) {
+      return _isPurchase ? 'UPDATE PURCHASE' : 'UPDATE SALE';
+    }
     return _isPurchase ? 'SAVE PURCHASE' : 'SAVE SALE';
   }
 
@@ -209,7 +243,21 @@ class _TransactionScreenState extends State<TransactionScreen>
   bool get _hasBillOrPaymentData =>
       _billLines.isNotEmpty || _paymentLines.isNotEmpty;
 
-  List<_TransactionItem> get _billItems => _billLines;
+  List<BillLineItem> get _billItems => _billLines;
+
+  BillTaxTotals get _billTaxTotals {
+    final tds = _tdsApplicable
+        ? (double.tryParse(_tdsAmountController.text.trim()) ?? 0)
+        : 0.0;
+    final tcs = _tcsApplicable
+        ? (double.tryParse(_tcsAmountController.text.trim()) ?? 0)
+        : 0.0;
+    return BillTaxTotals.compute(
+      lines: _billItems.map((i) => i.tax).toList(),
+      tdsAmount: tds,
+      tcsAmount: tcs,
+    );
+  }
 
   double get _totalWt =>
       _billItems.fold(0, (sum, item) => sum + item.weight);
@@ -238,6 +286,16 @@ class _TransactionScreenState extends State<TransactionScreen>
   double get _paymentTotalPure => _paymentMetalPure + _paymentCashGold;
 
   double get _goldRate => GoldLedger.goldRate(_rates);
+
+  double _masterRateForType(String type) {
+    final rateName = kItemTypeToRateName[type];
+    if (rateName == null) return 0;
+    return _rates[rateName] ?? 0;
+  }
+
+  double _effectiveRateForType(String type) {
+    return _billRateOverrideByType[type] ?? _masterRateForType(type);
+  }
 
   double get _balancePure => _billTotalPure - _paymentTotalPure;
 
@@ -277,6 +335,35 @@ class _TransactionScreenState extends State<TransactionScreen>
     _partyController
       ..addListener(_onPartyControllerChanged)
       ..addListener(() => _onPartyTextChanged());
+    _billEntryTouchFocus.addListener(_onBillTouchFocusChange);
+    _paymentEntryTouchFocus.addListener(_onPaymentTouchFocusChange);
+  }
+
+  void _onBillTouchFocusChange() {
+    if (!_billEntryTouchFocus.hasFocus) {
+      _validateBillTouchOnBlur();
+    }
+  }
+
+  void _onPaymentTouchFocusChange() {
+    if (!_paymentEntryTouchFocus.hasFocus) {
+      _validatePaymentTouchOnBlur();
+    }
+  }
+
+  void _validateBillTouchOnBlur() {
+    final message = touchPercentBlurValidationMessage(_billEntryTouch.text);
+    if (_billTouchError != message) {
+      setState(() => _billTouchError = message);
+    }
+  }
+
+  void _validatePaymentTouchOnBlur() {
+    if (_paymentEntryType == 'CASH') return;
+    final message = touchPercentBlurValidationMessage(_paymentEntryTouch.text);
+    if (_paymentTouchError != message) {
+      setState(() => _paymentTouchError = message);
+    }
   }
 
   void _onPartyControllerChanged() {
@@ -316,34 +403,40 @@ class _TransactionScreenState extends State<TransactionScreen>
   void _resetBillEntry({bool resetType = true}) {
     if (resetType) _billEntryType = _itemTypes.first;
     _billEntryWeight.text = '0.000';
-    _billEntryTouch.text = '0.00';
+    _billEntryTouch.clear();
+    _billEntryDescription.clear();
+    _billTouchError = null;
   }
 
   void _resetPaymentEntry({bool resetType = true}) {
     if (resetType) _paymentEntryType = _paymentItemTypes.first;
     _paymentEntryWeight.text = '0.000';
-    _paymentEntryTouch.text = '0.00';
+    _paymentEntryTouch.clear();
     _paymentEntryAmount.text = '0.00';
+    _paymentTouchError = null;
   }
 
-  _TransactionItem? _validatedBillEntry() {
+  BillLineItem? _validatedBillEntry() {
     final weight = double.tryParse(_billEntryWeight.text.trim());
-    final touch = double.tryParse(_billEntryTouch.text.trim());
     if (weight == null ||
         !_numberRegex.hasMatch(_billEntryWeight.text.trim()) ||
         weight <= 0) {
       return null;
     }
-    if (touch == null || !_numberRegex.hasMatch(_billEntryTouch.text.trim())) {
+    if (!isValidTouchPercent(_billEntryTouch.text)) {
       return null;
     }
-    final rateName = kItemTypeToRateName[_billEntryType];
-    final rate = _rates[rateName] ?? 0;
-    return _TransactionItem(
+    final touch = double.parse(_billEntryTouch.text.trim());
+    final rate = _effectiveRateForType(_billEntryType);
+    final hsn = _hsnByType[_billEntryType] ?? kDefaultHsnByItemType[_billEntryType] ?? '';
+    final desc = _billEntryDescription.text.trim();
+    return BillLineItem(
       type: _billEntryType,
       weight: weight,
       touch: touch,
       rate: rate,
+      hsn: hsn,
+      description: desc.isEmpty ? null : desc,
     );
   }
 
@@ -358,16 +451,15 @@ class _TransactionScreenState extends State<TransactionScreen>
       return _PanelLine.cash(amount);
     }
     final weight = double.tryParse(_paymentEntryWeight.text.trim());
-    final touch = double.tryParse(_paymentEntryTouch.text.trim());
     if (weight == null ||
         !_numberRegex.hasMatch(_paymentEntryWeight.text.trim()) ||
         weight <= 0) {
       return null;
     }
-    if (touch == null ||
-        !_numberRegex.hasMatch(_paymentEntryTouch.text.trim())) {
+    if (!isValidTouchPercent(_paymentEntryTouch.text)) {
       return null;
     }
+    final touch = double.parse(_paymentEntryTouch.text.trim());
     return _PanelLine.metal(
       type: _paymentEntryType,
       weight: weight,
@@ -376,13 +468,18 @@ class _TransactionScreenState extends State<TransactionScreen>
   }
 
   void _commitBillEntry() {
+    final touchMessage = touchPercentValidationMessage(_billEntryTouch.text);
+    if (touchMessage != null) {
+      setState(() => _billTouchError = touchMessage);
+      return;
+    }
     final item = _validatedBillEntry();
     if (item == null) {
       _showMessage('Enter weight and touch before continuing');
       return;
     }
-    final rateName = kItemTypeToRateName[item.type];
-    if ((_rates[rateName] ?? 0) <= 0) {
+    final rateName = kItemTypeToRateName[item.type] ?? item.type;
+    if (_effectiveRateForType(item.type) <= 0) {
       _showMessage(
           "$rateName isn't set yet — update it on the Master screen first");
       return;
@@ -398,6 +495,14 @@ class _TransactionScreenState extends State<TransactionScreen>
   }
 
   void _commitPaymentEntry() {
+    if (_paymentEntryType != 'CASH') {
+      final touchMessage =
+          touchPercentValidationMessage(_paymentEntryTouch.text);
+      if (touchMessage != null) {
+        setState(() => _paymentTouchError = touchMessage);
+        return;
+      }
+    }
     final line = _validatedPaymentEntry();
     if (line == null) {
       _showMessage(_paymentEntryType == 'CASH'
@@ -427,7 +532,10 @@ class _TransactionScreenState extends State<TransactionScreen>
   }
 
   void _onPaymentTypeChanged(String type) {
-    setState(() => _paymentEntryType = type);
+    setState(() {
+      _paymentEntryType = type;
+      if (type == 'CASH') _paymentTouchError = null;
+    });
     if (type == 'CASH') {
       FocusChain.focusNextFrame(
         _paymentEntryAmountFocus,
@@ -445,9 +553,30 @@ class _TransactionScreenState extends State<TransactionScreen>
   void dispose() {
     _partyRefreshTimer?.cancel();
     _partyFocus?.removeListener(_onPartyFocus);
+    _billEntryTouchFocus.removeListener(_onBillTouchFocusChange);
+    _paymentEntryTouchFocus.removeListener(_onPaymentTouchFocusChange);
     _partyController.dispose();
+    _partyAddressController.dispose();
+    _partyCityController.dispose();
+    _partyPincodeController.dispose();
+    _partyGstinController.dispose();
+    _partyStateController.dispose();
+    _ewayBillController.dispose();
+    _billNarrationController.dispose();
+    _partyAddressFocus.dispose();
+    _partyCityFocus.dispose();
+    _partyPincodeFocus.dispose();
+    _partyGstinFocus.dispose();
+    _partyStateFocus.dispose();
+    _ewayBillFocus.dispose();
+    _billNarrationFocus.dispose();
+    _poNoController.dispose();
+    _poDateController.dispose();
+    _tdsAmountController.dispose();
+    _tcsAmountController.dispose();
     _billEntryWeight.dispose();
     _billEntryTouch.dispose();
+    _billEntryDescription.dispose();
     _paymentEntryWeight.dispose();
     _paymentEntryTouch.dispose();
     _paymentEntryAmount.dispose();
@@ -468,6 +597,7 @@ class _TransactionScreenState extends State<TransactionScreen>
         ? await DatabaseHelper.instance.getVouchers(voucherType: _transactionType)
         : await DatabaseHelper.instance.getTransactions(_transactionType);
     final rates = await DatabaseHelper.instance.getRatesMap();
+    final hsnMap = await DatabaseHelper.instance.getItemTypeHsnMap();
     final partyRows = _isCustomerParty
         ? await DatabaseHelper.instance.getCustomers()
         : await DatabaseHelper.instance.getSuppliers();
@@ -476,6 +606,7 @@ class _TransactionScreenState extends State<TransactionScreen>
       _nextBillNo = nextNo;
       _history = history;
       _rates = rates;
+      _hsnByType = hsnMap;
       _partySuggestions = PartySuggestion.fromLedgerRows(
         partyRows,
         roleLabel: _isCustomerParty ? 'Customer' : 'Supplier',
@@ -511,6 +642,40 @@ class _TransactionScreenState extends State<TransactionScreen>
       if (!mounted) return;
       setState(() => _partyOutstanding = result);
     });
+
+    if (_partyExactMatch(query)) {
+      _loadPartyBillingProfile(query);
+    }
+  }
+
+  Future<void> _loadPartyBillingProfile(String name) async {
+    final profile = await DatabaseHelper.instance.getPartyProfile(
+      name,
+      isCustomer: _isCustomerParty,
+    );
+    if (!mounted) return;
+    setState(() {
+      _partyAddressController.text = profile.address;
+      _partyCityController.text =
+          profile.city.isNotEmpty ? profile.city : _partyCityController.text;
+      _partyPincodeController.text = profile.pincode;
+      _partyGstinController.text = profile.gstin;
+      _partyStateController.text = profile.state;
+    });
+  }
+
+  void _clearPartyBillingFields() {
+    _partyAddressController.clear();
+    _partyCityController.clear();
+    _partyPincodeController.clear();
+    _partyGstinController.clear();
+    _partyStateController.clear();
+    _ewayBillController.clear();
+    _billNarrationController.clear();
+    _tdsApplicable = false;
+    _tdsAmountController.clear();
+    _tcsApplicable = false;
+    _tcsAmountController.clear();
   }
 
   void _focusPaymentEntry() {
@@ -545,8 +710,35 @@ class _TransactionScreenState extends State<TransactionScreen>
   void _selectParty(PartySuggestion party) {
     _partyController.text = party.name;
     _onPartyTextChanged(party.name);
-    _focusFirstPanelField();
+    _focusBillingAddress();
   }
+
+  void _focusBillingAddress() {
+    FocusChain.focusNextFrame(
+      _partyAddressFocus,
+      controller: _partyAddressController,
+    );
+  }
+
+  void _focusAfterState() {
+    if (_isSales) {
+      FocusChain.focusNextFrame(
+        _ewayBillFocus,
+        controller: _ewayBillController,
+      );
+    } else {
+      _focusNarration();
+    }
+  }
+
+  void _focusNarration() {
+    FocusChain.focusNextFrame(
+      _billNarrationFocus,
+      controller: _billNarrationController,
+    );
+  }
+
+  void _focusAfterNarration() => _focusFirstPanelField();
 
   bool _partyHasMatches(String name) =>
       PartySearchField.filterParties(_partySuggestions, name).isNotEmpty;
@@ -559,7 +751,7 @@ class _TransactionScreenState extends State<TransactionScreen>
     if (name.isEmpty) return;
     if (_partyHasMatches(name) && !_partyExactMatch(name)) return;
     if (!await _ensurePartySaved()) return;
-    _focusFirstPanelField();
+    _focusBillingAddress();
   }
 
   void _onPartyNameChanged(String value) {
@@ -602,10 +794,261 @@ class _TransactionScreenState extends State<TransactionScreen>
     _resetPaymentEntry();
   }
 
+  void _clearPurchasePoFields() {
+    _poNoController.clear();
+    _poDateController.clear();
+  }
+
+  Future<void> _pickPoDate() async {
+    DateTime initial = DateTime.now();
+    final existing = _poDateController.text.trim();
+    if (existing.isNotEmpty) {
+      try {
+        initial = DateFormat('dd-MM-yyyy').parse(existing);
+      } catch (_) {}
+    }
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      helpText: 'PO Date',
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _poDateController.text = DateFormat('dd-MM-yyyy').format(picked);
+    });
+  }
+
+  Widget _purchasePoFields() {
+    const labelStyle = TextStyle(
+      fontSize: 11,
+      fontWeight: FontWeight.w600,
+      color: AppColors.mutedBlue,
+    );
+    final narrow = !Responsive.isWide(context);
+    Widget poNo = TextFormField(
+      controller: _poNoController,
+      style: const TextStyle(fontSize: 13),
+      decoration: const InputDecoration(
+        labelText: 'PO No',
+        isDense: true,
+      ),
+    );
+    Widget poDate = TextFormField(
+      controller: _poDateController,
+      readOnly: true,
+      style: const TextStyle(fontSize: 13),
+      decoration: InputDecoration(
+        labelText: 'PO Date',
+        isDense: true,
+        suffixIcon: _poDateController.text.trim().isEmpty
+            ? const Icon(Icons.calendar_today, size: 18)
+            : IconButton(
+                icon: const Icon(Icons.clear, size: 18),
+                onPressed: () => setState(_poDateController.clear),
+              ),
+      ),
+      onTap: _pickPoDate,
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('PURCHASE ORDER (optional)', style: labelStyle),
+        const SizedBox(height: 4),
+        if (narrow)
+          Column(
+            children: [poNo, const SizedBox(height: 6), poDate],
+          )
+        else
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(width: FieldSizes.billingPoNo, child: poNo),
+              const SizedBox(width: 8),
+              SizedBox(width: FieldSizes.billingPoDate, child: poDate),
+            ],
+          ),
+      ],
+    );
+  }
+
   void _clearForm() {
     _partyController.clear();
+    _clearPartyBillingFields();
+    _clearPurchasePoFields();
     _clearPanels();
-    setState(() => _partyOutstanding = null);
+    setState(() {
+      _partyOutstanding = null;
+      _editingTransactionId = null;
+      _editingBillNo = null;
+      _editingPreserveDate = null;
+      _editingPreserveTime = null;
+    });
+  }
+
+  void _editBillLine(int index) {
+    final item = _billLines[index];
+    setState(() {
+      _billEntryType = item.type;
+      _billEntryWeight.text = item.weight.toStringAsFixed(3);
+      _billEntryTouch.text = item.touch.toStringAsFixed(2);
+      final defaultDesc = defaultItemDescriptionForType(item.type);
+      _billEntryDescription.text =
+          item.description == defaultDesc ? '' : item.description;
+      _billTouchError = null;
+      _billLines.removeAt(index);
+    });
+    FocusChain.focusNextFrame(
+      _billEntryWeightFocus,
+      controller: _billEntryWeight,
+    );
+  }
+
+  Future<void> _editBillLineTax(int index) async {
+    final item = _billLines[index];
+    final cgstCtrl =
+        TextEditingController(text: item.cgstPercent.toStringAsFixed(2));
+    final sgstCtrl =
+        TextEditingController(text: item.sgstPercent.toStringAsFixed(2));
+    final updated = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('GST % — ${item.type}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: cgstCtrl,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'CGST %'),
+            ),
+            TextField(
+              controller: sgstCtrl,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'SGST %'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('CANCEL'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('SAVE'),
+          ),
+        ],
+      ),
+    );
+    if (updated != true || !mounted) {
+      cgstCtrl.dispose();
+      sgstCtrl.dispose();
+      return;
+    }
+    final cgst = double.tryParse(cgstCtrl.text.trim()) ?? item.cgstPercent;
+    final sgst = double.tryParse(sgstCtrl.text.trim()) ?? item.sgstPercent;
+    cgstCtrl.dispose();
+    sgstCtrl.dispose();
+    setState(() {
+      _billLines[index] = item.copyWith(cgstPercent: cgst, sgstPercent: sgst);
+    });
+  }
+
+  void _editPaymentLine(int index) {
+    final line = _paymentLines[index];
+    setState(() {
+      if (line.isCash) {
+        _paymentEntryType = 'CASH';
+        _paymentEntryAmount.text = (line.cashAmount ?? 0).toStringAsFixed(2);
+        _paymentTouchError = null;
+      } else {
+        _paymentEntryType = line.type;
+        _paymentEntryWeight.text = line.weight.toStringAsFixed(3);
+        _paymentEntryTouch.text = line.touch.toStringAsFixed(2);
+        _paymentTouchError = null;
+      }
+      _paymentLines.removeAt(index);
+    });
+    if (line.isCash) {
+      FocusChain.focusNextFrame(
+        _paymentEntryAmountFocus,
+        controller: _paymentEntryAmount,
+      );
+    } else {
+      FocusChain.focusNextFrame(
+        _paymentEntryWeightFocus,
+        controller: _paymentEntryWeight,
+      );
+    }
+  }
+
+  List<_PanelLine> _paymentLinesFromRow(Map<String, dynamic> row) {
+    final raw = row['paymentItems'];
+    if (raw == null || raw.toString().isEmpty || raw.toString() == '[]') {
+      return [];
+    }
+    final list = jsonDecode(raw.toString()) as List<dynamic>;
+    return list.map((entry) {
+      final map = Map<String, dynamic>.from(entry as Map);
+      if ((map['type'] ?? '').toString() == 'CASH') {
+        return _PanelLine.cash(
+          (map['cashAmount'] as num?)?.toDouble() ?? 0,
+        );
+      }
+      return _PanelLine.metal(
+        type: map['type'].toString(),
+        weight: (map['weight'] as num).toDouble(),
+        touch: (map['touch'] as num).toDouble(),
+      );
+    }).toList();
+  }
+
+  void _loadBillForEdit(Map<String, dynamic> row) {
+    if (row['fromLedger'] == true) {
+      _showMessage('This bill was imported from the ledger and cannot be edited here');
+      return;
+    }
+
+    final billNo = row['billNo'] as int? ?? _nextBillNo;
+    setState(() {
+      _editingTransactionId = _transactionRowId(row);
+      _editingBillNo = billNo;
+      _editingPreserveDate = (row['date'] ?? '').toString();
+      _editingPreserveTime = (row['time'] ?? '').toString();
+      _nextBillNo = billNo;
+      _partyController.text = (row['partyName'] ?? '').toString();
+      _partyAddressController.text = (row['partyAddress'] ?? '').toString();
+      _partyCityController.text = (row['partyCity'] ?? '').toString();
+      _partyPincodeController.text = (row['partyPincode'] ?? '').toString();
+      _partyGstinController.text = (row['partyGstin'] ?? '').toString();
+      _partyStateController.text = (row['partyState'] ?? '').toString();
+      _ewayBillController.text = (row['ewayBill'] ?? '').toString();
+      _billNarrationController.text = (row['billNarration'] ?? '').toString();
+      _poNoController.text = (row['poNo'] ?? '').toString();
+      _poDateController.text = (row['poDate'] ?? '').toString();
+      _tdsApplicable = (row['tdsApplicable'] as int? ?? 0) == 1;
+      _tdsAmountController.text = (row['tdsAmount'] ?? '').toString();
+      _tcsApplicable = (row['tcsApplicable'] as int? ?? 0) == 1;
+      _tcsAmountController.text = (row['tcsAmount'] ?? '').toString();
+      _billLines
+        ..clear()
+        ..addAll(_itemsFromRow(row));
+      _paymentLines
+        ..clear()
+        ..addAll(_paymentLinesFromRow(row));
+      _resetBillEntry();
+      _resetPaymentEntry();
+      _billTouchError = null;
+      _paymentTouchError = null;
+    });
+    _onPartyTextChanged(_partyController.text.trim());
+    if (_partyFocus != null) {
+      FocusChain.focusNextFrame(_partyFocus!, controller: _partyController);
+    }
   }
 
   void _showMessage(String message) {
@@ -614,14 +1057,155 @@ class _TransactionScreenState extends State<TransactionScreen>
 
   bool _validateBillRates() {
     for (final item in _billItems) {
-      final rateName = kItemTypeToRateName[item.type];
-      if ((_rates[rateName] ?? 0) <= 0) {
+      final rateName = kItemTypeToRateName[item.type] ?? item.type;
+      if (item.rate <= 0) {
         _showMessage(
             "$rateName isn't set yet — update it on the Master screen first");
         return false;
       }
     }
     return true;
+  }
+
+  Future<void> _editBillEntryRate() async {
+    final type = _billEntryType;
+    final rateName = kItemTypeToRateName[type] ?? type;
+    final master = _masterRateForType(type);
+    final current = _effectiveRateForType(type);
+    final ctrl = TextEditingController(
+      text: current > 0 ? current.toStringAsFixed(2) : '',
+    );
+    final updated = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Rate — $type ($rateName)'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (master > 0)
+              Text(
+                'Daily Rate: ${master.toStringAsFixed(2)}',
+                style: const TextStyle(fontSize: 12, color: Colors.black54),
+              ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: ctrl,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Rate for this bill line',
+                isDense: true,
+              ),
+              autofocus: true,
+            ),
+          ],
+        ),
+        actions: [
+          if (_billRateOverrideByType.containsKey(type))
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                if (mounted) {
+                  setState(() => _billRateOverrideByType.remove(type));
+                }
+              },
+              child: const Text('USE DAILY RATE'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('CANCEL'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('SAVE'),
+          ),
+        ],
+      ),
+    );
+    if (updated == true && mounted) {
+      final parsed = double.tryParse(ctrl.text.trim());
+      if (parsed != null && parsed > 0) {
+        setState(() => _billRateOverrideByType[type] = parsed);
+      }
+    }
+    ctrl.dispose();
+  }
+
+  /// Compact Daily Rate chip above metal entry (ISSUE on Sales, RECEIPT on Purchase).
+  Widget _billEntryRateChip() {
+    final type = _billEntryType;
+    final rateName = kItemTypeToRateName[type] ?? type;
+    final rate = _effectiveRateForType(type);
+    final overridden = _billRateOverrideByType.containsKey(type);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: _editBillEntryRate,
+            borderRadius: BorderRadius.circular(6),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.cardWhite,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: overridden ? AppColors.mutedBlue : AppColors.border,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    rateName,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.mutedBlue,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    rate > 0 ? rate.toStringAsFixed(2) : '—',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.navy,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.edit_outlined, size: 14, color: Colors.black45),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Map<String, dynamic> _paymentLineToJson(_PanelLine line) {
+    if (line.isCash) {
+      return {
+        'type': 'CASH',
+        'weight': 0,
+        'touch': 0,
+        'pureWt': 0,
+        'cashAmount': line.cashAmount ?? 0,
+      };
+    }
+    final rateName = kItemTypeToRateName[line.type];
+    final rate = _rates[rateName] ?? 0;
+    return {
+      'type': line.type,
+      'weight': line.weight,
+      'touch': line.touch,
+      'pureWt': double.parse(line.metalPureWt.toStringAsFixed(3)),
+      'rate': rate,
+    };
   }
 
   Future<void> _saveTransaction() async {
@@ -654,17 +1238,53 @@ class _TransactionScreenState extends State<TransactionScreen>
 
     setState(() => _saving = true);
 
-    final date = DateFormat("dd-MM-yyyy").format(DateTime.now());
-    final time = DateFormat("hh:mm a").format(DateTime.now());
+    final date = (_editingTransactionId != null &&
+            _editingPreserveDate != null &&
+            _editingPreserveDate!.isNotEmpty)
+        ? _editingPreserveDate!
+        : DateFormat("dd-MM-yyyy").format(DateTime.now());
+    final time = (_editingTransactionId != null &&
+            _editingPreserveTime != null &&
+            _editingPreserveTime!.isNotEmpty)
+        ? _editingPreserveTime!
+        : DateFormat("hh:mm a").format(DateTime.now());
 
     final items = _billItems;
     final s = _settlement;
+    final taxTotals = _billTaxTotals;
     final paymentMode = _paymentIsCashOnly ? 'CASH' : 'GOLD';
+    final billNo = _editingBillNo ?? _nextBillNo;
+    final tdsAmt = _tdsApplicable
+        ? (double.tryParse(_tdsAmountController.text.trim()) ?? 0)
+        : 0.0;
+    final tcsAmt = _tcsApplicable
+        ? (double.tryParse(_tcsAmountController.text.trim()) ?? 0)
+        : 0.0;
     final record = {
       'transactionType': _transactionType,
-      'billNo': _nextBillNo,
+      'billNo': billNo,
       'partyName': _partyController.text.trim(),
+      'partyAddress': _partyAddressController.text.trim(),
+      'partyCity': _partyCityController.text.trim(),
+      'partyPincode': _partyPincodeController.text.trim(),
+      'partyGstin': _partyGstinController.text.trim(),
+      'partyState': _partyStateController.text.trim(),
+      if (_isSales) 'ewayBill': _ewayBillController.text.trim(),
+      'billNarration': _billNarrationController.text.trim(),
+      if (_isPurchase) 'poNo': _poNoController.text.trim(),
+      if (_isPurchase) 'poDate': _poDateController.text.trim(),
+      'tdsApplicable': _tdsApplicable ? 1 : 0,
+      'tdsAmount': tdsAmt.toStringAsFixed(2),
+      'tcsApplicable': _tcsApplicable ? 1 : 0,
+      'tcsAmount': tcsAmt.toStringAsFixed(2),
+      'totalTaxable': taxTotals.totalTaxable.toStringAsFixed(2),
+      'totalInclusive': taxTotals.totalInclusive.toStringAsFixed(2),
+      'roundOff': taxTotals.roundOff.toStringAsFixed(2),
+      'grandTotal': taxTotals.grandTotal.toStringAsFixed(2),
       'items': jsonEncode(items.map((i) => i.toJson()).toList()),
+      if (_paymentLines.isNotEmpty)
+        'paymentItems': jsonEncode(
+            _paymentLines.map(_paymentLineToJson).toList()),
       'totalWt': _totalWt.toStringAsFixed(2),
       'totalPureWt': _totalPureWt.toStringAsFixed(3),
       'totalValue': _totalValue.toStringAsFixed(2),
@@ -686,6 +1306,15 @@ class _TransactionScreenState extends State<TransactionScreen>
       'goldRateUsed': s.ratePerGram.toStringAsFixed(2),
     };
 
+    if (_editingTransactionId != null) {
+      final billRef = '${_isPurchase ? 'PUR' : 'SAL'}-$billNo';
+      await DatabaseHelper.instance.deleteLedgerByBillRef(
+        billRef,
+        isCustomer: _isCustomerParty,
+      );
+      await DatabaseHelper.instance.deleteTransaction(_editingTransactionId!);
+    }
+
     await DatabaseHelper.instance.insertTransaction(record);
     await _postToLedger(date, time, s);
 
@@ -694,19 +1323,37 @@ class _TransactionScreenState extends State<TransactionScreen>
     setState(() => _saving = false);
 
     final savedRow = Map<String, dynamic>.from(record);
-    final billNoSaved = _nextBillNo;
+    final billNoSaved = billNo;
     final partyName = _partyController.text.trim();
+    final wasEdit = _editingTransactionId != null;
     _clearForm();
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
           content: Text(
-              "Bill #$billNoSaved saved and posted to $partyName's ledger")),
+              wasEdit
+                  ? "Bill #$billNoSaved updated for $partyName"
+                  : "Bill #$billNoSaved saved and posted to $partyName's ledger")),
     );
 
     await _load();
     if (!mounted) return;
-    await _shareEstimate(savedRow);
+    if (!wasEdit) {
+      final txnType = (savedRow['transactionType'] ?? '').toString();
+      if (txnType == 'SALES') {
+        await _saveAndPrintBillPdf(
+          savedRow,
+          gstInvoice: true,
+          salesInvoiceFormat: SalesInvoiceFormat.detailed,
+        );
+      } else {
+        await _shareBillPdf(
+          savedRow,
+          gstInvoice: true,
+          openAfterSave: false,
+        );
+      }
+    }
   }
 
   Future<void> _saveVoucher() async {
@@ -807,7 +1454,7 @@ class _TransactionScreenState extends State<TransactionScreen>
       'dr': deltaG > 0 ? deltaG.toStringAsFixed(3) : '0',
       'narration': narration,
       'balanceUnit': 'GRAMS',
-      'billRef': '${_isPurchase ? 'PUR' : 'SAL'}-$_nextBillNo',
+      'billRef': '${_isPurchase ? 'PUR' : 'SAL'}-${_editingBillNo ?? _nextBillNo}',
       'date': date,
       'time': time,
     };
@@ -828,13 +1475,18 @@ class _TransactionScreenState extends State<TransactionScreen>
   }
 
   Future<void> _confirmDelete(Map<String, dynamic> row) async {
+    final fromLedger = row['fromLedger'] == true;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(_isVoucher ? 'Delete Voucher' : 'Delete Bill'),
         content: Text(_isVoucher
             ? 'Are you sure you want to delete this voucher?'
-            : 'Are you sure you want to delete this record?'),
+            : fromLedger
+                ? 'Remove this ledger entry from Sales history? '
+                    'This deletes the matching customer/supplier ledger row '
+                    '(bill reference only — not a full saved bill).'
+                : 'Are you sure you want to delete this record?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -852,16 +1504,48 @@ class _TransactionScreenState extends State<TransactionScreen>
       if (_isVoucher) {
         await DatabaseHelper.instance.deleteVoucher(row['id'] as int);
       } else {
-        await DatabaseHelper.instance.deleteTransaction(row['id'] as int);
+        await _deleteBillRow(row);
       }
       _load();
     }
   }
 
+  Future<void> _deleteBillRow(Map<String, dynamic> row) async {
+    final billNo = row['billNo'];
+    final storedRef = (row['billRef'] ?? '').toString().trim();
+    final billRef = storedRef.isNotEmpty
+        ? storedRef
+        : '${_isPurchase ? 'PUR' : 'SAL'}-$billNo';
+
+    final id = _transactionRowId(row);
+    if (row['fromLedger'] != true && id != null && id > 0) {
+      await DatabaseHelper.instance.deleteTransaction(id);
+    }
+
+    await DatabaseHelper.instance.deleteLedgerByBillRef(
+      billRef,
+      isCustomer: _isCustomerParty,
+    );
+  }
+
   void _showBillDetails(Map<String, dynamic> row) {
+    // Post-save print can leave _sharingPdf true; bill actions must stay tappable.
+    _sharingPdf = false;
+
     final items = (jsonDecode(row['items'] as String) as List)
-        .map((e) => _TransactionItem.fromJson(e as Map<String, dynamic>))
+        .map((e) => BillLineItem.fromJson(e as Map<String, dynamic>))
         .toList();
+
+    Future<void> openInvoice(
+      SalesInvoiceFormat format,
+    ) async {
+      await _shareBillPdf(
+        row,
+        gstInvoice: true,
+        salesInvoiceFormat: format,
+        openAfterSave: true,
+      );
+    }
 
     showDialog(
       context: context,
@@ -890,35 +1574,91 @@ class _TransactionScreenState extends State<TransactionScreen>
               _detailRow("Total Wt", row['totalWt']),
               _detailRow("Total Pure Wt", row['totalPureWt']),
               _detailRow("Total Value (₹)", row['totalValue']),
+              if ((row['grandTotal'] ?? '').toString().trim().isNotEmpty)
+                _detailRow('Grand Total (₹)', row['grandTotal']),
+              if (items.isNotEmpty) ...[
+                _detailRow(
+                  'Avg Rate (₹)',
+                  _weightedBillRate(items).toStringAsFixed(2),
+                ),
+              ],
               _detailRow("Payment Mode", row['paymentMode']),
               _detailRow("Payment Amount", row['paymentAmount']),
               _detailRow(
                 "Balance",
                 "${row['balance'] ?? '-'} ${row['balanceUnit'] ?? ''}",
               ),
+              if ((row['transactionType'] ?? '').toString() == 'PURCHASE') ...[
+                if ((row['poNo'] ?? '').toString().trim().isNotEmpty)
+                  _detailRow('PO No', row['poNo']),
+                if ((row['poDate'] ?? '').toString().trim().isNotEmpty)
+                  _detailRow('PO Date', row['poDate']),
+              ],
               _detailRow("Date", "${row['date'] ?? ''} ${row['time'] ?? ''}"),
             ],
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: _sharingPdf
-                ? null
-                : () async {
-                    Navigator.pop(dialogContext);
-                    await _sharePdf(row, estimate: true, openAfterSave: false);
-                  },
-            child: const Text("ESTIMATE"),
-          ),
-          TextButton(
-            onPressed: _sharingPdf
-                ? null
-                : () async {
-                    Navigator.pop(dialogContext);
-                    await _sharePdf(row, estimate: false, openAfterSave: false);
-                  },
-            child: const Text("ACCOUNTS BILL"),
-          ),
+          if (row['fromLedger'] != true)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                _loadBillForEdit(row);
+              },
+              child: const Text('EDIT'),
+            ),
+          if (row['fromLedger'] == true)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                _confirmDelete(row);
+              },
+              child: const Text(
+                'DELETE',
+                style: TextStyle(color: Colors.red),
+              ),
+            ),
+          if (row['fromLedger'] != true) ...[
+            if ((row['transactionType'] ?? '').toString() == 'PURCHASE')
+              FilledButton.tonal(
+                onPressed: () async {
+                  Navigator.pop(dialogContext);
+                  await _shareBillPdf(
+                    row,
+                    gstInvoice: false,
+                    openAfterSave: true,
+                  );
+                },
+                child: const Text('ACCOUNTS SLIP'),
+              ),
+            if ((row['transactionType'] ?? '').toString() == 'SALES') ...[
+              FilledButton.tonal(
+                onPressed: () async {
+                  Navigator.pop(dialogContext);
+                  await openInvoice(SalesInvoiceFormat.detailed);
+                },
+                child: const Text('GST INVOICE'),
+              ),
+              FilledButton.tonal(
+                onPressed: () async {
+                  Navigator.pop(dialogContext);
+                  await openInvoice(SalesInvoiceFormat.simple);
+                },
+                child: const Text('SIMPLE INVOICE'),
+              ),
+            ] else
+              FilledButton.tonal(
+                onPressed: () async {
+                  Navigator.pop(dialogContext);
+                  await _shareBillPdf(
+                    row,
+                    gstInvoice: true,
+                    openAfterSave: true,
+                  );
+                },
+                child: const Text('GST INVOICE'),
+              ),
+          ],
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
             child: const Text("CLOSE"),
@@ -927,70 +1667,101 @@ class _TransactionScreenState extends State<TransactionScreen>
       ),
     );
   }
-  List<_TransactionItem> _itemsFromRow(Map<String, dynamic> row) {
+  List<BillLineItem> _itemsFromRow(Map<String, dynamic> row) {
     return (jsonDecode((row['items'] ?? '[]').toString()) as List)
-        .map((e) => _TransactionItem.fromJson(e as Map<String, dynamic>))
+        .map((e) => BillLineItem.fromJson(e as Map<String, dynamic>))
         .toList();
   }
 
-  Future<Uint8List> _buildEstimatePdf(Map<String, dynamic> row) async {
-    final items = _itemsFromRow(row);
-    final phone = await DatabaseHelper.instance.getPartyPhone(
-      (row['partyName'] ?? '').toString(),
-      isCustomer: _isCustomerParty,
+  BillTaxTotals _taxTotalsFromRow(
+    Map<String, dynamic> row,
+    List<BillLineItem> items,
+  ) {
+    return BillTaxTotals(
+      totalTaxable: double.tryParse(
+              (row['totalTaxable'] ?? row['totalValue'] ?? '0').toString()) ??
+          items.fold(0, (s, i) => s + i.tax.taxableValue),
+      totalInclusive: double.tryParse(
+              (row['totalInclusive'] ?? '0').toString()) ??
+          items.fold(0, (s, i) => s + i.tax.inclusiveAmount),
+      roundOff: double.tryParse((row['roundOff'] ?? '0').toString()) ?? 0,
+      grandTotal: double.tryParse(
+              (row['grandTotal'] ?? row['totalValue'] ?? '0').toString()) ??
+          items.fold(0, (s, i) => s + i.tax.inclusiveAmount),
     );
-    final totalWt =
-        items.fold<double>(0, (sum, item) => sum + item.weight);
-    final totalPure =
-        items.fold<double>(0, (sum, item) => sum + item.pureWt);
-    final avgTouch = totalWt > 0
-        ? items.fold<double>(0, (s, i) => s + i.weight * i.touch) / totalWt
-        : 0.0;
-    final ratePerGram = (totalPure > 0
-            ? items.fold<double>(0, (s, i) => s + i.value) / totalPure
-            : GoldLedger.goldRate(_rates))
-        .toDouble();
-    final closing = double.tryParse(
-            (row['newGrams'] ?? row['balance'] ?? '0').toString()) ??
-        0;
-    final closingLabel =
-        closing.abs() < 0.0005 ? 'NIL' : '${closing.toStringAsFixed(3)} g';
-    final kind = row['transactionType'] == 'PURCHASE' ? 'PUR' : 'SAL';
-    final paymentMode = (row['paymentMode'] ?? '').toString();
-    final cashReceived = paymentMode == 'CASH'
-        ? (double.tryParse((row['paymentAmount'] ?? '0').toString()) ?? 0.0)
-        : 0.0;
+  }
 
+  double _weightedBillRate(List<BillLineItem> items) {
+    var pure = 0.0;
+    var weighted = 0.0;
+    for (final item in items) {
+      pure += item.pureWt;
+      weighted += item.pureWt * item.rate;
+    }
+    return pure > 0 ? weighted / pure : 0;
+  }
+
+  Future<Uint8List> _buildGstInvoicePdf(
+    Map<String, dynamic> row, {
+    SalesInvoiceFormat? salesInvoiceFormat,
+  }) async {
+    final items = _itemsFromRow(row);
+    final isSalesBill = row['transactionType'] == 'SALES';
+    final tdsApplicable = (row['tdsApplicable'] as int? ?? 0) == 1;
+    final tcsApplicable = (row['tcsApplicable'] as int? ?? 0) == 1;
+    final tdsAmount =
+        double.tryParse((row['tdsAmount'] ?? '0').toString()) ?? 0;
+    final tcsAmount =
+        double.tryParse((row['tcsAmount'] ?? '0').toString()) ?? 0;
+    final totals = _taxTotalsFromRow(row, items);
+    final salesFormat = isSalesBill
+        ? (salesInvoiceFormat ?? await SalesInvoicePrefs.getFormat())
+        : null;
     final doc = await PdfKit.document();
-    doc.addPage(
-      EstimateReceiptPdf.buildPage(
-        transactionLabel:
-            row['transactionType'] == 'PURCHASE' ? 'PURCHASE' : 'SALES',
-        billKind: kind,
-        row: row,
-        phone: phone,
-        items: [
-          for (final item in items)
-            ReceiptLineItem(
-              token: item.type,
-              weight: item.weight,
-              touch: item.touch,
-              pureWt: item.pureWt,
-            ),
-        ],
-        totalWt: totalWt,
-        totalPure: totalPure,
-        avgTouch: avgTouch,
-        ratePerGram: ratePerGram,
-        closingLabel: closingLabel,
-        cashReceived: cashReceived,
-        paymentMode: paymentMode,
-      ),
-    );
+    final salesCopyLabels = salesFormat == SalesInvoiceFormat.simple
+        ? [SimpleSalesTaxInvoicePdf.copyOriginalForBuyer]
+        : [
+            SalesTaxInvoicePdf.copyOriginalForRecipient,
+            SalesTaxInvoicePdf.copyDuplicateForTransporter,
+          ];
+    for (final copyLabel in salesCopyLabels) {
+      doc.addPage(
+        isSalesBill
+            ? (salesFormat == SalesInvoiceFormat.simple
+                ? SimpleSalesTaxInvoicePdf.buildPage(
+                    buyer: PartyBillingProfile.fromTransactionRow(row),
+                    row: row,
+                    items: items,
+                    totals: totals,
+                    copyLabel: copyLabel,
+                  )
+                : SalesTaxInvoicePdf.buildPage(
+                    buyer: PartyBillingProfile.fromTransactionRow(row),
+                    row: row,
+                    items: items,
+                    totals: totals,
+                    tdsApplicable: tdsApplicable,
+                    tcsApplicable: tcsApplicable,
+                    tdsAmount: tdsAmount,
+                    tcsAmount: tcsAmount,
+                    copyLabel: copyLabel,
+                  ))
+            : PurchaseTaxInvoicePdf.buildPage(
+                row: row,
+                items: items,
+                totals: totals,
+                tdsApplicable: tdsApplicable,
+                tcsApplicable: tcsApplicable,
+                tdsAmount: tdsAmount,
+                tcsAmount: tcsAmount,
+                copyLabel: copyLabel,
+              ),
+      );
+    }
     return doc.save();
   }
 
-  Future<Uint8List> _buildAccountsPdf(Map<String, dynamic> row) async {
+  Future<Uint8List> _buildAccountsSlipPdf(Map<String, dynamic> row) async {
     final items = _itemsFromRow(row);
     final phone = await DatabaseHelper.instance.getPartyPhone(
       (row['partyName'] ?? '').toString(),
@@ -1094,25 +1865,93 @@ class _TransactionScreenState extends State<TransactionScreen>
     );
   }
 
-  Future<void> _sharePdf(
+  String _billPdfFileName(
     Map<String, dynamic> row, {
-    required bool estimate,
+    required bool gstInvoice,
+    SalesInvoiceFormat? salesInvoiceFormat,
+  }) {
+    final isSales = row['transactionType'] == 'SALES';
+    final kind = isSales ? 'sales' : 'purchase';
+    if (!gstInvoice) {
+      return '${kind}_accounts_slip_${row['billNo']}.pdf';
+    }
+    if (isSales && salesInvoiceFormat == SalesInvoiceFormat.simple) {
+      return '${kind}_simple_invoice_${row['billNo']}.pdf';
+    }
+    return '${kind}_gst_invoice_${row['billNo']}.pdf';
+  }
+
+  Future<void> _saveAndPrintBillPdf(
+    Map<String, dynamic> row, {
+    required bool gstInvoice,
+    SalesInvoiceFormat? salesInvoiceFormat,
+  }) async {
+    if (_sharingPdf) return;
+    _sharingPdf = true;
+    try {
+      final bytes = gstInvoice
+          ? await _buildGstInvoicePdf(
+              row,
+              salesInvoiceFormat: salesInvoiceFormat,
+            )
+          : await _buildAccountsSlipPdf(row);
+      final fileName = _billPdfFileName(
+        row,
+        gstInvoice: gstInvoice,
+        salesInvoiceFormat: salesInvoiceFormat,
+      );
+      final file = await PdfKit.savePdf(bytes: bytes, fileName: fileName);
+      if (!mounted) return;
+      _showMessage('PDF saved: ${file.path}');
+      final printed = await PdfPrint.showDialog(
+        bytes: bytes,
+        documentName: fileName,
+      );
+      if (!mounted) return;
+      if (!printed) {
+        _showMessage(
+          'Print cancelled or unavailable. PDF is saved — open it from ${file.path}',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        _showMessage('Saved bill PDF but could not open print: $e');
+      }
+    } finally {
+      _sharingPdf = false;
+    }
+  }
+
+  Future<void> _shareBillPdf(
+    Map<String, dynamic> row, {
+    required bool gstInvoice,
+    SalesInvoiceFormat? salesInvoiceFormat,
     bool openAfterSave = true,
   }) async {
     if (_sharingPdf) return;
     _sharingPdf = true;
     try {
-      final bytes =
-          estimate ? await _buildEstimatePdf(row) : await _buildAccountsPdf(row);
-      final kind = _isPurchase ? 'purchase' : 'sales';
-      final type = estimate ? 'estimate' : 'accounts';
+      final bytes = gstInvoice
+          ? await _buildGstInvoicePdf(
+              row,
+              salesInvoiceFormat: salesInvoiceFormat,
+            )
+          : await _buildAccountsSlipPdf(row);
+      final label = !gstInvoice
+          ? 'Accounts slip'
+          : (salesInvoiceFormat == SalesInvoiceFormat.simple
+              ? 'Simple invoice'
+              : 'GST invoice');
       final file = await PdfKit.sharePdf(
         bytes: bytes,
-        fileName: '${kind}_${type}_${row['billNo']}.pdf',
-        subject:
-            '${estimate ? 'Estimate' : 'Accounts bill'} #${row['billNo']} - ${row['partyName'] ?? ''}',
+        fileName: _billPdfFileName(
+          row,
+          gstInvoice: gstInvoice,
+          salesInvoiceFormat: salesInvoiceFormat,
+        ),
+        subject: '$label #${row['billNo']} - ${row['partyName'] ?? ''}',
         text:
-            '${_isPurchase ? 'Purchase' : 'Sales'} ${estimate ? 'estimate' : 'accounts bill'}. '
+            '$label (bill #${row['billNo']}). '
             'Share this PDF, then print from the share app or the opened PDF window.',
         openAfterSave: openAfterSave,
       );
@@ -1124,9 +1963,6 @@ class _TransactionScreenState extends State<TransactionScreen>
       _sharingPdf = false;
     }
   }
-
-  Future<void> _shareEstimate(Map<String, dynamic> row) =>
-      _sharePdf(row, estimate: true, openAfterSave: false);
 
   String _historyCsvEscape(String value) {
     if (value.contains(',') || value.contains('"') || value.contains('\n')) {
@@ -1194,6 +2030,31 @@ class _TransactionScreenState extends State<TransactionScreen>
       ),
     );
   }
+  Widget _partyNameField() {
+    final field = PartySearchField(
+      label: _isCustomerParty ? 'Customer Name' : 'Supplier Name',
+      controller: _partyController,
+      onFocusNodeReady: _bindPartyFocus,
+      parties: _partySuggestions,
+      helperText: 'Search saved name, mobile, or city',
+      readOnly: _editingTransactionId != null,
+      onFocus: _refreshParties,
+      onSelected: _selectParty,
+      onFieldSubmitted: () => _advanceFromParty(_partyController.text),
+      onChanged: _onPartyNameChanged,
+    );
+    if (Responsive.isCompact(context)) {
+      return KeyedSubtree(
+        key: const Key('party_name_field'),
+        child: field,
+      );
+    }
+    return KeyedSubtree(
+      key: const Key('party_name_field'),
+      child: SizedBox(width: FieldSizes.name, child: field),
+    );
+  }
+
   Widget _buildFormCard() {
     return Container(
       decoration: BoxDecoration(
@@ -1203,52 +2064,88 @@ class _TransactionScreenState extends State<TransactionScreen>
       ),
       padding: const EdgeInsets.all(16),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text(
-                _numberLabel,
-                style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.mutedBlue),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                "$_nextBillNo",
-                style: const TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.bold),
-              ),
-              const Spacer(),
-              Text(
-                DateFormat("dd-MM-yyyy  hh:mm a").format(DateTime.now()),
-                style: const TextStyle(
-                    fontSize: 11.5, color: Colors.black54),
-              ),
-            ],
+          TransactionBillHeader(
+            numberLabel: _numberLabel,
+            billNumber: '$_nextBillNo',
+            dateTimeText: DateFormat('dd-MM-yyyy  hh:mm a').format(DateTime.now()),
           ),
           const SizedBox(height: 12),
-          SizedBox(
-            width: FieldSizes.name,
-            child: PartySearchField(
-              label: _isCustomerParty
-                  ? 'Customer Name'
-                  : 'Supplier Name',
-              controller: _partyController,
-              onFocusNodeReady: _bindPartyFocus,
-              parties: _partySuggestions,
-              helperText: 'Search saved name, mobile, or city',
-              onFocus: _refreshParties,
-              onSelected: _selectParty,
-              onFieldSubmitted: () => _advanceFromParty(_partyController.text),
-              onChanged: _onPartyNameChanged,
+          if (_isPurchase) ...[
+            _purchasePoFields(),
+            const SizedBox(height: 10),
+          ],
+          _partyNameField(),
+          if (!_isVoucher && _partyController.text.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            PartyBillingFields(
+              compact: true,
+              addressController: _partyAddressController,
+              cityController: _partyCityController,
+              pincodeController: _partyPincodeController,
+              gstinController: _partyGstinController,
+              stateController: _partyStateController,
+              addressFocus: _partyAddressFocus,
+              cityFocus: _partyCityFocus,
+              pincodeFocus: _partyPincodeFocus,
+              gstinFocus: _partyGstinFocus,
+              stateFocus: _partyStateFocus,
+              onAddressSubmitted: () => FocusChain.focusNextFrame(
+                _partyCityFocus,
+                controller: _partyCityController,
+              ),
+              onCitySubmitted: () => FocusChain.focusNextFrame(
+                _partyPincodeFocus,
+                controller: _partyPincodeController,
+              ),
+              onPincodeSubmitted: () => FocusChain.focusNextFrame(
+                _partyGstinFocus,
+                controller: _partyGstinController,
+              ),
+              onGstinSubmitted: () => FocusChain.focusNextFrame(
+                _partyStateFocus,
+                controller: _partyStateController,
+              ),
+              onStateSubmitted: _focusAfterState,
             ),
-          ),
-          if (_partyController.text.trim().isNotEmpty &&
-              _partyOutstanding != null) ...[
+            if (_isSales) ...[
+              const SizedBox(height: 2),
+              SizedBox(
+                width: FieldSizes.billingEway,
+                child: TextFormField(
+                  controller: _ewayBillController,
+                  focusNode: _ewayBillFocus,
+                  style: const TextStyle(fontSize: 13),
+                  textInputAction: TextInputAction.next,
+                  onFieldSubmitted: (_) => _focusNarration(),
+                  decoration: const InputDecoration(
+                    labelText: 'E-Way Bill No (optional)',
+                    isDense: true,
+                  ),
+                ),
+              ),
+            ],
+            if (_partyOutstanding != null) ...[
+              const SizedBox(height: 8),
+              _currentBalanceStrip(),
+            ],
             const SizedBox(height: 8),
-            _currentBalanceStrip(),
+            SizedBox(
+              width: FieldSizes.billingAddress,
+              child: TextFormField(
+                controller: _billNarrationController,
+                focusNode: _billNarrationFocus,
+                maxLines: 2,
+                style: const TextStyle(fontSize: 13),
+                textInputAction: TextInputAction.done,
+                onFieldSubmitted: (_) => _focusAfterNarration(),
+                decoration: const InputDecoration(
+                  labelText: 'Narration',
+                  isDense: true,
+                ),
+              ),
+            ),
           ],
           if (_showPanels) ...[
             const SizedBox(height: 12),
@@ -1256,7 +2153,19 @@ class _TransactionScreenState extends State<TransactionScreen>
               builder: (context, constraints) {
                 final singlePanel = _hideIssuePanel || _hideReceiptPanel;
                 final stacked = constraints.maxWidth < 720 || singlePanel;
-                if (stacked) {
+                final receiptFirst = _isPurchase;
+
+                Widget panelColumn() {
+                  if (receiptFirst) {
+                    return Column(
+                      children: [
+                        if (!_hideReceiptPanel) _receiptPanel(),
+                        if (!_hideIssuePanel && !_hideReceiptPanel)
+                          const SizedBox(height: 10),
+                        if (!_hideIssuePanel) _issuePanel(),
+                      ],
+                    );
+                  }
                   return Column(
                     children: [
                       if (!_hideIssuePanel) _issuePanel(),
@@ -1266,20 +2175,43 @@ class _TransactionScreenState extends State<TransactionScreen>
                     ],
                   );
                 }
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (!_hideIssuePanel) Expanded(child: _issuePanel()),
-                    if (!_hideIssuePanel && !_hideReceiptPanel)
-                      const SizedBox(width: 10),
-                    if (!_hideReceiptPanel) Expanded(child: _receiptPanel()),
-                  ],
-                );
+
+                Widget panelRow() {
+                  if (receiptFirst) {
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (!_hideReceiptPanel) Expanded(child: _receiptPanel()),
+                        if (!_hideIssuePanel && !_hideReceiptPanel)
+                          const SizedBox(width: 10),
+                        if (!_hideIssuePanel) Expanded(child: _issuePanel()),
+                      ],
+                    );
+                  }
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (!_hideIssuePanel) Expanded(child: _issuePanel()),
+                      if (!_hideIssuePanel && !_hideReceiptPanel)
+                        const SizedBox(width: 10),
+                      if (!_hideReceiptPanel) Expanded(child: _receiptPanel()),
+                    ],
+                  );
+                }
+
+                if (stacked) {
+                  return panelColumn();
+                }
+                return panelRow();
               },
             ),
             if (_hasBillOrPaymentData) ...[
               const SizedBox(height: 10),
               _projectedBalanceBar(),
+            ],
+            if (!_isVoucher && _billLines.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              _taxTotalsSection(),
             ],
           ],
           const SizedBox(height: 10),
@@ -1309,11 +2241,101 @@ class _TransactionScreenState extends State<TransactionScreen>
       ),
     );
   }
+  Widget _taxTotalsSection() {
+    final totals = _billTaxTotals;
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppColors.cardWhite,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'GST TOTALS',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: AppColors.navy,
+            ),
+          ),
+          const SizedBox(height: 6),
+          for (var i = 0; i < _billLines.length; i++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${_billLines[i].type} — taxable ₹${_rupee(_billLines[i].tax.taxableValue)} '
+                      '(incl. ₹${_rupee(_billLines[i].tax.inclusiveAmount)}) '
+                      'CGST ${_billLines[i].cgstPercent}% / SGST ${_billLines[i].sgstPercent}%',
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.percent, size: 18),
+                    tooltip: 'Edit GST %',
+                    onPressed: () => _editBillLineTax(i),
+                  ),
+                ],
+              ),
+            ),
+          const Divider(height: 16),
+          _totalRow('Total taxable value', totals.totalTaxable),
+          _totalRow('Total inclusive of tax', totals.totalInclusive),
+          if (_isSales) ...[
+            CheckboxListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('TDS applicable', style: TextStyle(fontSize: 13)),
+              value: _tdsApplicable,
+              onChanged: (v) => setState(() => _tdsApplicable = v ?? false),
+            ),
+            if (_tdsApplicable)
+              TextField(
+                controller: _tdsAmountController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'TDS amount (manual)',
+                  isDense: true,
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+            CheckboxListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('TCS applicable', style: TextStyle(fontSize: 13)),
+              value: _tcsApplicable,
+              onChanged: (v) => setState(() => _tcsApplicable = v ?? false),
+            ),
+            if (_tcsApplicable)
+              TextField(
+                controller: _tcsAmountController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'TCS amount (manual)',
+                  isDense: true,
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+          ],
+          _totalRow('Grand total (invoice)', totals.grandTotal, highlight: true),
+        ],
+      ),
+    );
+  }
+
   Widget _compactField({
-    required double width,
+    double? width,
     required Widget child,
   }) {
-    return SizedBox(width: width, child: child);
+    if (width != null) return SizedBox(width: width, child: child);
+    return child;
   }
 
   Widget _panelShell({
@@ -1410,7 +2432,7 @@ class _TransactionScreenState extends State<TransactionScreen>
                 head('TOUCH %', flex: 2, align: TextAlign.right),
                 head('PURE WT', flex: 2, align: TextAlign.right),
                 if (showRate) head('RATE', flex: 2, align: TextAlign.right),
-                const SizedBox(width: 24),
+                const SizedBox(width: 48),
               ],
             ),
           ),
@@ -1422,12 +2444,14 @@ class _TransactionScreenState extends State<TransactionScreen>
 
   Widget _lineDataRow({
     required String type,
+    String? displayType,
     required double weight,
     required double touch,
     required double pureWt,
     double? cashAmount,
     double? rate,
     required VoidCallback onRemove,
+    VoidCallback? onEdit,
     int index = 0,
   }) {
     const cellStyle = TextStyle(fontSize: 12);
@@ -1448,7 +2472,7 @@ class _TransactionScreenState extends State<TransactionScreen>
       ),
       child: Row(
         children: [
-          cell(type, flex: 2),
+          cell(displayType ?? type, flex: 2),
           cell(
             isCash ? '₹${(cashAmount ?? 0).toStringAsFixed(2)}' : weight.toStringAsFixed(3),
             flex: 2,
@@ -1459,12 +2483,26 @@ class _TransactionScreenState extends State<TransactionScreen>
           if (rate != null)
             cell(rate.toStringAsFixed(0), flex: 2, align: TextAlign.right),
           SizedBox(
-            width: 24,
-            child: IconButton(
-              icon: const Icon(Icons.close, size: 15, color: Colors.redAccent),
-              onPressed: onRemove,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
+            width: 48,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                if (onEdit != null)
+                  IconButton(
+                    icon: const Icon(Icons.edit, size: 15, color: AppColors.navy),
+                    onPressed: onEdit,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    tooltip: 'Edit row',
+                  ),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 15, color: Colors.redAccent),
+                  onPressed: onRemove,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  tooltip: 'Remove row',
+                ),
+              ],
             ),
           ),
         ],
@@ -1480,172 +2518,216 @@ class _TransactionScreenState extends State<TransactionScreen>
     final cashAmount =
         double.tryParse(_paymentEntryAmount.text.trim()) ?? 0;
     final cashGold = GoldLedger.cashToGold(cashAmount, _goldRate);
+    final stack = Responsive.isCompact(context);
+    final fieldWidth = stack ? null : FieldSizes.paymentTypeDropdown;
+
+    final typeField = _compactField(
+      width: fieldWidth,
+      child: DropdownButtonFormField<String>(
+        value: _paymentEntryType,
+        isExpanded: true,
+        isDense: true,
+        decoration: const InputDecoration(
+          labelText: 'Type',
+          isDense: true,
+          contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        ),
+        items: _paymentItemTypes
+            .map(
+              (t) => DropdownMenuItem(
+                value: t,
+                child: Text(_receiptTypeLabel(t)),
+              ),
+            )
+            .toList(),
+        onChanged: enabled
+            ? (v) {
+                if (v == null) return;
+                _onPaymentTypeChanged(v);
+              }
+            : null,
+      ),
+    );
+
+    if (isCash) {
+      final amountField = _compactField(
+        width: stack ? null : FieldSizes.cash,
+        child: TextFormField(
+          controller: _paymentEntryAmount,
+          focusNode: _paymentEntryAmountFocus,
+          enabled: enabled,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+          ],
+          textAlign: TextAlign.right,
+          style: const TextStyle(fontSize: 13),
+          textInputAction: TextInputAction.done,
+          decoration: const InputDecoration(
+            labelText: '₹ Amount',
+            isDense: true,
+            contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+          ),
+          onTap: () => _paymentEntryAmount.selection = TextSelection(
+            baseOffset: 0,
+            extentOffset: _paymentEntryAmount.text.length,
+          ),
+          onFieldSubmitted: (_) => _commitPaymentEntry(),
+          onChanged: (_) => setState(() {}),
+        ),
+      );
+      final weightField = _compactField(
+        width: stack ? null : FieldSizes.weight,
+        child: InputDecorator(
+          decoration: InputDecoration(
+            labelText: '$prefix.Weight',
+            isDense: true,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+          ),
+          child: Text(
+            cashGold.toStringAsFixed(3),
+            textAlign: TextAlign.right,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+      if (stack) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            typeField,
+            const SizedBox(height: 6),
+            amountField,
+            const SizedBox(height: 6),
+            weightField,
+          ],
+        );
+      }
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          typeField,
+          const SizedBox(width: 6),
+          amountField,
+          const SizedBox(width: 6),
+          weightField,
+        ],
+      );
+    }
+
+    final weightField = _compactField(
+      width: stack ? null : FieldSizes.weight,
+      child: TextFormField(
+        controller: _paymentEntryWeight,
+        focusNode: _paymentEntryWeightFocus,
+        enabled: enabled,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        inputFormatters: [
+          FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+        ],
+        textAlign: TextAlign.right,
+        style: const TextStyle(fontSize: 13),
+        textInputAction: TextInputAction.next,
+        decoration: InputDecoration(
+          labelText: '$prefix.Weight',
+          isDense: true,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        ),
+        onTap: () => _paymentEntryWeight.selection = TextSelection(
+          baseOffset: 0,
+          extentOffset: _paymentEntryWeight.text.length,
+        ),
+        onChanged: (_) => setState(() {}),
+        onFieldSubmitted: (_) => FocusChain.focusNextFrame(
+          _paymentEntryTouchFocus,
+          controller: _paymentEntryTouch,
+        ),
+      ),
+    );
+    final touchField = _compactField(
+      width: stack ? null : FieldSizes.touch,
+      child: TextFormField(
+        controller: _paymentEntryTouch,
+        focusNode: _paymentEntryTouchFocus,
+        enabled: enabled,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        inputFormatters: [
+          TouchPercentInputFormatter(),
+        ],
+        textAlign: TextAlign.right,
+        style: const TextStyle(fontSize: 13),
+        textInputAction: TextInputAction.done,
+        decoration: InputDecoration(
+          labelText: '$prefix.Touch %',
+          isDense: true,
+          errorText: _paymentTouchError,
+          errorStyle: const TextStyle(fontSize: 10),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        ),
+        onTap: () => _paymentEntryTouch.selection = TextSelection(
+          baseOffset: 0,
+          extentOffset: _paymentEntryTouch.text.length,
+        ),
+        onFieldSubmitted: (_) => _commitPaymentEntry(),
+        onChanged: (_) => setState(() {
+          if (isValidTouchPercent(_paymentEntryTouch.text)) {
+            _paymentTouchError = null;
+          }
+        }),
+      ),
+    );
+    final pureField = _compactField(
+      width: stack ? null : FieldSizes.pure,
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: '$prefix.Pure Wt',
+          isDense: true,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        ),
+        child: Text(
+          _entryPure(_paymentEntryWeight, _paymentEntryTouch)
+              .toStringAsFixed(3),
+          textAlign: TextAlign.right,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+
+    if (stack) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          typeField,
+          const SizedBox(height: 6),
+          weightField,
+          const SizedBox(height: 6),
+          touchField,
+          const SizedBox(height: 6),
+          pureField,
+        ],
+      );
+    }
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        _compactField(
-          width: FieldSizes.paymentTypeDropdown,
-          child: DropdownButtonFormField<String>(
-            value: _paymentEntryType,
-            isExpanded: true,
-            isDense: true,
-            decoration: const InputDecoration(
-              labelText: 'Type',
-              isDense: true,
-              contentPadding:
-                  EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-            ),
-            items: _paymentItemTypes
-                .map(
-                  (t) => DropdownMenuItem(
-                    value: t,
-                    child: Text(t),
-                  ),
-                )
-                .toList(),
-            onChanged: enabled
-                ? (v) {
-                    if (v == null) return;
-                    _onPaymentTypeChanged(v);
-                  }
-                : null,
-          ),
-        ),
-        if (isCash) ...[
-          const SizedBox(width: 6),
-          _compactField(
-            width: FieldSizes.cash,
-            child: TextFormField(
-              controller: _paymentEntryAmount,
-              focusNode: _paymentEntryAmountFocus,
-              enabled: enabled,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-              ],
-              textAlign: TextAlign.right,
-              style: const TextStyle(fontSize: 13),
-              textInputAction: TextInputAction.done,
-              decoration: const InputDecoration(
-                labelText: '₹ Amount',
-                isDense: true,
-                contentPadding:
-                    EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-              ),
-              onTap: () => _paymentEntryAmount.selection = TextSelection(
-                baseOffset: 0,
-                extentOffset: _paymentEntryAmount.text.length,
-              ),
-              onFieldSubmitted: (_) => _commitPaymentEntry(),
-              onChanged: (_) => setState(() {}),
-            ),
-          ),
-          const SizedBox(width: 6),
-          _compactField(
-            width: FieldSizes.weight,
-            child: InputDecorator(
-              decoration: InputDecoration(
-                labelText: '$prefix.Weight',
-                isDense: true,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-              ),
-              child: Text(
-                cashGold.toStringAsFixed(3),
-                textAlign: TextAlign.right,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ),
-        ] else ...[
-          const SizedBox(width: 6),
-          _compactField(
-            width: FieldSizes.weight,
-            child: TextFormField(
-              controller: _paymentEntryWeight,
-              focusNode: _paymentEntryWeightFocus,
-              enabled: enabled,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-              ],
-              textAlign: TextAlign.right,
-              style: const TextStyle(fontSize: 13),
-              textInputAction: TextInputAction.next,
-              decoration: InputDecoration(
-                labelText: '$prefix.Weight',
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 6, vertical: 8),
-              ),
-              onTap: () => _paymentEntryWeight.selection = TextSelection(
-                baseOffset: 0,
-                extentOffset: _paymentEntryWeight.text.length,
-              ),
-              onChanged: (_) => setState(() {}),
-              onFieldSubmitted: (_) => FocusChain.focusNextFrame(
-                _paymentEntryTouchFocus,
-                controller: _paymentEntryTouch,
-              ),
-            ),
-          ),
-          const SizedBox(width: 6),
-          _compactField(
-            width: FieldSizes.touch,
-            child: TextFormField(
-              controller: _paymentEntryTouch,
-              focusNode: _paymentEntryTouchFocus,
-              enabled: enabled,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-              ],
-              textAlign: TextAlign.right,
-              style: const TextStyle(fontSize: 13),
-              textInputAction: TextInputAction.done,
-              decoration: InputDecoration(
-                labelText: '$prefix.Touch %',
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 6, vertical: 8),
-              ),
-              onTap: () => _paymentEntryTouch.selection = TextSelection(
-                baseOffset: 0,
-                extentOffset: _paymentEntryTouch.text.length,
-              ),
-              onFieldSubmitted: (_) => _commitPaymentEntry(),
-              onChanged: (_) => setState(() {}),
-            ),
-          ),
-          const SizedBox(width: 6),
-          _compactField(
-            width: FieldSizes.pure,
-            child: InputDecorator(
-              decoration: InputDecoration(
-                labelText: '$prefix.Pure Wt',
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 6, vertical: 8),
-              ),
-              child: Text(
-                _entryPure(_paymentEntryWeight, _paymentEntryTouch)
-                    .toStringAsFixed(3),
-                textAlign: TextAlign.right,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ),
-        ],
+        typeField,
+        const SizedBox(width: 6),
+        weightField,
+        const SizedBox(width: 6),
+        touchField,
+        const SizedBox(width: 6),
+        pureField,
       ],
     );
   }
@@ -1659,121 +2741,152 @@ class _TransactionScreenState extends State<TransactionScreen>
     required FocusNode weightFocus,
     required FocusNode touchFocus,
     required VoidCallback onTouchSubmitted,
+    String? touchError,
     bool enabled = true,
   }) {
     final pure = _entryPure(weight, touch);
+    final stack = Responsive.isCompact(context);
+
+    final typeField = _compactField(
+      width: stack ? null : FieldSizes.typeDropdown,
+      child: DropdownButtonFormField<String>(
+        value: selectedType,
+        isExpanded: true,
+        isDense: true,
+        decoration: const InputDecoration(
+          labelText: 'Type',
+          isDense: true,
+          contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        ),
+        items: _itemTypes
+            .map(
+              (t) => DropdownMenuItem(
+                value: t,
+                child: Text(t),
+              ),
+            )
+            .toList(),
+        onChanged: enabled
+            ? (v) {
+                if (v == null) return;
+                onTypeChanged(v);
+                FocusChain.focusNextFrame(weightFocus, controller: weight);
+              }
+            : null,
+      ),
+    );
+    final weightField = _compactField(
+      width: stack ? null : FieldSizes.weight,
+      child: TextFormField(
+        controller: weight,
+        focusNode: weightFocus,
+        enabled: enabled,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        inputFormatters: [
+          FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+        ],
+        textAlign: TextAlign.right,
+        style: const TextStyle(fontSize: 13),
+        textInputAction: TextInputAction.next,
+        decoration: InputDecoration(
+          labelText: '$prefix.Weight',
+          isDense: true,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        ),
+        onTap: () => weight.selection = TextSelection(
+          baseOffset: 0,
+          extentOffset: weight.text.length,
+        ),
+        onChanged: (_) => setState(() {}),
+        onFieldSubmitted: (_) => FocusChain.focusNextFrame(
+          touchFocus,
+          controller: touch,
+        ),
+      ),
+    );
+    final touchField = _compactField(
+      width: stack ? null : FieldSizes.touch,
+      child: TextFormField(
+        controller: touch,
+        focusNode: touchFocus,
+        enabled: enabled,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        inputFormatters: [
+          TouchPercentInputFormatter(),
+        ],
+        textAlign: TextAlign.right,
+        style: const TextStyle(fontSize: 13),
+        textInputAction: TextInputAction.done,
+        decoration: InputDecoration(
+          labelText: '$prefix.Touch %',
+          isDense: true,
+          errorText: touchError,
+          errorStyle: const TextStyle(fontSize: 10),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        ),
+        onTap: () => touch.selection = TextSelection(
+          baseOffset: 0,
+          extentOffset: touch.text.length,
+        ),
+        onFieldSubmitted: (_) => onTouchSubmitted(),
+        onChanged: (_) => setState(() {
+          if (isValidTouchPercent(touch.text)) {
+            if (touch == _billEntryTouch) {
+              _billTouchError = null;
+            } else if (touch == _paymentEntryTouch) {
+              _paymentTouchError = null;
+            }
+          }
+        }),
+      ),
+    );
+    final pureField = _compactField(
+      width: stack ? null : FieldSizes.pure,
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: '$prefix.Pure Wt',
+          isDense: true,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        ),
+        child: Text(
+          pure.toStringAsFixed(3),
+          textAlign: TextAlign.right,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+
+    if (stack) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          typeField,
+          const SizedBox(height: 6),
+          weightField,
+          const SizedBox(height: 6),
+          touchField,
+          const SizedBox(height: 6),
+          pureField,
+        ],
+      );
+    }
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        _compactField(
-          width: FieldSizes.typeDropdown,
-          child: DropdownButtonFormField<String>(
-            value: selectedType,
-            isExpanded: true,
-            isDense: true,
-            decoration: const InputDecoration(
-              labelText: 'Type',
-              isDense: true,
-              contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-            ),
-            items: _itemTypes
-                .map(
-                  (t) => DropdownMenuItem(
-                    value: t,
-                    child: Text(t),
-                  ),
-                )
-                .toList(),
-            onChanged: enabled
-                ? (v) {
-                    if (v == null) return;
-                    onTypeChanged(v);
-                    FocusChain.focusNextFrame(weightFocus, controller: weight);
-                  }
-                : null,
-          ),
-        ),
+        typeField,
         const SizedBox(width: 6),
-        _compactField(
-          width: FieldSizes.weight,
-          child: TextFormField(
-            controller: weight,
-            focusNode: weightFocus,
-            enabled: enabled,
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-            ],
-            textAlign: TextAlign.right,
-            style: const TextStyle(fontSize: 13),
-            textInputAction: TextInputAction.next,
-            decoration: InputDecoration(
-              labelText: '$prefix.Weight',
-              isDense: true,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-            ),
-            onTap: () => weight.selection = TextSelection(
-              baseOffset: 0,
-              extentOffset: weight.text.length,
-            ),
-            onChanged: (_) => setState(() {}),
-            onFieldSubmitted: (_) => FocusChain.focusNextFrame(
-              touchFocus,
-              controller: touch,
-            ),
-          ),
-        ),
+        weightField,
         const SizedBox(width: 6),
-        _compactField(
-          width: FieldSizes.touch,
-          child: TextFormField(
-            controller: touch,
-            focusNode: touchFocus,
-            enabled: enabled,
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-            ],
-            textAlign: TextAlign.right,
-            style: const TextStyle(fontSize: 13),
-            textInputAction: TextInputAction.done,
-            decoration: InputDecoration(
-              labelText: '$prefix.Touch %',
-              isDense: true,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-            ),
-            onTap: () => touch.selection = TextSelection(
-              baseOffset: 0,
-              extentOffset: touch.text.length,
-            ),
-            onFieldSubmitted: (_) => onTouchSubmitted(),
-            onChanged: (_) => setState(() {}),
-          ),
-        ),
+        touchField,
         const SizedBox(width: 6),
-        _compactField(
-          width: FieldSizes.pure,
-          child: InputDecorator(
-            decoration: InputDecoration(
-              labelText: '$prefix.Pure Wt',
-              isDense: true,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-            ),
-            child: Text(
-              pure.toStringAsFixed(3),
-              textAlign: TextAlign.right,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ),
+        pureField,
       ],
     );
   }
@@ -1800,15 +2913,36 @@ class _TransactionScreenState extends State<TransactionScreen>
       totalLabel: '$title total pure wt',
       totalPure: _billTotalPure,
       rows: [
+        _billEntryRateChip(),
         _metalEntryRow(
           prefix: prefix,
           selectedType: _billEntryType,
-          onTypeChanged: (v) => setState(() => _billEntryType = v),
+          onTypeChanged: (v) => setState(() {
+            _billEntryType = v;
+          }),
           weight: _billEntryWeight,
           touch: _billEntryTouch,
           weightFocus: _billEntryWeightFocus,
           touchFocus: _billEntryTouchFocus,
+          touchError: _billTouchError,
           onTouchSubmitted: _commitBillEntry,
+        ),
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: TextFormField(
+            controller: _billEntryDescription,
+            maxLength: 80,
+            decoration: InputDecoration(
+              labelText: 'Item description (optional)',
+              hintText: defaultItemDescriptionForType(_billEntryType),
+              isDense: true,
+              counterText: '',
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            ),
+            textInputAction: TextInputAction.done,
+            onFieldSubmitted: (_) => _commitBillEntry(),
+          ),
         ),
         _linesTable(
           showRate: false,
@@ -1820,6 +2954,7 @@ class _TransactionScreenState extends State<TransactionScreen>
                 weight: _billLines[i].weight,
                 touch: _billLines[i].touch,
                 pureWt: _billLines[i].pureWt,
+                onEdit: () => _editBillLine(i),
                 onRemove: () => setState(() => _billLines.removeAt(i)),
               ),
           ],
@@ -1845,10 +2980,12 @@ class _TransactionScreenState extends State<TransactionScreen>
               _lineDataRow(
                 index: i,
                 type: _paymentLines[i].type,
+                displayType: _receiptTypeLabel(_paymentLines[i].type),
                 weight: _paymentLines[i].weight,
                 touch: _paymentLines[i].touch,
                 cashAmount: _paymentLines[i].cashAmount,
                 pureWt: _paymentLines[i].pureWtAtRate(_goldRate),
+                onEdit: () => _editPaymentLine(i),
                 onRemove: () => setState(() => _paymentLines.removeAt(i)),
               ),
           ],
@@ -1988,14 +3125,29 @@ class _TransactionScreenState extends State<TransactionScreen>
                           fontSize: 10.5, color: Colors.black54),
                       overflow: TextOverflow.ellipsis,
                     ),
-                    trailing: row['fromLedger'] == true
-                        ? null
-                        : IconButton(
-                            icon: const Icon(Icons.delete,
-                                color: Colors.redAccent, size: 16),
-                            onPressed: () => _confirmDelete(row),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
+                    trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (row['fromLedger'] != true)
+                                IconButton(
+                                  icon: const Icon(Icons.edit,
+                                      color: AppColors.navy, size: 16),
+                                  onPressed: () => _loadBillForEdit(row),
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                  tooltip: 'Edit bill',
+                                ),
+                              IconButton(
+                                icon: const Icon(Icons.delete,
+                                    color: Colors.redAccent, size: 16),
+                                onPressed: () => _confirmDelete(row),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                                tooltip: row['fromLedger'] == true
+                                    ? 'Remove ledger entry'
+                                    : 'Delete bill',
+                              ),
+                            ],
                           ),
                   ),
                 );
@@ -2031,6 +3183,92 @@ class _TransactionScreenState extends State<TransactionScreen>
         ],
       ),
       body: content,
+    );
+  }
+
+  Widget _totalRow(String label, double value, {bool highlight = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: highlight ? AppColors.navy : AppColors.mutedBlue,
+              ),
+            ),
+          ),
+          Text(
+            '₹${_rupee(value)}',
+            style: TextStyle(
+              fontSize: highlight ? 15 : 13,
+              fontWeight: FontWeight.bold,
+              color: highlight ? AppColors.navy : Colors.black87,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Bill / voucher number and live timestamp above the entry form.
+class TransactionBillHeader extends StatelessWidget {
+  const TransactionBillHeader({
+    super.key,
+    required this.numberLabel,
+    required this.billNumber,
+    required this.dateTimeText,
+  });
+
+  final String numberLabel;
+  final String billNumber;
+  final String dateTimeText;
+
+  @override
+  Widget build(BuildContext context) {
+    const labelStyle = TextStyle(
+      fontSize: 12,
+      fontWeight: FontWeight.w600,
+      color: AppColors.mutedBlue,
+    );
+    const numberStyle = TextStyle(
+      fontSize: 15,
+      fontWeight: FontWeight.bold,
+    );
+    const dateStyle = TextStyle(
+      fontSize: 11.5,
+      color: Colors.black54,
+    );
+
+    if (Responsive.isCompact(context)) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(numberLabel, style: labelStyle),
+              const SizedBox(width: 8),
+              Text(billNumber, style: numberStyle),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(dateTimeText, style: dateStyle),
+        ],
+      );
+    }
+
+    return Row(
+      children: [
+        Text(numberLabel, style: labelStyle),
+        const SizedBox(width: 8),
+        Text(billNumber, style: numberStyle),
+        const Spacer(),
+        Text(dateTimeText, style: dateStyle),
+      ],
     );
   }
 }
