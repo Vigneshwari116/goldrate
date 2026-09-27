@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../api/api_reachability.dart';
 import '../config/api_config.dart';
-import '../api/api_client.dart';
 import '../navigation/app_page.dart';
+import '../sync/offline_cache_sync.dart';
 import '../theme/app_theme.dart';
 import '../util/session_prefs.dart';
 import 'app_shell.dart';
@@ -33,12 +36,10 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
 
   Future<_BootstrapData> _load() async {
     if (ApiConfig.useRemoteApi) {
-      final healthy = await ApiClient.checkHealth();
-      if (!healthy) {
-        return _BootstrapData(
-          loggedIn: false,
-          serverError: true,
-        );
+      final healthy = await ApiReachability.instance.probeHealth();
+      if (healthy) {
+        // Cache server data locally for offline use (best-effort, non-blocking).
+        unawaited(OfflineCacheSync.instance.pullFromServerIfOnline());
       }
     }
 
@@ -67,14 +68,6 @@ class _BootstrapScreenState extends State<BootstrapScreen> {
         }
 
         final data = snapshot.data ?? const _BootstrapData(loggedIn: false);
-        if (data.serverError) {
-          return _InitErrorView(
-            message:
-                'Cannot reach the server at ${ApiConfig.baseUrl}.\n'
-                'Check mobile data/Wi‑Fi and that the VPS API is running.',
-            onRetry: _retry,
-          );
-        }
 
         if (data.loggedIn) {
           return AppShell(initialPage: data.lastPage ?? AppPage.home);

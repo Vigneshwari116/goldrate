@@ -4,6 +4,7 @@ import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
 import '../util/focus_chain.dart';
 import '../util/session_prefs.dart';
+import '../widgets/connectivity_banner.dart';
 import 'app_shell.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -78,7 +79,11 @@ class _LoginScreenState extends State<LoginScreen> {
       appBar: AppBar(
         title: const Text("LOGIN"),
       ),
-      body: Padding(
+      body: Column(
+        children: [
+          const ConnectivityBanner(),
+          Expanded(
+            child: Padding(
         padding: const EdgeInsets.all(20),
         child: Center(
           child: ConstrainedBox(
@@ -150,6 +155,9 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
         ),
+            ),
+          ),
+        ],
       ),
     );
   }

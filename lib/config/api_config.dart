@@ -2,11 +2,11 @@
 class ApiConfig {
   ApiConfig._();
 
-  /// Your VPS IP + API port.
-  /// Change to https://yourdomain.com/api when you add SSL.
-  static const String baseUrl = 'http://187.127.180.135:3002/api';
+  /// Production API (PostgreSQL on VPS).
+  static const String baseUrl = 'https://gold.winagrum.tech/api';
 
-  /// Set true to use VPS PostgreSQL via API instead of local SQLite.
+  /// When true, each operation tries the remote API first and falls back to
+  /// local SQLite / web storage if the server is unreachable.
   static const bool useRemoteApi = true;
 }
 
