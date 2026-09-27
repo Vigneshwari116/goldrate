@@ -553,4 +553,31 @@ class ApiClient {
       }
     }
   }
+
+  /// Replays one queued offline write (see [PendingSyncService]).
+  static Future<void> replayPending({
+    required String method,
+    required String path,
+    String? bodyJson,
+  }) async {
+    final upper = method.toUpperCase();
+    http.Response res;
+    switch (upper) {
+      case 'POST':
+        res = await _post(path, body: bodyJson);
+        break;
+      case 'PUT':
+        res = await _put(path, body: bodyJson);
+        break;
+      case 'DELETE':
+        res = await _delete(path);
+        break;
+      default:
+        throw Exception('Unsupported sync method: $method');
+    }
+    if (res.statusCode >= 400) {
+      final body = _parseBody(res);
+      throw Exception(body is Map ? (body['error'] ?? res.body) : res.body);
+    }
+  }
 }

@@ -5,6 +5,7 @@ import '../navigation/app_page.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
 import '../util/session_prefs.dart';
+import '../widgets/connectivity_banner.dart';
 import 'backup_screen.dart';
 import 'customer_master_screen.dart';
 import 'history_screen.dart';
@@ -607,7 +608,11 @@ class _AppShellState extends State<AppShell> {
           ],
         ),
       ),
-      body: LayoutBuilder(
+      body: Column(
+        children: [
+          const ConnectivityBanner(),
+          Expanded(
+            child: LayoutBuilder(
         builder: (context, constraints) {
           final compact = Responsive.isCompact(context);
 
@@ -645,6 +650,9 @@ class _AppShellState extends State<AppShell> {
             ],
           );
         },
+            ),
+          ),
+        ],
       ),
     );
   }

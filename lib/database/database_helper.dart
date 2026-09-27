@@ -1,13 +1,14 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:path/path.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../api/api_client.dart';
+import '../api/api_reachability.dart';
 import '../config/api_config.dart';
+import 'db_path.dart';
+import 'remote_fallback.dart';
+import '../sync/pending_sync_service.dart';
 import '../logic/rate_rows.dart';
 import '../logic/gold_ledger.dart';
 import '../logic/transaction_records.dart';
@@ -542,28 +543,31 @@ class DatabaseHelper {
   }
 
   Future<bool> checkLogin(String username, String password) async {
-    if (ApiConfig.useRemoteApi) {
-      return ApiClient.checkLogin(username, password);
-    }
-    final db = await database;
-
-    final result = await db.query(
-      'users',
-      where: 'username = ? AND password = ?',
-      whereArgs: [username, password],
+    return remoteFirst(
+      remote: () => ApiClient.checkLogin(username, password),
+      local: () async {
+        final db = await database;
+        final result = await db.query(
+          'users',
+          where: 'username = ? AND password = ?',
+          whereArgs: [username, password],
+        );
+        return result.isNotEmpty;
+      },
     );
-
-    return result.isNotEmpty;
   }
 
   Future<List<Map<String, dynamic>>> getRates() async {
-    if (ApiConfig.useRemoteApi) {
-      return RateRows.canonical(await ApiClient.getRates());
-    }
-    await ensureDefaultRates();
-    final db = await database;
-    final rows = await db.query('rates', orderBy: 'id');
-    return RateRows.canonical(rows);
+    return remoteFirst(
+      remote: () async =>
+          RateRows.canonical(await ApiClient.getRates()),
+      local: () async {
+        await ensureDefaultRatesLocal();
+        final db = await database;
+        final rows = await db.query('rates', orderBy: 'id');
+        return RateRows.canonical(rows);
+      },
+    );
   }
 
   /// Daily Rate rows for the UI — always returns four named slots.
@@ -598,10 +602,13 @@ class DatabaseHelper {
 
   /// Ensures the four daily rate rows exist (blank values on fresh install).
   Future<void> ensureDefaultRates() async {
-    if (ApiConfig.useRemoteApi) {
-      await ApiClient.ensureDefaultRates();
-      return;
-    }
+    await remoteFirstVoid(
+      remote: () => ApiClient.ensureDefaultRates(),
+      local: ensureDefaultRatesLocal,
+    );
+  }
+
+  Future<void> ensureDefaultRatesLocal() async {
     await _repairRatesTable();
   }
 
@@ -633,16 +640,26 @@ class DatabaseHelper {
   /// Rates keyed by rateName (e.g. 'G.P RATE' -> 15100), parsed to double.
   /// A rate that hasn't been set yet (blank) is simply left out of the map.
   Future<Map<String, double>> getRatesMap() async {
-    if (ApiConfig.useRemoteApi) return ApiClient.getRatesMap();
-    final rows = canonicalRateRows(await getRates());
-    final map = <String, double>{};
-    for (final row in rows) {
-      final value = double.tryParse((row['rateValue'] ?? '').toString());
-      if (value != null) {
-        map[row['rateName'] as String] = value;
-      }
-    }
-    return map;
+    return remoteFirst(
+      remote: () => ApiClient.getRatesMap(),
+      local: () async {
+        final rows = canonicalRateRows(await getRatesLocalOnly());
+        final map = <String, double>{};
+        for (final row in rows) {
+          final value = double.tryParse((row['rateValue'] ?? '').toString());
+          if (value != null) {
+            map[row['rateName'] as String] = value;
+          }
+        }
+        return map;
+      },
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getRatesLocalOnly() async {
+    await ensureDefaultRatesLocal();
+    final db = await database;
+    return RateRows.canonical(await db.query('rates', orderBy: 'id'));
   }
 
   /// True when [rateValue] is unchanged — skip update/history on re-save.
@@ -704,10 +721,10 @@ class DatabaseHelper {
       String date,
       String time,
       ) async {
-    if (ApiConfig.useRemoteApi) {
-      return ApiClient.updateRate(id, rateName, value, date, time);
-    }
-    final db = await database;
+    return remoteFirst(
+      remote: () => ApiClient.updateRate(id, rateName, value, date, time),
+      local: () async {
+        final db = await database;
 
     final currentRows = await db.query(
       'rates',
@@ -741,23 +758,42 @@ class DatabaseHelper {
     }
 
     return rowsAffected;
+      },
+      queueIfLocal: PendingSyncEntry.put(
+        '/rates/$id',
+        {
+          'rateName': rateName,
+          'rateValue': value,
+          'date': date,
+          'time': time,
+        },
+      ),
+    );
   }
 
   Future<void> setRatesLastSaved(String date, String time) async {
-    if (ApiConfig.useRemoteApi) {
-      return ApiClient.setRatesLastSaved(date, time);
-    }
-    final db = await database;
-    await db.insert(
-      'rate_meta',
-      {'id': 1, 'lastDate': date, 'lastTime': time},
-      conflictAlgorithm: ConflictAlgorithm.replace,
+    await remoteFirstVoid(
+      remote: () => ApiClient.setRatesLastSaved(date, time),
+      local: () async {
+        final db = await database;
+        await db.insert(
+          'rate_meta',
+          {'id': 1, 'lastDate': date, 'lastTime': time},
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      },
+      queueIfLocal: PendingSyncEntry.post(
+        '/rates/last-saved',
+        {'date': date, 'time': time},
+      ),
     );
   }
 
   Future<Map<String, dynamic>> getUpdateStats() async {
-    if (ApiConfig.useRemoteApi) return ApiClient.getUpdateStats();
-    final db = await database;
+    return remoteFirst(
+      remote: () => ApiClient.getUpdateStats(),
+      local: () async {
+        final db = await database;
 
     final countResult =
     await db.rawQuery('SELECT COUNT(*) as count FROM rate_history');
@@ -789,113 +825,135 @@ class DatabaseHelper {
       'lastDate': metaDate.isNotEmpty ? metaDate : histDate,
       'lastTime': metaTime.isNotEmpty ? metaTime : histTime,
     };
+      },
+    );
   }
 
   Future<List<Map<String, dynamic>>> getRateHistory() async {
-    if (ApiConfig.useRemoteApi) return ApiClient.getRateHistory();
-    final db = await database;
-    return await db.query('rate_history', orderBy: 'id DESC');
+    return remoteFirst(
+      remote: () => ApiClient.getRateHistory(),
+      local: () async {
+        final db = await database;
+        return await db.query('rate_history', orderBy: 'id DESC');
+      },
+    );
   }
 
 
-  /// On desktop, sqflite's default path sits under the app install folder
-  /// (e.g. C:\Program Files\...), which is read-only on Windows. Store the
-  /// database in the per-user application support directory instead.
   Future<String> _resolveDatabasePath() async {
-    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-      final supportDir = await getApplicationSupportDirectory();
-      final dbDir = Directory(join(supportDir.path, 'databases'));
-      if (!await dbDir.exists()) {
-        await dbDir.create(recursive: true);
-      }
-
-      final newPath = join(dbDir.path, 'jewellery.db');
-      final legacyPath = join(await getDatabasesPath(), 'jewellery.db');
-      final legacyFile = File(legacyPath);
-      final newFile = File(newPath);
-      if (await legacyFile.exists() && !await newFile.exists()) {
-        await legacyFile.copy(newPath);
-      }
-      return newPath;
-    }
-
-    return join(await getDatabasesPath(), 'jewellery.db');
+    return resolveJewelleryDatabasePath();
   }
 
   Future<String> getDatabasePath() async {
-    if (ApiConfig.useRemoteApi) {
+    if (ApiConfig.useRemoteApi && ApiReachability.instance.isOnline.value) {
       return 'remote:${ApiConfig.baseUrl}';
     }
     return _resolveDatabasePath();
   }
 
   Future<int> insertCustomer(Map<String, dynamic> customer) async {
-    if (ApiConfig.useRemoteApi) return ApiClient.insertCustomer(customer);
-    final db = await database;
-    return await db.insert('customers', customer);
+    return remoteFirst(
+      remote: () => ApiClient.insertCustomer(customer),
+      local: () async {
+        final db = await database;
+        return await db.insert('customers', customer);
+      },
+      queueIfLocal: PendingSyncEntry.post('/customers', customer),
+    );
   }
 
   Future<List<Map<String, dynamic>>> getCustomers() async {
-    if (ApiConfig.useRemoteApi) return ApiClient.getCustomers();
-    final db = await database;
-    return await db.query('customers', orderBy: 'id DESC');
+    return remoteFirst(
+      remote: () => ApiClient.getCustomers(),
+      local: () async {
+        final db = await database;
+        return await db.query('customers', orderBy: 'id DESC');
+      },
+    );
   }
 
-
   Future<int> deleteCustomer(int id) async {
-    if (ApiConfig.useRemoteApi) return ApiClient.deleteCustomer(id);
-    final db = await database;
-    return await db.delete(
-      'customers',
-      where: 'id = ?',
-      whereArgs: [id],
+    return remoteFirst(
+      remote: () => ApiClient.deleteCustomer(id),
+      local: () async {
+        final db = await database;
+        return await db.delete(
+          'customers',
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      },
+      queueIfLocal: PendingSyncEntry.delete('/customers/$id'),
     );
   }
 
   Future<int> deleteCustomersByName(String name) async {
-    if (ApiConfig.useRemoteApi) {
-      return ApiClient.deleteCustomersByName(name);
-    }
-    final db = await database;
-    return await db.delete(
-      'customers',
-      where: 'LOWER(name) = ?',
-      whereArgs: [name.trim().toLowerCase()],
+    return remoteFirst(
+      remote: () => ApiClient.deleteCustomersByName(name),
+      local: () async {
+        final db = await database;
+        return await db.delete(
+          'customers',
+          where: 'LOWER(name) = ?',
+          whereArgs: [name.trim().toLowerCase()],
+        );
+      },
+      queueIfLocal: PendingSyncEntry.delete(
+        '/customers/by-name/${Uri.encodeComponent(name.trim())}',
+      ),
     );
   }
 
-
   Future<int> insertSupplier(Map<String, dynamic> supplier) async {
-    if (ApiConfig.useRemoteApi) return ApiClient.insertSupplier(supplier);
-    final db = await database;
-    return await db.insert('suppliers', supplier);
+    return remoteFirst(
+      remote: () => ApiClient.insertSupplier(supplier),
+      local: () async {
+        final db = await database;
+        return await db.insert('suppliers', supplier);
+      },
+      queueIfLocal: PendingSyncEntry.post('/suppliers', supplier),
+    );
   }
 
   Future<List<Map<String, dynamic>>> getSuppliers() async {
-    if (ApiConfig.useRemoteApi) return ApiClient.getSuppliers();
-    final db = await database;
-    return await db.query('suppliers', orderBy: 'id DESC');
+    return remoteFirst(
+      remote: () => ApiClient.getSuppliers(),
+      local: () async {
+        final db = await database;
+        return await db.query('suppliers', orderBy: 'id DESC');
+      },
+    );
   }
 
   Future<int> deleteSupplier(int id) async {
-    if (ApiConfig.useRemoteApi) return ApiClient.deleteSupplier(id);
-    final db = await database;
-    return await db.delete(
-      'suppliers',
-      where: 'id = ?',
-      whereArgs: [id],
+    return remoteFirst(
+      remote: () => ApiClient.deleteSupplier(id),
+      local: () async {
+        final db = await database;
+        return await db.delete(
+          'suppliers',
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      },
+      queueIfLocal: PendingSyncEntry.delete('/suppliers/$id'),
     );
   }
 
   Future<int> deleteSuppliersByName(String name) async {
-    if (ApiConfig.useRemoteApi) {
-      return ApiClient.deleteSuppliersByName(name);
-    }
-    final db = await database;
-    return await db.delete(
-      'suppliers',
-      where: 'LOWER(name) = ?',
-      whereArgs: [name.trim().toLowerCase()],
+    return remoteFirst(
+      remote: () => ApiClient.deleteSuppliersByName(name),
+      local: () async {
+        final db = await database;
+        return await db.delete(
+          'suppliers',
+          where: 'LOWER(name) = ?',
+          whereArgs: [name.trim().toLowerCase()],
+        );
+      },
+      queueIfLocal: PendingSyncEntry.delete(
+        '/suppliers/by-name/${Uri.encodeComponent(name.trim())}',
+      ),
     );
   }
 
@@ -905,83 +963,107 @@ class DatabaseHelper {
     String name, {
     required bool isCustomer,
   }) async {
-    if (ApiConfig.useRemoteApi) {
-      return ApiClient.partyHasLinkedTransactions(
+    return remoteFirst(
+      remote: () => ApiClient.partyHasLinkedTransactions(
         name,
         isCustomer: isCustomer,
-      );
-    }
-    final trimmed = name.trim();
-    if (trimmed.isEmpty) return false;
-    final lower = trimmed.toLowerCase();
-    final db = await database;
+      ),
+      local: () async {
+        final trimmed = name.trim();
+        if (trimmed.isEmpty) return false;
+        final lower = trimmed.toLowerCase();
+        final db = await database;
 
-    final txnCount = Sqflite.firstIntValue(
-          await db.rawQuery(
-            'SELECT COUNT(*) FROM transactions WHERE LOWER(partyName) = ?',
-            [lower],
-          ),
-        ) ??
-        0;
-    if (txnCount > 0) return true;
+        final txnCount = Sqflite.firstIntValue(
+              await db.rawQuery(
+                'SELECT COUNT(*) FROM transactions WHERE LOWER(partyName) = ?',
+                [lower],
+              ),
+            ) ??
+            0;
+        if (txnCount > 0) return true;
 
-    final voucherCount = Sqflite.firstIntValue(
-          await db.rawQuery(
-            'SELECT COUNT(*) FROM vouchers WHERE LOWER(partyName) = ?',
-            [lower],
-          ),
-        ) ??
-        0;
-    if (voucherCount > 0) return true;
+        final voucherCount = Sqflite.firstIntValue(
+              await db.rawQuery(
+                'SELECT COUNT(*) FROM vouchers WHERE LOWER(partyName) = ?',
+                [lower],
+              ),
+            ) ??
+            0;
+        if (voucherCount > 0) return true;
 
-    final table = isCustomer ? 'customers' : 'suppliers';
-    final ledgerCount = Sqflite.firstIntValue(
-          await db.rawQuery(
-            'SELECT COUNT(*) FROM $table '
-            'WHERE LOWER(name) = ? AND billRef IS NOT NULL AND TRIM(billRef) != ?',
-            [lower, ''],
-          ),
-        ) ??
-        0;
-    return ledgerCount > 0;
+        final table = isCustomer ? 'customers' : 'suppliers';
+        final ledgerCount = Sqflite.firstIntValue(
+              await db.rawQuery(
+                'SELECT COUNT(*) FROM $table '
+                'WHERE LOWER(name) = ? AND billRef IS NOT NULL AND TRIM(billRef) != ?',
+                [lower, ''],
+              ),
+            ) ??
+            0;
+        return ledgerCount > 0;
+      },
+    );
   }
 
   Future<int> deleteLedgerByBillRef(
     String billRef, {
     required bool isCustomer,
   }) async {
-    if (ApiConfig.useRemoteApi) {
-      return ApiClient.deleteLedgerByBillRef(
+    return remoteFirst(
+      remote: () => ApiClient.deleteLedgerByBillRef(
         billRef,
         isCustomer: isCustomer,
-      );
-    }
-    final trimmed = billRef.trim();
-    if (trimmed.isEmpty) return 0;
-    final db = await database;
-    final table = isCustomer ? 'customers' : 'suppliers';
-    return await db.delete(
-      table,
-      where: 'billRef = ?',
-      whereArgs: [trimmed],
+      ),
+      local: () async {
+        final trimmed = billRef.trim();
+        if (trimmed.isEmpty) return 0;
+        final db = await database;
+        final table = isCustomer ? 'customers' : 'suppliers';
+        return await db.delete(
+          table,
+          where: 'billRef = ?',
+          whereArgs: [trimmed],
+        );
+      },
+      queueIfLocal: PendingSyncEntry.delete(
+        '/${isCustomer ? 'customers' : 'suppliers'}/by-bill-ref/${Uri.encodeComponent(billRef.trim())}',
+      ),
     );
   }
 
   Future<Map<String, dynamic>?> getOpeningWeight() async {
-    if (ApiConfig.useRemoteApi) return ApiClient.getOpeningWeight();
-    final db = await database;
-    final result = await db.query('opening_weight', limit: 1);
-    return result.isNotEmpty ? result.first : null;
+    return remoteFirst(
+      remote: () => ApiClient.getOpeningWeight(),
+      local: () async {
+        final db = await database;
+        final result = await db.query('opening_weight', limit: 1);
+        return result.isNotEmpty ? result.first : null;
+      },
+    );
   }
 
   Future<int> insertOpeningWeight(Map<String, dynamic> weight) async {
-    if (ApiConfig.useRemoteApi) return ApiClient.insertOpeningWeight(weight);
-    final existing = await getOpeningWeight();
-    if (existing != null) {
-      throw StateError('Opening weight has already been saved and is locked.');
-    }
+    return remoteFirst(
+      remote: () => ApiClient.insertOpeningWeight(weight),
+      local: () async {
+        final existing = await getOpeningWeightLocal();
+        if (existing != null) {
+          throw StateError(
+            'Opening weight has already been saved and is locked.',
+          );
+        }
+        final db = await database;
+        return await db.insert('opening_weight', weight);
+      },
+      queueIfLocal: PendingSyncEntry.post('/opening-weight', weight),
+    );
+  }
+
+  Future<Map<String, dynamic>?> getOpeningWeightLocal() async {
     final db = await database;
-    return await db.insert('opening_weight', weight);
+    final result = await db.query('opening_weight', limit: 1);
+    return result.isNotEmpty ? result.first : null;
   }
 
   // ---------- Transactions (Purchase / Sales) ----------
@@ -990,24 +1072,31 @@ class DatabaseHelper {
   /// Bill numbers restart from 1 and increment independently per type,
   /// matching the "BILL NO" column on the paper form.
   Future<int> getNextBillNo(String transactionType) async {
-    if (ApiConfig.useRemoteApi) {
-      return ApiClient.getNextBillNo(transactionType);
-    }
-    final db = await database;
-    final result = await db.rawQuery(
-      'SELECT MAX(billNo) as maxBill FROM transactions WHERE transactionType = ?',
-      [transactionType],
+    return remoteFirst(
+      remote: () => ApiClient.getNextBillNo(transactionType),
+      local: () async {
+        final db = await database;
+        final result = await db.rawQuery(
+          'SELECT MAX(billNo) as maxBill FROM transactions WHERE transactionType = ?',
+          [transactionType],
+        );
+        final maxBill =
+            result.isNotEmpty ? result.first['maxBill'] as int? : null;
+        return (maxBill ?? 0) + 1;
+      },
     );
-    final maxBill = result.isNotEmpty ? result.first['maxBill'] as int? : null;
-    return (maxBill ?? 0) + 1;
   }
 
   Future<List<Map<String, dynamic>>> _loadMergedTransactions() async {
-    final transactions = ApiConfig.useRemoteApi
-        ? await ApiClient.getAllTransactions()
-        : normalizeApiList(
-            await (await database).query('transactions', orderBy: 'id DESC'),
-          );
+    final transactions = await remoteFirst(
+      remote: () => ApiClient.getAllTransactions(),
+      local: () async {
+        final db = await database;
+        return normalizeApiList(
+          await db.query('transactions', orderBy: 'id DESC'),
+        );
+      },
+    );
     final customers = await getCustomers();
     final suppliers = await getSuppliers();
     return mergeTransactionsWithLedgerBills(
@@ -1018,7 +1107,9 @@ class DatabaseHelper {
   }
 
   Future<List<Map<String, dynamic>>> getAllTransactions() async {
-    if (ApiConfig.useRemoteApi) return _loadMergedTransactions();
+    if (ApiConfig.useRemoteApi) {
+      return _loadMergedTransactions();
+    }
     final db = await database;
     final transactions =
         normalizeApiList(await db.query('transactions', orderBy: 'id DESC'));
@@ -1032,9 +1123,14 @@ class DatabaseHelper {
   }
 
   Future<int> insertTransaction(Map<String, dynamic> transaction) async {
-    if (ApiConfig.useRemoteApi) return ApiClient.insertTransaction(transaction);
-    final db = await database;
-    return await db.insert('transactions', transaction);
+    return remoteFirst(
+      remote: () => ApiClient.insertTransaction(transaction),
+      local: () async {
+        final db = await database;
+        return await db.insert('transactions', transaction);
+      },
+      queueIfLocal: PendingSyncEntry.post('/transactions', transaction),
+    );
   }
 
   Future<List<Map<String, dynamic>>> getTransactions(
@@ -1050,12 +1146,17 @@ class DatabaseHelper {
   }
 
   Future<int> deleteTransaction(int id) async {
-    if (ApiConfig.useRemoteApi) return ApiClient.deleteTransaction(id);
-    final db = await database;
-    return await db.delete(
-      'transactions',
-      where: 'id = ?',
-      whereArgs: [id],
+    return remoteFirst(
+      remote: () => ApiClient.deleteTransaction(id),
+      local: () async {
+        final db = await database;
+        return await db.delete(
+          'transactions',
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      },
+      queueIfLocal: PendingSyncEntry.delete('/transactions/$id'),
     );
   }
 
@@ -1066,44 +1167,49 @@ class DatabaseHelper {
   /// is buying stock in), Sales looks up Customers (the shop is selling
   /// stock out).
   Future<List<String>> getDistinctPartyNames({required bool isCustomer}) async {
-    if (ApiConfig.useRemoteApi) {
-      return ApiClient.getDistinctPartyNames(isCustomer: isCustomer);
-    }
-    final db = await database;
-    final table = isCustomer ? 'customers' : 'suppliers';
-    final rows = await db.query(table, columns: ['name'], distinct: true);
-    final names = rows
-        .map((r) => (r['name'] ?? '').toString().trim())
-        .where((n) => n.isNotEmpty)
-        .toSet()
-        .toList();
-    names.sort();
-    return names;
+    return remoteFirst(
+      remote: () =>
+          ApiClient.getDistinctPartyNames(isCustomer: isCustomer),
+      local: () async {
+        final db = await database;
+        final table = isCustomer ? 'customers' : 'suppliers';
+        final rows = await db.query(table, columns: ['name'], distinct: true);
+        final names = rows
+            .map((r) => (r['name'] ?? '').toString().trim())
+            .where((n) => n.isNotEmpty)
+            .toSet()
+            .toList();
+        names.sort();
+        return names;
+      },
+    );
   }
 
   Future<String> getPartyPhone(
     String name, {
     required bool isCustomer,
   }) async {
-    if (ApiConfig.useRemoteApi) {
-      return ApiClient.getPartyPhone(name, isCustomer: isCustomer);
-    }
-    final trimmed = name.trim();
-    if (trimmed.isEmpty) return '';
-    final db = await database;
-    final table = isCustomer ? 'customers' : 'suppliers';
-    final rows = await db.query(
-      table,
-      columns: ['mobile'],
-      where: 'name = ?',
-      whereArgs: [trimmed],
-      orderBy: 'id DESC',
+    return remoteFirst(
+      remote: () => ApiClient.getPartyPhone(name, isCustomer: isCustomer),
+      local: () async {
+        final trimmed = name.trim();
+        if (trimmed.isEmpty) return '';
+        final db = await database;
+        final table = isCustomer ? 'customers' : 'suppliers';
+        final rows = await db.query(
+          table,
+          columns: ['mobile'],
+          where: 'name = ?',
+          whereArgs: [trimmed],
+          orderBy: 'id DESC',
+        );
+        for (final row in rows) {
+          final mobile = (row['mobile'] ?? '').toString().trim();
+          if (mobile.isNotEmpty) return mobile;
+        }
+        return '';
+      },
     );
-    for (final row in rows) {
-      final mobile = (row['mobile'] ?? '').toString().trim();
-      if (mobile.isNotEmpty) return mobile;
-    }
-    return '';
   }
 
   /// Sums every ledger row on record for this name into a running
@@ -1115,50 +1221,53 @@ class DatabaseHelper {
       String name, {
         required bool isCustomer,
       }) async {
-    if (ApiConfig.useRemoteApi) {
-      return ApiClient.getPartyOutstanding(name, isCustomer: isCustomer);
-    }
-    final db = await database;
-    final table = isCustomer ? 'customers' : 'suppliers';
-    final rows = await db.query(
-      table,
-      where: 'LOWER(name) = ?',
-      whereArgs: [name.trim().toLowerCase()],
+    return remoteFirst(
+      remote: () =>
+          ApiClient.getPartyOutstanding(name, isCustomer: isCustomer),
+      local: () async {
+        final db = await database;
+        final table = isCustomer ? 'customers' : 'suppliers';
+        final rows = await db.query(
+          table,
+          where: 'LOWER(name) = ?',
+          whereArgs: [name.trim().toLowerCase()],
+        );
+
+        double rupees = 0;
+        double grams = 0;
+        double crRupees = 0;
+        double drRupees = 0;
+        double crGrams = 0;
+        double drGrams = 0;
+
+        for (final row in rows) {
+          final cr = double.tryParse((row['cr'] ?? '').toString()) ?? 0;
+          final dr = double.tryParse((row['dr'] ?? '').toString()) ?? 0;
+          final unit = (row['balanceUnit'] ?? 'RUPEES').toString();
+          final net = unit == 'GRAMS'
+              ? partyLedgerRowGrams(row, isCustomer: isCustomer)
+              : dr - cr;
+          if (unit == 'GRAMS') {
+            grams += net;
+            crGrams += cr;
+            drGrams += dr;
+          } else {
+            rupees += net;
+            crRupees += cr;
+            drRupees += dr;
+          }
+        }
+
+        return {
+          'rupees': rupees,
+          'grams': grams,
+          'crRupees': crRupees,
+          'drRupees': drRupees,
+          'crGrams': crGrams,
+          'drGrams': drGrams,
+        };
+      },
     );
-
-    double rupees = 0;
-    double grams = 0;
-    double crRupees = 0;
-    double drRupees = 0;
-    double crGrams = 0;
-    double drGrams = 0;
-
-    for (final row in rows) {
-      final cr = double.tryParse((row['cr'] ?? '').toString()) ?? 0;
-      final dr = double.tryParse((row['dr'] ?? '').toString()) ?? 0;
-      final unit = (row['balanceUnit'] ?? 'RUPEES').toString();
-      final net = unit == 'GRAMS'
-          ? partyLedgerRowGrams(row, isCustomer: isCustomer)
-          : dr - cr;
-      if (unit == 'GRAMS') {
-        grams += net;
-        crGrams += cr;
-        drGrams += dr;
-      } else {
-        rupees += net;
-        crRupees += cr;
-        drRupees += dr;
-      }
-    }
-
-    return {
-      'rupees': rupees,
-      'grams': grams,
-      'crRupees': crRupees,
-      'drRupees': drRupees,
-      'crGrams': crGrams,
-      'drGrams': drGrams,
-    };
   }
 
   Future<List<String>> getDistinctStaffNames() async {
@@ -1192,83 +1301,102 @@ class DatabaseHelper {
   /// Uses raw [weight] from each bill line, not pureWt — consistent with the
   /// Daily Sales Report stock summary in [buildStockLedgerSummary].
   Future<Map<String, double>> getCurrentStock() async {
-    if (ApiConfig.useRemoteApi) return ApiClient.getCurrentStock();
-    final opening = await getOpeningWeight();
+    return remoteFirst(
+      remote: () => ApiClient.getCurrentStock(),
+      local: () async {
+        final opening = await getOpeningWeightLocal();
+        final stock = <String, double>{
+          'GWT': double.tryParse((opening?['gPureWt'] ?? '').toString()) ?? 0,
+          'FWT': double.tryParse((opening?['fineWt'] ?? '').toString()) ?? 0,
+          'KWT': double.tryParse((opening?['kachaWt'] ?? '').toString()) ?? 0,
+          'SWT': double.tryParse((opening?['silverWt'] ?? '').toString()) ?? 0,
+        };
 
-    final stock = <String, double>{
-      'GWT': double.tryParse((opening?['gPureWt'] ?? '').toString()) ?? 0,
-      'FWT': double.tryParse((opening?['fineWt'] ?? '').toString()) ?? 0,
-      'KWT': double.tryParse((opening?['kachaWt'] ?? '').toString()) ?? 0,
-      'SWT': double.tryParse((opening?['silverWt'] ?? '').toString()) ?? 0,
-    };
+        final db = await database;
+        final rows = await db.query('transactions');
 
-    final db = await database;
-    final rows = await db.query('transactions');
+        for (final row in rows) {
+          final sign = row['transactionType'] == 'PURCHASE' ? 1.0 : -1.0;
+          final itemsRaw = (row['items'] ?? '[]').toString();
 
-    for (final row in rows) {
-      final sign = row['transactionType'] == 'PURCHASE' ? 1.0 : -1.0;
-      final itemsRaw = (row['items'] ?? '[]').toString();
+          List<dynamic> items;
+          try {
+            items = jsonDecode(itemsRaw) as List<dynamic>;
+          } catch (_) {
+            continue;
+          }
 
-      List<dynamic> items;
-      try {
-        items = jsonDecode(itemsRaw) as List<dynamic>;
-      } catch (_) {
-        continue; // skip a malformed row instead of crashing the totals
-      }
-
-      for (final item in items) {
-        if (item is! Map) continue;
-        final type = (item['type'] ?? '').toString();
-        final weight = (item['weight'] as num?)?.toDouble() ??
-            (double.tryParse((item['weight'] ?? '').toString()) ?? 0);
-        if (stock.containsKey(type)) {
-          stock[type] = stock[type]! + (sign * weight);
+          for (final item in items) {
+            if (item is! Map) continue;
+            final type = (item['type'] ?? '').toString();
+            final weight = (item['weight'] as num?)?.toDouble() ??
+                (double.tryParse((item['weight'] ?? '').toString()) ?? 0);
+            if (stock.containsKey(type)) {
+              stock[type] = stock[type]! + (sign * weight);
+            }
+          }
         }
-      }
-    }
 
-    return stock;
+        return stock;
+      },
+    );
   }
 
   // ---------- Receipt / payment vouchers ----------
 
   Future<int> getNextVoucherNo(String voucherType) async {
-    if (ApiConfig.useRemoteApi) return ApiClient.getNextVoucherNo(voucherType);
-    final db = await database;
-    final result = await db.rawQuery(
-      'SELECT MAX(voucherNo) as maxNo FROM vouchers WHERE voucherType = ?',
-      [voucherType],
+    return remoteFirst(
+      remote: () => ApiClient.getNextVoucherNo(voucherType),
+      local: () async {
+        final db = await database;
+        final result = await db.rawQuery(
+          'SELECT MAX(voucherNo) as maxNo FROM vouchers WHERE voucherType = ?',
+          [voucherType],
+        );
+        final maxNo = result.isNotEmpty ? result.first['maxNo'] as int? : null;
+        return (maxNo ?? 0) + 1;
+      },
     );
-    final maxNo = result.isNotEmpty ? result.first['maxNo'] as int? : null;
-    return (maxNo ?? 0) + 1;
   }
 
   Future<int> insertVoucher(Map<String, dynamic> voucher) async {
-    if (ApiConfig.useRemoteApi) return ApiClient.insertVoucher(voucher);
-    final db = await database;
-    return await db.insert('vouchers', voucher);
+    return remoteFirst(
+      remote: () => ApiClient.insertVoucher(voucher),
+      local: () async {
+        final db = await database;
+        return await db.insert('vouchers', voucher);
+      },
+      queueIfLocal: PendingSyncEntry.post('/vouchers', voucher),
+    );
   }
 
   Future<List<Map<String, dynamic>>> getVouchers({String? voucherType}) async {
-    if (ApiConfig.useRemoteApi) {
-      return ApiClient.getVouchers(voucherType: voucherType);
-    }
-    final db = await database;
-    if (voucherType == null) {
-      return await db.query('vouchers', orderBy: 'id DESC');
-    }
-    return await db.query(
-      'vouchers',
-      where: 'voucherType = ?',
-      whereArgs: [voucherType],
-      orderBy: 'id DESC',
+    return remoteFirst(
+      remote: () => ApiClient.getVouchers(voucherType: voucherType),
+      local: () async {
+        final db = await database;
+        if (voucherType == null) {
+          return await db.query('vouchers', orderBy: 'id DESC');
+        }
+        return await db.query(
+          'vouchers',
+          where: 'voucherType = ?',
+          whereArgs: [voucherType],
+          orderBy: 'id DESC',
+        );
+      },
     );
   }
 
   Future<int> deleteVoucher(int id) async {
-    if (ApiConfig.useRemoteApi) return ApiClient.deleteVoucher(id);
-    final db = await database;
-    return await db.delete('vouchers', where: 'id = ?', whereArgs: [id]);
+    return remoteFirst(
+      remote: () => ApiClient.deleteVoucher(id),
+      local: () async {
+        final db = await database;
+        return await db.delete('vouchers', where: 'id = ?', whereArgs: [id]);
+      },
+      queueIfLocal: PendingSyncEntry.delete('/vouchers/$id'),
+    );
   }
 
   /// Creates a name-only master row so a bill can still show a running
@@ -1277,9 +1405,16 @@ class DatabaseHelper {
     String name, {
     required bool isCustomer,
   }) async {
-    if (ApiConfig.useRemoteApi) {
-      return ApiClient.ensureParty(name, isCustomer: isCustomer);
-    }
+    await remoteFirstVoid(
+      remote: () => ApiClient.ensureParty(name, isCustomer: isCustomer),
+      local: () => ensurePartyLocal(name, isCustomer: isCustomer),
+    );
+  }
+
+  Future<void> ensurePartyLocal(
+    String name, {
+    required bool isCustomer,
+  }) async {
     final trimmed = name.trim();
     if (trimmed.isEmpty) return;
     final db = await database;
@@ -1329,70 +1464,78 @@ class DatabaseHelper {
   /// Deletes all sales bills, purchase bills, and receipt/payment records.
   /// Keeps customers, suppliers, rates, and opening weight.
   Future<void> clearSalesPurchaseAndRecords() async {
-    if (ApiConfig.useRemoteApi) {
-      await ApiClient.clearSalesPurchaseAndRecords();
-      return;
-    }
-    final db = await database;
-    await db.delete('transactions');
-    await db.delete('vouchers');
-    await db.delete(
-      'customers',
-      where: "billRef LIKE 'SAL-%' OR billRef LIKE 'RECEIPT-%'",
-    );
-    await db.delete(
-      'suppliers',
-      where: "billRef LIKE 'PUR-%' OR billRef LIKE 'PAYMENT-%'",
+    await remoteFirstVoid(
+      remote: () => ApiClient.clearSalesPurchaseAndRecords(),
+      local: () async {
+        final db = await database;
+        await db.delete('transactions');
+        await db.delete('vouchers');
+        await db.delete(
+          'customers',
+          where: "billRef LIKE 'SAL-%' OR billRef LIKE 'RECEIPT-%'",
+        );
+        await db.delete(
+          'suppliers',
+          where: "billRef LIKE 'PUR-%' OR billRef LIKE 'PAYMENT-%'",
+        );
+      },
     );
   }
 
   /// Wipes all business data (masters, bills, rates, opening weight) but
   /// keeps the login user so the app is not locked out.
   Future<void> resetAllBusinessData() async {
-    if (ApiConfig.useRemoteApi) {
-      await ApiClient.resetAllBusinessData();
-      return;
-    }
-    final db = await database;
-    await db.delete('transactions');
-    await db.delete('vouchers');
-    await db.delete('opening_weight');
-    await db.delete('rate_history');
-    await db.delete('rates');
-    await db.delete('suppliers');
-    await db.delete('customers');
-    await db.insert('rates', {'rateName': 'G.P RATE', 'rateValue': ''});
-    await db.insert('rates', {'rateName': 'F.T RATE', 'rateValue': ''});
-    await db.insert('rates', {'rateName': 'KACHA RATE', 'rateValue': ''});
-    await db.insert('rates', {'rateName': 'S RATE', 'rateValue': ''});
-    await db.delete(
-      'sqlite_sequence',
-      where: 'name IN (?, ?, ?, ?, ?, ?, ?)',
-      whereArgs: [
-        'transactions',
-        'vouchers',
-        'opening_weight',
-        'rate_history',
-        'rates',
-        'suppliers',
-        'customers',
-      ],
+    await remoteFirstVoid(
+      remote: () => ApiClient.resetAllBusinessData(),
+      local: () async {
+        final db = await database;
+        await db.delete('transactions');
+        await db.delete('vouchers');
+        await db.delete('opening_weight');
+        await db.delete('rate_history');
+        await db.delete('rates');
+        await db.delete('suppliers');
+        await db.delete('customers');
+        await db.insert('rates', {'rateName': 'G.P RATE', 'rateValue': ''});
+        await db.insert('rates', {'rateName': 'F.T RATE', 'rateValue': ''});
+        await db.insert('rates', {'rateName': 'KACHA RATE', 'rateValue': ''});
+        await db.insert('rates', {'rateName': 'S RATE', 'rateValue': ''});
+        await db.delete(
+          'sqlite_sequence',
+          where: 'name IN (?, ?, ?, ?, ?, ?, ?)',
+          whereArgs: [
+            'transactions',
+            'vouchers',
+            'opening_weight',
+            'rate_history',
+            'rates',
+            'suppliers',
+            'customers',
+          ],
+        );
+      },
     );
   }
 
   // ---------- Party billing profiles / shop / HSN ----------
 
   Future<void> upsertPartyProfile(PartyBillingProfile profile) async {
-    if (ApiConfig.useRemoteApi) {
-      return ApiClient.upsertPartyProfile(profile);
-    }
-    final trimmed = profile.name.trim();
-    if (trimmed.isEmpty) return;
-    final db = await database;
-    await db.insert(
-      'party_profiles',
-      profile.toDbRow(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+    await remoteFirstVoid(
+      remote: () => ApiClient.upsertPartyProfile(profile),
+      local: () async {
+        final trimmed = profile.name.trim();
+        if (trimmed.isEmpty) return;
+        final db = await database;
+        await db.insert(
+          'party_profiles',
+          profile.toDbRow(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      },
+      queueIfLocal: PendingSyncEntry.put(
+        '/party-profile',
+        profile.toDbRow(),
+      ),
     );
   }
 
@@ -1400,49 +1543,63 @@ class DatabaseHelper {
     String name, {
     required bool isCustomer,
   }) async {
-    if (ApiConfig.useRemoteApi) {
-      return ApiClient.getPartyProfile(name, isCustomer: isCustomer);
-    }
-    final db = await database;
-    final key = partyNameKey(name);
-    final rows = await db.query(
-      'party_profiles',
-      where: 'nameKey = ? AND isCustomer = ?',
-      whereArgs: [key, isCustomer ? 1 : 0],
-      limit: 1,
+    return remoteFirst(
+      remote: () =>
+          ApiClient.getPartyProfile(name, isCustomer: isCustomer),
+      local: () async {
+        final db = await database;
+        final key = partyNameKey(name);
+        final rows = await db.query(
+          'party_profiles',
+          where: 'nameKey = ? AND isCustomer = ?',
+          whereArgs: [key, isCustomer ? 1 : 0],
+          limit: 1,
+        );
+        if (rows.isEmpty) {
+          return PartyBillingProfile(
+            name: name.trim(),
+            isCustomer: isCustomer,
+          );
+        }
+        return PartyBillingProfile.fromDbRow(rows.first);
+      },
     );
-    if (rows.isEmpty) {
-      return PartyBillingProfile(name: name.trim(), isCustomer: isCustomer);
-    }
-    return PartyBillingProfile.fromDbRow(rows.first);
   }
 
   Future<Map<String, String>> getItemTypeHsnMap() async {
-    if (ApiConfig.useRemoteApi) {
-      return ApiClient.getItemTypeHsnMap();
-    }
-    final db = await database;
-    final rows = await db.query('item_type_hsn');
-    final map = Map<String, String>.from(kDefaultHsnByItemType);
-    for (final row in rows) {
-      final type = (row['itemType'] ?? '').toString();
-      final hsn = (row['hsnCode'] ?? '').toString();
-      if (type.isNotEmpty && hsn.isNotEmpty) {
-        map[type] = hsn;
-      }
-    }
-    return map;
+    return remoteFirst(
+      remote: () => ApiClient.getItemTypeHsnMap(),
+      local: () async {
+        final db = await database;
+        final rows = await db.query('item_type_hsn');
+        final map = Map<String, String>.from(kDefaultHsnByItemType);
+        for (final row in rows) {
+          final type = (row['itemType'] ?? '').toString();
+          final hsn = (row['hsnCode'] ?? '').toString();
+          if (type.isNotEmpty && hsn.isNotEmpty) {
+            map[type] = hsn;
+          }
+        }
+        return map;
+      },
+    );
   }
 
   Future<void> saveItemTypeHsn(String itemType, String hsnCode) async {
-    if (ApiConfig.useRemoteApi) {
-      return ApiClient.saveItemTypeHsn(itemType, hsnCode);
-    }
-    final db = await database;
-    await db.insert(
-      'item_type_hsn',
-      {'itemType': itemType, 'hsnCode': hsnCode.trim()},
-      conflictAlgorithm: ConflictAlgorithm.replace,
+    await remoteFirstVoid(
+      remote: () => ApiClient.saveItemTypeHsn(itemType, hsnCode),
+      local: () async {
+        final db = await database;
+        await db.insert(
+          'item_type_hsn',
+          {'itemType': itemType, 'hsnCode': hsnCode.trim()},
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      },
+      queueIfLocal: PendingSyncEntry.put(
+        '/settings/hsn',
+        {itemType: hsnCode.trim()},
+      ),
     );
   }
 
