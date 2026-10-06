@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../navigation/app_page.dart';
 import '../theme/app_theme.dart';
 import '../theme/responsive.dart';
+import '../util/browser_back.dart' as browser_back;
 import '../util/session_prefs.dart';
 import 'backup_screen.dart';
 import 'customer_master_screen.dart';
@@ -31,12 +33,30 @@ class _AppShellState extends State<AppShell> {
   late AppPage _page;
   bool _navOpen = false;
   int _sessionGeneration = 0;
+  final List<AppPage> _history = [];
+
+  bool get _canGoBack => _history.isNotEmpty;
 
   @override
   void initState() {
     super.initState();
     _page = widget.initialPage;
     SessionPrefs.setLastPage(widget.initialPage);
+    browser_back.listenBrowserBack(_handleBrowserBack);
+  }
+
+  @override
+  void dispose() {
+    browser_back.disposeBrowserBack();
+    super.dispose();
+  }
+
+  void _handleBrowserBack() {
+    if (_canGoBack) {
+      _goBack();
+    } else {
+      browser_back.pushBrowserHistoryState();
+    }
   }
 
   String get _title {
@@ -77,6 +97,7 @@ class _AppShellState extends State<AppShell> {
       _sessionGeneration++;
       _page = AppPage.home;
       _navOpen = false;
+      _history.clear();
     });
     SessionPrefs.setLastPage(AppPage.home);
   }
@@ -93,6 +114,44 @@ class _AppShellState extends State<AppShell> {
       }
     });
     SessionPrefs.setLastPage(page);
+  }
+
+  void _openFromDrawer(AppPage page) {
+    if (page == _page) {
+      if (Responsive.isCompact(context) && _navOpen) {
+        setState(() => _navOpen = false);
+      }
+      return;
+    }
+    setState(() {
+      _history.add(_page);
+      _page = page;
+      if (Responsive.isCompact(context) && _navOpen) {
+        _navOpen = false;
+      }
+    });
+    SessionPrefs.setLastPage(page);
+    browser_back.pushBrowserHistoryState();
+  }
+
+  void _goBack() {
+    if (!_canGoBack) return;
+    setState(() {
+      _page = _history.removeLast();
+      if (Responsive.isCompact(context) && _navOpen) {
+        _navOpen = false;
+      }
+    });
+    SessionPrefs.setLastPage(_page);
+  }
+
+  void _onBackPressed() {
+    if (!_canGoBack) return;
+    if (kIsWeb) {
+      browser_back.goBackInBrowser();
+    } else {
+      _goBack();
+    }
   }
 
   Future<void> _logout() async {
@@ -229,7 +288,7 @@ class _AppShellState extends State<AppShell> {
         label,
         style: const TextStyle(color: Colors.white, fontSize: 13),
       ),
-      onTap: () => _go(page),
+      onTap: () => _openFromDrawer(page),
     );
   }
 
@@ -272,7 +331,7 @@ class _AppShellState extends State<AppShell> {
     final selected = _page == page;
     return IconButton(
       tooltip: tooltip,
-      onPressed: () => _go(page),
+      onPressed: () => _openFromDrawer(page),
       icon: Icon(
         icon,
         color: selected ? Colors.white : Colors.white70,
@@ -488,13 +547,31 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final today = DateFormat('EEE, dd MMM yyyy').format(DateTime.now());
-    return Scaffold(
+    return PopScope(
+      canPop: !_canGoBack,
+      onPopInvokedWithResult: (didPop, result) {
+        if (kIsWeb || didPop || !_canGoBack) return;
+        _goBack();
+      },
+      child: Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        leading: IconButton(
-          icon: Icon(_navOpen ? Icons.menu_open : Icons.menu),
-          tooltip: _navOpen ? 'Hide menu' : 'Show menu',
-          onPressed: () => setState(() => _navOpen = !_navOpen),
+        leadingWidth: _canGoBack ? 96 : 56,
+        leading: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: Icon(_navOpen ? Icons.menu_open : Icons.menu),
+              tooltip: _navOpen ? 'Hide menu' : 'Show menu',
+              onPressed: () => setState(() => _navOpen = !_navOpen),
+            ),
+            if (_canGoBack)
+              IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: 'Back',
+                onPressed: _onBackPressed,
+              ),
+          ],
         ),
         title: Column(
           children: [
@@ -549,6 +626,7 @@ class _AppShellState extends State<AppShell> {
           );
         },
       ),
+    ),
     );
   }
 }
