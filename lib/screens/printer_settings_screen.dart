@@ -1,5 +1,5 @@
 import 'dart:io';
-
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
@@ -74,7 +74,7 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen> {
               ),
               const SizedBox(height: 12),
               Text(
-                Platform.isWindows
+                (!kIsWeb && Platform.isWindows)
                     ? 'Windows printers from this computer'
                     : 'Printers available on this phone',
                 style: const TextStyle(

@@ -1,5 +1,5 @@
 import 'dart:io';
-
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:path_provider/path_provider.dart';
 import 'package:printing/printing.dart';
 
@@ -14,6 +14,7 @@ class PrinterPrefs {
   }
 
   static Future<String?> getSelected() async {
+    if (kIsWeb) return null;
     final file = await _file();
     if (!await file.exists()) return null;
     final name = (await file.readAsString()).trim();
@@ -21,10 +22,10 @@ class PrinterPrefs {
   }
 
   static Future<void> setSelected(String name) async {
+    if (kIsWeb) return;
     final file = await _file();
     await file.writeAsString(name.trim(), flush: true);
   }
-
   static Future<List<String>> listPrinterNames() async {
     final names = <String>{};
     try {
@@ -34,7 +35,8 @@ class PrinterPrefs {
         if (n.isNotEmpty) names.add(n);
       }
     } catch (_) {}
-    if (Platform.isWindows) {
+    if(!kIsWeb && Platform.isWindows)
+    {
       try {
         final result = await Process.run(
           'powershell',
