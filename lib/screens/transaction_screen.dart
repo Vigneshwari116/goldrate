@@ -127,10 +127,10 @@ class _TransactionScreenState extends State<TransactionScreen>
   final _billNarrationFocus = FocusNode();
   final _poNoController = TextEditingController();
   final _poDateController = TextEditingController();
+  bool _tdsApplicable = false;
   final _tdsAmountController = TextEditingController();
-  bool _tdsUserOverride = false;
-
-  static const double _defaultTdsRatePercent = 0.1;
+  bool _tcsApplicable = false;
+  final _tcsAmountController = TextEditingController();
   final List<_PanelLine> _paymentLines = [];
 
   String _billEntryType = _itemTypes.first;
@@ -197,8 +197,6 @@ class _TransactionScreenState extends State<TransactionScreen>
   bool get _isCustomerParty =>
       widget.kind == TransactionKind.sales || _isReceiptVoucher;
 
-  bool get _isPurchaseBill => widget.kind == TransactionKind.purchase;
-
   bool get _isPurchase =>
       widget.kind == TransactionKind.purchase || _isPaymentVoucher;
 
@@ -247,35 +245,17 @@ class _TransactionScreenState extends State<TransactionScreen>
 
   List<BillLineItem> get _billItems => _billLines;
 
-  double get _billTaxableBeforeTds =>
-      _billItems.fold(0, (sum, item) => sum + item.tax.taxableValue);
-
-  double get _autoTdsAmount {
-    if (!_isSales || _billLines.isEmpty) return 0;
-    return _billTaxableBeforeTds * _defaultTdsRatePercent / 100;
-  }
-
-  double get _tdsAmountApplied {
-    if (!_isSales || _billLines.isEmpty) return 0;
-    if (_tdsUserOverride) {
-      return double.tryParse(_tdsAmountController.text.trim()) ??
-          _autoTdsAmount;
-    }
-    return _autoTdsAmount;
-  }
-
-  void _syncAutoTds({bool force = false}) {
-    if (!_isSales || _billLines.isEmpty) return;
-    if (_tdsUserOverride && !force) return;
-    final amt = _autoTdsAmount;
-    _tdsAmountController.text = amt.toStringAsFixed(2);
-  }
-
   BillTaxTotals get _billTaxTotals {
+    final tds = _tdsApplicable
+        ? (double.tryParse(_tdsAmountController.text.trim()) ?? 0)
+        : 0.0;
+    final tcs = _tcsApplicable
+        ? (double.tryParse(_tcsAmountController.text.trim()) ?? 0)
+        : 0.0;
     return BillTaxTotals.compute(
       lines: _billItems.map((i) => i.tax).toList(),
-      tdsAmount: _tdsAmountApplied,
-      tcsAmount: 0,
+      tdsAmount: tds,
+      tcsAmount: tcs,
     );
   }
 
@@ -507,7 +487,6 @@ class _TransactionScreenState extends State<TransactionScreen>
     setState(() {
       _billLines.add(item);
       _resetBillEntry(resetType: false);
-      _syncAutoTds(force: true);
     });
     FocusChain.focusNextFrame(
       _billEntryWeightFocus,
@@ -594,6 +573,7 @@ class _TransactionScreenState extends State<TransactionScreen>
     _poNoController.dispose();
     _poDateController.dispose();
     _tdsAmountController.dispose();
+    _tcsAmountController.dispose();
     _billEntryWeight.dispose();
     _billEntryTouch.dispose();
     _billEntryDescription.dispose();
@@ -692,8 +672,10 @@ class _TransactionScreenState extends State<TransactionScreen>
     _partyStateController.clear();
     _ewayBillController.clear();
     _billNarrationController.clear();
-    _tdsUserOverride = false;
+    _tdsApplicable = false;
     _tdsAmountController.clear();
+    _tcsApplicable = false;
+    _tcsAmountController.clear();
   }
 
   void _focusPaymentEntry() {
@@ -916,7 +898,6 @@ class _TransactionScreenState extends State<TransactionScreen>
           item.description == defaultDesc ? '' : item.description;
       _billTouchError = null;
       _billLines.removeAt(index);
-      _syncAutoTds(force: true);
     });
     FocusChain.focusNextFrame(
       _billEntryWeightFocus,
@@ -1049,10 +1030,10 @@ class _TransactionScreenState extends State<TransactionScreen>
       _billNarrationController.text = (row['billNarration'] ?? '').toString();
       _poNoController.text = (row['poNo'] ?? '').toString();
       _poDateController.text = (row['poDate'] ?? '').toString();
-      final savedTds =
-          double.tryParse((row['tdsAmount'] ?? '').toString()) ?? 0;
-      _tdsAmountController.text = savedTds.toStringAsFixed(2);
-      _tdsUserOverride = true;
+      _tdsApplicable = (row['tdsApplicable'] as int? ?? 0) == 1;
+      _tdsAmountController.text = (row['tdsAmount'] ?? '').toString();
+      _tcsApplicable = (row['tcsApplicable'] as int? ?? 0) == 1;
+      _tcsAmountController.text = (row['tcsAmount'] ?? '').toString();
       _billLines
         ..clear()
         ..addAll(_itemsFromRow(row));
@@ -1273,7 +1254,12 @@ class _TransactionScreenState extends State<TransactionScreen>
     final taxTotals = _billTaxTotals;
     final paymentMode = _paymentIsCashOnly ? 'CASH' : 'GOLD';
     final billNo = _editingBillNo ?? _nextBillNo;
-    final tdsAmt = _tdsAmountApplied;
+    final tdsAmt = _tdsApplicable
+        ? (double.tryParse(_tdsAmountController.text.trim()) ?? 0)
+        : 0.0;
+    final tcsAmt = _tcsApplicable
+        ? (double.tryParse(_tcsAmountController.text.trim()) ?? 0)
+        : 0.0;
     final record = {
       'transactionType': _transactionType,
       'billNo': billNo,
@@ -1285,12 +1271,12 @@ class _TransactionScreenState extends State<TransactionScreen>
       'partyState': _partyStateController.text.trim(),
       if (_isSales) 'ewayBill': _ewayBillController.text.trim(),
       'billNarration': _billNarrationController.text.trim(),
-      if (_isPurchaseBill) 'poNo': _poNoController.text.trim(),
-      if (_isPurchaseBill) 'poDate': _poDateController.text.trim(),
-      'tdsApplicable': (_isSales && _billLines.isNotEmpty) ? 1 : 0,
+      if (_isPurchase) 'poNo': _poNoController.text.trim(),
+      if (_isPurchase) 'poDate': _poDateController.text.trim(),
+      'tdsApplicable': _tdsApplicable ? 1 : 0,
       'tdsAmount': tdsAmt.toStringAsFixed(2),
-      'tcsApplicable': 0,
-      'tcsAmount': '0.00',
+      'tcsApplicable': _tcsApplicable ? 1 : 0,
+      'tcsAmount': tcsAmt.toStringAsFixed(2),
       'totalTaxable': taxTotals.totalTaxable.toStringAsFixed(2),
       'totalInclusive': taxTotals.totalInclusive.toStringAsFixed(2),
       'roundOff': taxTotals.roundOff.toStringAsFixed(2),
@@ -2044,107 +2030,6 @@ class _TransactionScreenState extends State<TransactionScreen>
       ),
     );
   }
-  Widget _billingDetailsSection() {
-    final billingFields = PartyBillingFields(
-      compact: true,
-      addressController: _partyAddressController,
-      cityController: _partyCityController,
-      pincodeController: _partyPincodeController,
-      gstinController: _partyGstinController,
-      stateController: _partyStateController,
-      addressFocus: _partyAddressFocus,
-      cityFocus: _partyCityFocus,
-      pincodeFocus: _partyPincodeFocus,
-      gstinFocus: _partyGstinFocus,
-      stateFocus: _partyStateFocus,
-      onAddressSubmitted: () => FocusChain.focusNextFrame(
-        _partyCityFocus,
-        controller: _partyCityController,
-      ),
-      onCitySubmitted: () => FocusChain.focusNextFrame(
-        _partyPincodeFocus,
-        controller: _partyPincodeController,
-      ),
-      onPincodeSubmitted: () => FocusChain.focusNextFrame(
-        _partyGstinFocus,
-        controller: _partyGstinController,
-      ),
-      onGstinSubmitted: () => FocusChain.focusNextFrame(
-        _partyStateFocus,
-        controller: _partyStateController,
-      ),
-      onStateSubmitted: _focusAfterState,
-    );
-
-    final ewayField = _isSales
-        ? SizedBox(
-            width: FieldSizes.billingEway,
-            child: TextFormField(
-              controller: _ewayBillController,
-              focusNode: _ewayBillFocus,
-              style: const TextStyle(fontSize: 13),
-              textInputAction: TextInputAction.next,
-              onFieldSubmitted: (_) => _focusNarration(),
-              decoration: const InputDecoration(
-                labelText: 'E-Way Bill No (optional)',
-                isDense: true,
-              ),
-            ),
-          )
-        : const SizedBox.shrink();
-
-    final balanceAndNarration = Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (_partyOutstanding != null) _currentBalanceStrip(),
-        if (_partyOutstanding != null) const SizedBox(height: 8),
-        TextFormField(
-          controller: _billNarrationController,
-          focusNode: _billNarrationFocus,
-          maxLines: 2,
-          style: const TextStyle(fontSize: 13),
-          textInputAction: TextInputAction.done,
-          onFieldSubmitted: (_) => _focusAfterNarration(),
-          decoration: const InputDecoration(
-            labelText: 'Narration',
-            isDense: true,
-          ),
-        ),
-      ],
-    );
-
-    final leftColumn = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        billingFields,
-        if (_isSales) ...[
-          const SizedBox(height: 2),
-          ewayField,
-        ],
-      ],
-    );
-
-    if (Responsive.isWide(context)) {
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(child: leftColumn),
-          const SizedBox(width: 16),
-          Expanded(child: balanceAndNarration),
-        ],
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        leftColumn,
-        const SizedBox(height: 8),
-        balanceAndNarration,
-      ],
-    );
-  }
-
   Widget _partyNameField() {
     final field = PartySearchField(
       label: _isCustomerParty ? 'Customer Name' : 'Supplier Name',
@@ -2187,14 +2072,80 @@ class _TransactionScreenState extends State<TransactionScreen>
             dateTimeText: DateFormat('dd-MM-yyyy  hh:mm a').format(DateTime.now()),
           ),
           const SizedBox(height: 12),
-          if (_isPurchaseBill) ...[
+          if (_isPurchase) ...[
             _purchasePoFields(),
             const SizedBox(height: 10),
           ],
           _partyNameField(),
           if (!_isVoucher && _partyController.text.trim().isNotEmpty) ...[
             const SizedBox(height: 10),
-            _billingDetailsSection(),
+            PartyBillingFields(
+              compact: true,
+              addressController: _partyAddressController,
+              cityController: _partyCityController,
+              pincodeController: _partyPincodeController,
+              gstinController: _partyGstinController,
+              stateController: _partyStateController,
+              addressFocus: _partyAddressFocus,
+              cityFocus: _partyCityFocus,
+              pincodeFocus: _partyPincodeFocus,
+              gstinFocus: _partyGstinFocus,
+              stateFocus: _partyStateFocus,
+              onAddressSubmitted: () => FocusChain.focusNextFrame(
+                _partyCityFocus,
+                controller: _partyCityController,
+              ),
+              onCitySubmitted: () => FocusChain.focusNextFrame(
+                _partyPincodeFocus,
+                controller: _partyPincodeController,
+              ),
+              onPincodeSubmitted: () => FocusChain.focusNextFrame(
+                _partyGstinFocus,
+                controller: _partyGstinController,
+              ),
+              onGstinSubmitted: () => FocusChain.focusNextFrame(
+                _partyStateFocus,
+                controller: _partyStateController,
+              ),
+              onStateSubmitted: _focusAfterState,
+            ),
+            if (_isSales) ...[
+              const SizedBox(height: 2),
+              SizedBox(
+                width: FieldSizes.billingEway,
+                child: TextFormField(
+                  controller: _ewayBillController,
+                  focusNode: _ewayBillFocus,
+                  style: const TextStyle(fontSize: 13),
+                  textInputAction: TextInputAction.next,
+                  onFieldSubmitted: (_) => _focusNarration(),
+                  decoration: const InputDecoration(
+                    labelText: 'E-Way Bill No (optional)',
+                    isDense: true,
+                  ),
+                ),
+              ),
+            ],
+            if (_partyOutstanding != null) ...[
+              const SizedBox(height: 8),
+              _currentBalanceStrip(),
+            ],
+            const SizedBox(height: 8),
+            SizedBox(
+              width: FieldSizes.billingAddress,
+              child: TextFormField(
+                controller: _billNarrationController,
+                focusNode: _billNarrationFocus,
+                maxLines: 2,
+                style: const TextStyle(fontSize: 13),
+                textInputAction: TextInputAction.done,
+                onFieldSubmitted: (_) => _focusAfterNarration(),
+                decoration: const InputDecoration(
+                  labelText: 'Narration',
+                  isDense: true,
+                ),
+              ),
+            ),
           ],
           if (_showPanels) ...[
             const SizedBox(height: 12),
@@ -2335,25 +2286,43 @@ class _TransactionScreenState extends State<TransactionScreen>
           const Divider(height: 16),
           _totalRow('Total taxable value', totals.totalTaxable),
           _totalRow('Total inclusive of tax', totals.totalInclusive),
-          if (_isSales && _billLines.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            TextField(
-              controller: _tdsAmountController,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              decoration: InputDecoration(
-                labelText:
-                    'TDS ($_defaultTdsRatePercent% of taxable — editable)',
-                isDense: true,
-                helperText:
-                    'Auto: ₹${_rupee(_autoTdsAmount)} on ₹${_rupee(_billTaxableBeforeTds)} taxable',
-                helperMaxLines: 2,
-              ),
-              onChanged: (_) {
-                _tdsUserOverride = true;
-                setState(() {});
-              },
+          if (_isSales) ...[
+            CheckboxListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('TDS applicable', style: TextStyle(fontSize: 13)),
+              value: _tdsApplicable,
+              onChanged: (v) => setState(() => _tdsApplicable = v ?? false),
             ),
+            if (_tdsApplicable)
+              TextField(
+                controller: _tdsAmountController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'TDS amount (manual)',
+                  isDense: true,
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+            CheckboxListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('TCS applicable', style: TextStyle(fontSize: 13)),
+              value: _tcsApplicable,
+              onChanged: (v) => setState(() => _tcsApplicable = v ?? false),
+            ),
+            if (_tcsApplicable)
+              TextField(
+                controller: _tcsAmountController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'TCS amount (manual)',
+                  isDense: true,
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
           ],
           _totalRow('Grand total (invoice)', totals.grandTotal, highlight: true),
         ],
@@ -2986,10 +2955,7 @@ class _TransactionScreenState extends State<TransactionScreen>
                 touch: _billLines[i].touch,
                 pureWt: _billLines[i].pureWt,
                 onEdit: () => _editBillLine(i),
-                onRemove: () => setState(() {
-                  _billLines.removeAt(i);
-                  _syncAutoTds(force: true);
-                }),
+                onRemove: () => setState(() => _billLines.removeAt(i)),
               ),
           ],
         ),
