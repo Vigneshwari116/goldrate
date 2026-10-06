@@ -1,14 +1,20 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../api/api_client.dart';
 import '../config/api_config.dart';
+import '../logic/rate_rows.dart';
+import '../logic/gold_ledger.dart';
 import '../logic/transaction_records.dart';
+import '../logic/bill_tax.dart';
+import '../models/party_billing_profile.dart';
 import '../util/api_row_keys.dart';
+import '../util/party_name_key.dart';
 
 class DatabaseHelper {
   DatabaseHelper._();
@@ -28,7 +34,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 11,
+      version: 18,
       onCreate: _createDatabase,
       onUpgrade: _upgradeDatabase,
     );
@@ -60,6 +66,15 @@ class DatabaseHelper {
         time TEXT NOT NULL
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE rate_meta(
+        id INTEGER PRIMARY KEY,
+        lastDate TEXT NOT NULL DEFAULT '',
+        lastTime TEXT NOT NULL DEFAULT ''
+      )
+    ''');
+    await db.insert('rate_meta', {'id': 1, 'lastDate': '', 'lastTime': ''});
 
     await db.execute('''
       CREATE TABLE customers(
@@ -136,7 +151,26 @@ class DatabaseHelper {
         newGrams TEXT,
         newRupees TEXT,
         cashToGold TEXT,
-        goldRateUsed TEXT
+        goldRateUsed TEXT,
+        paymentItems TEXT,
+        receiptPurpose TEXT,
+        partyAddress TEXT,
+        partyCity TEXT,
+        partyPincode TEXT,
+        partyGstin TEXT,
+        partyState TEXT,
+        ewayBill TEXT,
+        tdsApplicable INTEGER,
+        tdsAmount TEXT,
+        tcsApplicable INTEGER,
+        tcsAmount TEXT,
+        totalTaxable TEXT,
+        totalInclusive TEXT,
+        roundOff TEXT,
+        grandTotal TEXT,
+        poNo TEXT,
+        poDate TEXT,
+        billNarration TEXT
       )
     ''');
 
@@ -171,6 +205,66 @@ class DatabaseHelper {
     await db.insert('rates', {'rateName': 'F.T RATE', 'rateValue': ''});
     await db.insert('rates', {'rateName': 'KACHA RATE', 'rateValue': ''});
     await db.insert('rates', {'rateName': 'S RATE', 'rateValue': ''});
+
+    await _createBillingSettingsTables(db);
+  }
+
+  Future<void> _createBillingSettingsTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE party_profiles(
+        nameKey TEXT NOT NULL,
+        isCustomer INTEGER NOT NULL,
+        displayName TEXT NOT NULL,
+        mobile TEXT,
+        address TEXT,
+        city TEXT,
+        pincode TEXT,
+        gstin TEXT,
+        state TEXT,
+        PRIMARY KEY (nameKey, isCustomer)
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE shop_settings(
+        id INTEGER PRIMARY KEY,
+        shopName TEXT,
+        address TEXT,
+        phone TEXT,
+        gstin TEXT,
+        state TEXT,
+        stateCode TEXT
+      )
+    ''');
+
+    await db.insert('shop_settings', {
+      'id': 1,
+      'shopName': '',
+      'address': '',
+      'phone': '',
+      'gstin': '',
+      'state': '',
+      'stateCode': '',
+    });
+
+    await db.execute('''
+      CREATE TABLE item_type_hsn(
+        itemType TEXT PRIMARY KEY,
+        hsnCode TEXT NOT NULL
+      )
+    ''');
+
+    for (final entry in {
+      'GWT': '7113',
+      'FWT': '7113',
+      'KWT': '7113',
+      'SWT': '7114',
+    }.entries) {
+      await db.insert('item_type_hsn', {
+        'itemType': entry.key,
+        'hsnCode': entry.value,
+      });
+    }
   }
 
   Future<void> _upgradeDatabase(
@@ -338,6 +432,113 @@ class DatabaseHelper {
         )
       ''');
     }
+    if (oldVersion < 12) {
+      await db.execute('ALTER TABLE transactions ADD COLUMN paymentItems TEXT');
+      await db.execute(
+          'ALTER TABLE transactions ADD COLUMN receiptPurpose TEXT');
+    }
+    if (oldVersion < 13) {
+      // Full data reset: clears business data for a fresh start. Keeps
+      // ADMIN login and blank rate rows; paymentItems/receiptPurpose
+      // columns remain on transactions (unused receiptPurpose).
+      await db.delete('transactions');
+      await db.delete('vouchers');
+      await db.delete('opening_weight');
+      await db.delete('rate_history');
+      await db.delete('rates');
+      await db.delete('suppliers');
+      await db.delete('customers');
+
+      await db.insert('rates', {'rateName': 'G.P RATE', 'rateValue': ''});
+      await db.insert('rates', {'rateName': 'F.T RATE', 'rateValue': ''});
+      await db.insert('rates', {'rateName': 'KACHA RATE', 'rateValue': ''});
+      await db.insert('rates', {'rateName': 'S RATE', 'rateValue': ''});
+
+      final userCount = Sqflite.firstIntValue(
+        await db.rawQuery('SELECT COUNT(*) as count FROM users'),
+      ) ??
+          0;
+      if (userCount == 0) {
+        await db.insert('users', {
+          'username': 'ADMIN',
+          'password': 'SVENSKA',
+        });
+      }
+
+      await db.delete(
+        'sqlite_sequence',
+        where: 'name IN (?, ?, ?, ?, ?, ?, ?)',
+        whereArgs: [
+          'transactions',
+          'vouchers',
+          'opening_weight',
+          'rate_history',
+          'rates',
+          'suppliers',
+          'customers',
+        ],
+      );
+    }
+    if (oldVersion < 14) {
+      // Drops exact duplicate rate_history rows (same name, value, date,
+      // time) left by double-save or duplicate rates-table rows. Keeps
+      // the oldest id in each group.
+      await db.rawDelete('''
+        DELETE FROM rate_history
+        WHERE id IN (
+          SELECT rh.id FROM rate_history rh
+          WHERE EXISTS (
+            SELECT 1 FROM rate_history rh2
+            WHERE rh2.rateName = rh.rateName
+              AND rh2.rateValue = rh.rateValue
+              AND rh2.date = rh.date
+              AND rh2.time = rh.time
+              AND rh2.id < rh.id
+          )
+        )
+      ''');
+    }
+    if (oldVersion < 15) {
+      await _createBillingSettingsTables(db);
+      await db.execute('ALTER TABLE transactions ADD COLUMN partyAddress TEXT');
+      await db.execute('ALTER TABLE transactions ADD COLUMN partyCity TEXT');
+      await db.execute('ALTER TABLE transactions ADD COLUMN partyPincode TEXT');
+      await db.execute('ALTER TABLE transactions ADD COLUMN partyGstin TEXT');
+      await db.execute('ALTER TABLE transactions ADD COLUMN partyState TEXT');
+      await db.execute('ALTER TABLE transactions ADD COLUMN ewayBill TEXT');
+      await db.execute(
+          'ALTER TABLE transactions ADD COLUMN tdsApplicable INTEGER');
+      await db.execute('ALTER TABLE transactions ADD COLUMN tdsAmount TEXT');
+      await db.execute(
+          'ALTER TABLE transactions ADD COLUMN tcsApplicable INTEGER');
+      await db.execute('ALTER TABLE transactions ADD COLUMN tcsAmount TEXT');
+      await db.execute('ALTER TABLE transactions ADD COLUMN totalTaxable TEXT');
+      await db.execute(
+          'ALTER TABLE transactions ADD COLUMN totalInclusive TEXT');
+      await db.execute('ALTER TABLE transactions ADD COLUMN roundOff TEXT');
+      await db.execute('ALTER TABLE transactions ADD COLUMN grandTotal TEXT');
+    }
+    if (oldVersion < 16) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS rate_meta(
+          id INTEGER PRIMARY KEY,
+          lastDate TEXT NOT NULL DEFAULT '',
+          lastTime TEXT NOT NULL DEFAULT ''
+        )
+      ''');
+      await db.insert(
+        'rate_meta',
+        {'id': 1, 'lastDate': '', 'lastTime': ''},
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    }
+    if (oldVersion < 17) {
+      await db.execute('ALTER TABLE transactions ADD COLUMN poNo TEXT');
+      await db.execute('ALTER TABLE transactions ADD COLUMN poDate TEXT');
+    }
+    if (oldVersion < 18) {
+      await db.execute('ALTER TABLE transactions ADD COLUMN billNarration TEXT');
+    }
   }
 
   Future<bool> checkLogin(String username, String password) async {
@@ -356,16 +557,84 @@ class DatabaseHelper {
   }
 
   Future<List<Map<String, dynamic>>> getRates() async {
-    if (ApiConfig.useRemoteApi) return ApiClient.getRates();
+    if (ApiConfig.useRemoteApi) {
+      return RateRows.canonical(await ApiClient.getRates());
+    }
+    await ensureDefaultRates();
     final db = await database;
-    return await db.query('rates');
+    final rows = await db.query('rates', orderBy: 'id');
+    return RateRows.canonical(rows);
+  }
+
+  /// Daily Rate rows for the UI — always returns four named slots.
+  Future<List<Map<String, dynamic>>> getRatesForMaster() async {
+    try {
+      await ensureDefaultRates();
+    } catch (_) {
+      // Older API builds may lack seed routes; still show the four fields.
+    }
+    try {
+      final rows = await getRates();
+      if (rows.isNotEmpty) return rows;
+    } catch (_) {
+      // Offline or server error — fall back to blank local template rows.
+    }
+    return [
+      for (final name in RateRows.defaultRateNames)
+        {'id': 0, 'rateName': name, 'rateValue': ''},
+    ];
+  }
+
+  /// One row per default rate name, in display order.
+  static List<Map<String, dynamic>> canonicalRateRows(
+    List<Map<String, dynamic>> rows,
+  ) =>
+      RateRows.canonical(rows);
+
+  static Map<String, dynamic>? _pickBestRateRow(
+    List<Map<String, dynamic>> rows,
+  ) =>
+      RateRows.pickBest(rows);
+
+  /// Ensures the four daily rate rows exist (blank values on fresh install).
+  Future<void> ensureDefaultRates() async {
+    if (ApiConfig.useRemoteApi) {
+      await ApiClient.ensureDefaultRates();
+      return;
+    }
+    await _repairRatesTable();
+  }
+
+  Future<void> _repairRatesTable() async {
+    final db = await database;
+    final rows = await db.query('rates', orderBy: 'id DESC');
+
+    for (final name in RateRows.defaultRateNames) {
+      final matching = rows
+          .where((r) => (r['rateName'] ?? '').toString() == name)
+          .toList();
+      if (matching.isEmpty) {
+        await db.insert('rates', {'rateName': name, 'rateValue': ''});
+        continue;
+      }
+
+      final keeper = _pickBestRateRow(matching);
+      if (keeper == null) continue;
+      final keepId = (keeper['id'] as num?)?.toInt() ?? 0;
+      for (final row in matching) {
+        final id = (row['id'] as num?)?.toInt() ?? 0;
+        if (id > 0 && id != keepId) {
+          await db.delete('rates', where: 'id = ?', whereArgs: [id]);
+        }
+      }
+    }
   }
 
   /// Rates keyed by rateName (e.g. 'G.P RATE' -> 15100), parsed to double.
   /// A rate that hasn't been set yet (blank) is simply left out of the map.
   Future<Map<String, double>> getRatesMap() async {
     if (ApiConfig.useRemoteApi) return ApiClient.getRatesMap();
-    final rows = await getRates();
+    final rows = canonicalRateRows(await getRates());
     final map = <String, double>{};
     for (final row in rows) {
       final value = double.tryParse((row['rateValue'] ?? '').toString());
@@ -374,6 +643,58 @@ class DatabaseHelper {
       }
     }
     return map;
+  }
+
+  /// True when [rateValue] is unchanged — skip update/history on re-save.
+  static bool rateValueUnchanged(String current, String next) {
+    final cur = current.trim();
+    final nxt = next.trim();
+    if (cur == nxt) return true;
+    final curNum = double.tryParse(cur);
+    final nextNum = double.tryParse(nxt);
+    if (curNum != null && nextNum != null) return curNum == nextNum;
+    return false;
+  }
+
+  /// Inserts one history row unless an identical row already exists.
+  static Future<int> insertRateHistoryIfNew(
+    Database db, {
+    required String rateName,
+    required String rateValue,
+    required String date,
+    required String time,
+  }) async {
+    assert(() {
+      debugPrint(
+        '[rate_history] insertRateHistoryIfNew: '
+        '$rateName=$rateValue @ $date $time',
+      );
+      return true;
+    }());
+
+    final existing = await db.query(
+      'rate_history',
+      where: 'rateName = ? AND rateValue = ? AND date = ? AND time = ?',
+      whereArgs: [rateName, rateValue, date, time],
+      limit: 1,
+    );
+    if (existing.isNotEmpty) {
+      assert(() {
+        debugPrint(
+          '[rate_history] skipped duplicate '
+          '$rateName=$rateValue @ $date $time',
+        );
+        return true;
+      }());
+      return 0;
+    }
+
+    return db.insert('rate_history', {
+      'rateName': rateName,
+      'rateValue': rateValue,
+      'date': date,
+      'time': time,
+    });
   }
 
   Future<int> updateRate(
@@ -388,6 +709,20 @@ class DatabaseHelper {
     }
     final db = await database;
 
+    final currentRows = await db.query(
+      'rates',
+      columns: ['rateValue'],
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (currentRows.isEmpty) return 0;
+
+    final currentValue = (currentRows.first['rateValue'] ?? '').toString();
+    if (rateValueUnchanged(currentValue, value)) {
+      return 0;
+    }
+
     final rowsAffected = await db.update(
       'rates',
       {'rateValue': value},
@@ -396,15 +731,28 @@ class DatabaseHelper {
     );
 
     if (rowsAffected > 0) {
-      await db.insert('rate_history', {
-        'rateName': rateName,
-        'rateValue': value,
-        'date': date,
-        'time': time,
-      });
+      await insertRateHistoryIfNew(
+        db,
+        rateName: rateName,
+        rateValue: value,
+        date: date,
+        time: time,
+      );
     }
 
     return rowsAffected;
+  }
+
+  Future<void> setRatesLastSaved(String date, String time) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.setRatesLastSaved(date, time);
+    }
+    final db = await database;
+    await db.insert(
+      'rate_meta',
+      {'id': 1, 'lastDate': date, 'lastTime': time},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   Future<Map<String, dynamic>> getUpdateStats() async {
@@ -415,16 +763,31 @@ class DatabaseHelper {
     await db.rawQuery('SELECT COUNT(*) as count FROM rate_history');
     final count = Sqflite.firstIntValue(countResult) ?? 0;
 
+    final meta = await db.query(
+      'rate_meta',
+      where: 'id = ?',
+      whereArgs: [1],
+      limit: 1,
+    );
+    final metaDate =
+        meta.isNotEmpty ? (meta.first['lastDate'] ?? '').toString() : '';
+    final metaTime =
+        meta.isNotEmpty ? (meta.first['lastTime'] ?? '').toString() : '';
+
     final latest = await db.query(
       'rate_history',
       orderBy: 'id DESC',
       limit: 1,
     );
+    final histDate =
+        latest.isNotEmpty ? (latest.first['date'] ?? '').toString() : '';
+    final histTime =
+        latest.isNotEmpty ? (latest.first['time'] ?? '').toString() : '';
 
     return {
       'count': count,
-      'lastDate': latest.isNotEmpty ? latest.first['date'] as String : '',
-      'lastTime': latest.isNotEmpty ? latest.first['time'] as String : '',
+      'lastDate': metaDate.isNotEmpty ? metaDate : histDate,
+      'lastTime': metaTime.isNotEmpty ? metaTime : histTime,
     };
   }
 
@@ -489,6 +852,18 @@ class DatabaseHelper {
     );
   }
 
+  Future<int> deleteCustomersByName(String name) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.deleteCustomersByName(name);
+    }
+    final db = await database;
+    return await db.delete(
+      'customers',
+      where: 'LOWER(name) = ?',
+      whereArgs: [name.trim().toLowerCase()],
+    );
+  }
+
 
   Future<int> insertSupplier(Map<String, dynamic> supplier) async {
     if (ApiConfig.useRemoteApi) return ApiClient.insertSupplier(supplier);
@@ -509,6 +884,86 @@ class DatabaseHelper {
       'suppliers',
       where: 'id = ?',
       whereArgs: [id],
+    );
+  }
+
+  Future<int> deleteSuppliersByName(String name) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.deleteSuppliersByName(name);
+    }
+    final db = await database;
+    return await db.delete(
+      'suppliers',
+      where: 'LOWER(name) = ?',
+      whereArgs: [name.trim().toLowerCase()],
+    );
+  }
+
+  /// True when the party has purchase/sale bills, vouchers, or ledger rows
+  /// posted from bills (non-empty billRef). Master-only rows may still delete.
+  Future<bool> partyHasLinkedTransactions(
+    String name, {
+    required bool isCustomer,
+  }) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.partyHasLinkedTransactions(
+        name,
+        isCustomer: isCustomer,
+      );
+    }
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return false;
+    final lower = trimmed.toLowerCase();
+    final db = await database;
+
+    final txnCount = Sqflite.firstIntValue(
+          await db.rawQuery(
+            'SELECT COUNT(*) FROM transactions WHERE LOWER(partyName) = ?',
+            [lower],
+          ),
+        ) ??
+        0;
+    if (txnCount > 0) return true;
+
+    final voucherCount = Sqflite.firstIntValue(
+          await db.rawQuery(
+            'SELECT COUNT(*) FROM vouchers WHERE LOWER(partyName) = ?',
+            [lower],
+          ),
+        ) ??
+        0;
+    if (voucherCount > 0) return true;
+
+    final table = isCustomer ? 'customers' : 'suppliers';
+    final ledgerCount = Sqflite.firstIntValue(
+          await db.rawQuery(
+            'SELECT COUNT(*) FROM $table '
+            'WHERE LOWER(name) = ? AND billRef IS NOT NULL AND TRIM(billRef) != ?',
+            [lower, ''],
+          ),
+        ) ??
+        0;
+    return ledgerCount > 0;
+  }
+
+  Future<int> deleteLedgerByBillRef(
+    String billRef, {
+    required bool isCustomer,
+  }) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.deleteLedgerByBillRef(
+        billRef,
+        isCustomer: isCustomer,
+      );
+    }
+    final trimmed = billRef.trim();
+    if (trimmed.isEmpty) return 0;
+    final db = await database;
+    final table = isCustomer ? 'customers' : 'suppliers';
+    return await db.delete(
+      table,
+      where: 'billRef = ?',
+      whereArgs: [trimmed],
     );
   }
 
@@ -584,9 +1039,13 @@ class DatabaseHelper {
 
   Future<List<Map<String, dynamic>>> getTransactions(
       String transactionType) async {
+    final wanted = transactionType.trim().toUpperCase();
     final all = await getAllTransactions();
     return all
-        .where((row) => apiStr(row, 'transactionType') == transactionType)
+        .where(
+          (row) =>
+              normalizeTransactionType(apiStr(row, 'transactionType')) == wanted,
+        )
         .toList();
   }
 
@@ -678,7 +1137,9 @@ class DatabaseHelper {
       final cr = double.tryParse((row['cr'] ?? '').toString()) ?? 0;
       final dr = double.tryParse((row['dr'] ?? '').toString()) ?? 0;
       final unit = (row['balanceUnit'] ?? 'RUPEES').toString();
-      final net = dr - cr;
+      final net = unit == 'GRAMS'
+          ? partyLedgerRowGrams(row, isCustomer: isCustomer)
+          : dr - cr;
       if (unit == 'GRAMS') {
         grams += net;
         crGrams += cr;
@@ -725,13 +1186,11 @@ class DatabaseHelper {
   // ---------- Live current stock ----------
 
   /// Current stock, per metal type, calculated live as:
-  ///   opening weight (the locked one-time baseline)
-  ///   + everything bought in on Purchase bills
-  ///   - everything sold out on Sales bills
-  /// Nothing is re-entered daily — this always reflects "right now"
-  /// because it's computed fresh from the opening baseline plus every
-  /// transaction ever saved, not stored as its own row anywhere.
-  /// Keys match the item type codes used on the bill: GWT, FWT, KWT, SWT.
+  ///   opening weight (the locked one-time baseline, gross weight)
+  ///   + everything bought in on Purchase bills (gross weight per line)
+  ///   - everything sold out on Sales bills (gross weight per line)
+  /// Uses raw [weight] from each bill line, not pureWt — consistent with the
+  /// Daily Sales Report stock summary in [buildStockLedgerSummary].
   Future<Map<String, double>> getCurrentStock() async {
     if (ApiConfig.useRemoteApi) return ApiClient.getCurrentStock();
     final opening = await getOpeningWeight();
@@ -760,9 +1219,10 @@ class DatabaseHelper {
       for (final item in items) {
         if (item is! Map) continue;
         final type = (item['type'] ?? '').toString();
-        final pureWt = (item['pureWt'] as num?)?.toDouble() ?? 0;
+        final weight = (item['weight'] as num?)?.toDouble() ??
+            (double.tryParse((item['weight'] ?? '').toString()) ?? 0);
         if (stock.containsKey(type)) {
-          stock[type] = stock[type]! + (sign * pureWt);
+          stock[type] = stock[type]! + (sign * weight);
         }
       }
     }
@@ -918,5 +1378,76 @@ class DatabaseHelper {
         'customers',
       ],
     );
+  }
+
+  // ---------- Party billing profiles / shop / HSN ----------
+
+  Future<void> upsertPartyProfile(PartyBillingProfile profile) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.upsertPartyProfile(profile);
+    }
+    final trimmed = profile.name.trim();
+    if (trimmed.isEmpty) return;
+    final db = await database;
+    await db.insert(
+      'party_profiles',
+      profile.toDbRow(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<PartyBillingProfile> getPartyProfile(
+    String name, {
+    required bool isCustomer,
+  }) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.getPartyProfile(name, isCustomer: isCustomer);
+    }
+    final db = await database;
+    final key = partyNameKey(name);
+    final rows = await db.query(
+      'party_profiles',
+      where: 'nameKey = ? AND isCustomer = ?',
+      whereArgs: [key, isCustomer ? 1 : 0],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return PartyBillingProfile(name: name.trim(), isCustomer: isCustomer);
+    }
+    return PartyBillingProfile.fromDbRow(rows.first);
+  }
+
+  Future<Map<String, String>> getItemTypeHsnMap() async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.getItemTypeHsnMap();
+    }
+    final db = await database;
+    final rows = await db.query('item_type_hsn');
+    final map = Map<String, String>.from(kDefaultHsnByItemType);
+    for (final row in rows) {
+      final type = (row['itemType'] ?? '').toString();
+      final hsn = (row['hsnCode'] ?? '').toString();
+      if (type.isNotEmpty && hsn.isNotEmpty) {
+        map[type] = hsn;
+      }
+    }
+    return map;
+  }
+
+  Future<void> saveItemTypeHsn(String itemType, String hsnCode) async {
+    if (ApiConfig.useRemoteApi) {
+      return ApiClient.saveItemTypeHsn(itemType, hsnCode);
+    }
+    final db = await database;
+    await db.insert(
+      'item_type_hsn',
+      {'itemType': itemType, 'hsnCode': hsnCode.trim()},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<String> hsnForItemType(String itemType) async {
+    final map = await getItemTypeHsnMap();
+    return map[itemType] ?? kDefaultHsnByItemType[itemType] ?? '';
   }
 }

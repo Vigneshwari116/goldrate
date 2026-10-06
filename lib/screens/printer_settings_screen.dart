@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 import '../util/printer_prefs.dart';
+import '../util/sales_invoice_prefs.dart';
 
 class PrinterSettingsScreen extends StatefulWidget {
   const PrinterSettingsScreen({super.key, this.embedded = false});
@@ -19,6 +20,7 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen> {
   List<String> _printers = [];
   String? _selected;
   String? _error;
+  SalesInvoiceFormat _salesInvoiceFormat = SalesInvoiceFormat.detailed;
 
   @override
   void initState() {
@@ -34,10 +36,12 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen> {
     try {
       final selected = await PrinterPrefs.getSelected();
       final printers = await PrinterPrefs.listPrinterNames();
+      final invoiceFormat = await SalesInvoicePrefs.getFormat();
       if (!mounted) return;
       setState(() {
         _printers = printers;
         _selected = selected;
+        _salesInvoiceFormat = invoiceFormat;
         _loading = false;
       });
     } catch (e) {
@@ -58,6 +62,18 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen> {
     );
   }
 
+  Future<void> _setSalesInvoiceFormat(SalesInvoiceFormat format) async {
+    await SalesInvoicePrefs.setFormat(format);
+    if (!mounted) return;
+    setState(() => _salesInvoiceFormat = format);
+    final label = format == SalesInvoiceFormat.simple
+        ? 'Simple (compact)'
+        : 'Detailed (GST form)';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Sales GST invoice layout: $label')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final content = _loading
@@ -73,6 +89,43 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen> {
                 style: TextStyle(fontSize: 13, color: Colors.black54),
               ),
               const SizedBox(height: 12),
+              const Text(
+                'Sales GST invoice PDF',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.navy,
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Choose the layout used when you save or print a sales tax '
+                'invoice. Purchase invoices are unchanged.',
+                style: TextStyle(fontSize: 13, color: Colors.black54),
+              ),
+              const SizedBox(height: 8),
+              RadioListTile<SalesInvoiceFormat>(
+                value: SalesInvoiceFormat.detailed,
+                groupValue: _salesInvoiceFormat,
+                onChanged: (v) {
+                  if (v != null) _setSalesInvoiceFormat(v);
+                },
+                title: const Text('Detailed (GST form)'),
+                subtitle: const Text('Full tax invoice with QR and tax summary'),
+                dense: true,
+              ),
+              RadioListTile<SalesInvoiceFormat>(
+                value: SalesInvoiceFormat.simple,
+                groupValue: _salesInvoiceFormat,
+                onChanged: (v) {
+                  if (v != null) _setSalesInvoiceFormat(v);
+                },
+                title: const Text('Simple (compact)'),
+                subtitle: const Text(
+                  'Compact layout with Shree Mahalasa seller block',
+                ),
+                dense: true,
+              ),
+              const SizedBox(height: 16),
               Text(
                 Platform.isWindows
                     ? 'Windows printers from this computer'

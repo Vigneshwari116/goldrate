@@ -43,6 +43,28 @@ class FileShare {
     }
   }
 
+  /// Persists PDF bytes under [folderName] without opening share or explorer.
+  static Future<File> savePdfBytes({
+    required Uint8List bytes,
+    required String fileName,
+    String folderName = 'JewelleryPDFs',
+  }) async {
+    final safe = safeFileName(fileName);
+    final Directory dir;
+    if (Platform.isAndroid || Platform.isIOS) {
+      final base = await getApplicationDocumentsDirectory();
+      dir = Directory('${base.path}${Platform.pathSeparator}$folderName');
+    } else {
+      dir = await desktopFolder(folderName);
+    }
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    final file = File('${dir.path}${Platform.pathSeparator}$safe');
+    await file.writeAsBytes(bytes, flush: true);
+    return file;
+  }
+
   static Future<File> shareOrSaveBytes({
     required Uint8List bytes,
     required String fileName,

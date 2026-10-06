@@ -51,6 +51,20 @@ sudo -u postgres psql -d jewellery_db -f schema.sql
 
 Or paste the SQL from `schema.sql` manually in psql.
 
+**Purchase PO fields (v17 / `017_purchase_po.sql`):** optional `po_no` / `po_date` on purchase transactions (`POST /api/transactions`).
+
+**Bill narration (v18 / `018_bill_narration.sql`):** optional `bill_narration` on transactions (`POST /api/transactions`, JSON key `billNarration`).
+
+**Rate “Last Updated” (v16 / `016_rate_meta.sql`):** records the daily-rate SAVE timestamp even when values are unchanged (`POST /api/rates/last-saved`; stats read `rate_meta`).
+
+**GST billing (party profiles, HSN, transaction tax columns):** new API
+deploys run `server/migrations/015_gst_billing.sql` automatically on startup. You can
+also apply it manually:
+
+```bash
+sudo -u postgres psql -d jewellery_db -f server/migrations/015_gst_billing.sql
+```
+
 ## Step 5 — Deploy API (choose one)
 
 ### Option A — Docker (recommended, no Node.js install needed)

@@ -9,10 +9,14 @@ class PartySearchField extends StatefulWidget {
   /// Filters [parties] for the autocomplete dropdown while typing.
   static Iterable<PartySuggestion> filterParties(
     List<PartySuggestion> parties,
-    String query,
-  ) {
+    String query, {
+    bool showAllWhenEmpty = false,
+  }) {
     final trimmed = query.trim();
-    if (trimmed.isEmpty) return const Iterable.empty();
+    if (trimmed.isEmpty) {
+      if (showAllWhenEmpty) return parties.take(24);
+      return const Iterable.empty();
+    }
     return parties.where((p) => p.matches(trimmed)).take(24);
   }
 
@@ -27,6 +31,7 @@ class PartySearchField extends StatefulWidget {
     this.onFieldSubmitted,
     this.onFocus,
     this.onFocusNodeReady,
+    this.readOnly = false,
   });
 
   final String label;
@@ -38,6 +43,7 @@ class PartySearchField extends StatefulWidget {
   final VoidCallback? onFieldSubmitted;
   final VoidCallback? onFocus;
   final ValueChanged<FocusNode>? onFocusNodeReady;
+  final bool readOnly;
 
   @override
   State<PartySearchField> createState() => _PartySearchFieldState();
@@ -67,11 +73,28 @@ class _PartySearchFieldState extends State<PartySearchField> {
   }
 
   Iterable<PartySuggestion> _options(String query) {
-    return PartySearchField.filterParties(widget.parties, query);
+    return PartySearchField.filterParties(
+      widget.parties,
+      query,
+      showAllWhenEmpty: true,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    if (widget.readOnly) {
+      return TextFormField(
+        controller: widget.controller,
+        readOnly: true,
+        style: const TextStyle(fontSize: 14),
+        decoration: InputDecoration(
+          label: Text(widget.label),
+          helperText: widget.helperText,
+          helperStyle: const TextStyle(fontSize: 11),
+        ),
+      );
+    }
+
     return Autocomplete<PartySuggestion>(
       optionsViewOpenDirection: OptionsViewOpenDirection.down,
       displayStringForOption: (option) => option.name,
